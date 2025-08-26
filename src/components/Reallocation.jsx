@@ -179,14 +179,6 @@ const Reallocation = ({ data }) => {
 
   const handleSubmit = async () => {
 
-    console.log(firestoreDB)
-
-    try {
-      const snap = await getDocs(collection(firestoreDB, "reallocation_mail"));
-    } catch (err) {
-      console.error("Firestore read error:", err);
-    }
-
     const validRows = reallocationRows.filter(row => canSubmitRow(row));
 
     if (validRows.length === 0) {
@@ -220,7 +212,7 @@ const Reallocation = ({ data }) => {
 
         // Queue email in Firestore
         await addDoc(collection(firestoreDB, "reallocation_mail"), {
-          to: ["dongning@regentrv.com.au"],
+          to: ["dongning@regentrv.com.au", "planning@regentrv.com.au"],
           message: {
             subject: `New Reallocation Request: Chassis ${chassis}`,
             text: `Chassis number ${chassis} has been requested to dealer ${dealer}.`,
@@ -257,24 +249,8 @@ const Reallocation = ({ data }) => {
 
   const handleMarkDone = async (chassisNumber, selectedDealer) => {
     try {
-      const chassis = chassisNumber || 'Unknown';
-      const dealer = selectedDealer || 'Unknown';
-
-      // Update status in Realtime Database
       const reallocationRef = ref(database, `reallocation/${chassis}/status`);
       await set(reallocationRef, 'completed');
-
-      // Queue completion email in Firestore
-      await addDoc(collection(firestoreDB, "reallocation_mail"), {
-        to: ["dongning@regentrv.com.au"],
-        message: {
-          subject: `Chassis ${chassis} Reallocation Completed`,
-          text: `Chassis number ${chassis} has been marked as completed for dealer ${dealer}.`,
-          html: `Chassis number <strong>${chassis}</strong> has been marked as completed for dealer <strong>${dealer}</strong>.`,
-        },
-      });
-
-      console.log(`✅ Queued completion email for chassis ${chassis}`);
 
       // Reload requests
       await loadReallocationRequests();
@@ -290,11 +266,28 @@ const Reallocation = ({ data }) => {
 
   const handleIssueUpdate = async (chassisNumber, issueType) => {
     try {
+
       const issueRef = ref(database, `reallocation/${chassisNumber}/issue`);
+      const chassis = chassisNumber || 'Unknown';
+      const dealer = selectedDealer || 'Unknown';
+
+
       await set(issueRef, {
         type: issueType,
         timestamp: getMelbourneTime()
       });
+
+      // Queue completion email in Firestore
+      await addDoc(collection(firestoreDB, "reallocation_mail"), {
+        to: ["dongning@regentrv.com.au", "planning@regentrv.com.au"],
+        message: {
+          subject: `Chassis ${chassis} Reallocation Completed`,
+          text: `Chassis number ${chassis} has been marked as completed for dealer ${dealer}.`,
+          html: `Chassis number <strong>${chassis}</strong> has been marked as completed for dealer <strong>${dealer}</strong>.`,
+        },
+      });
+
+      console.log(`✅ Queued completion email for chassis ${chassis}`);
       
       await loadReallocationRequests();
       setGlobalMessage(`Issue "${issueType}" recorded for ${chassisNumber}`);
