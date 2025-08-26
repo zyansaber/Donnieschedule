@@ -22,9 +22,6 @@ const Reallocation = ({ data }) => {
   const [stats, setStats] = useState({ totalPending: 0, totalDone: 0, dealerStats: {} });
   const [showFilter, setShowFilter] = useState('all'); // 'all', 'pending', 'done'
 
-  const database = getDatabase();
-  const firestoreDB = getFirestore();
-
   // Get unique dealers from data
   useEffect(() => {
     if (data && data.length > 0) {
