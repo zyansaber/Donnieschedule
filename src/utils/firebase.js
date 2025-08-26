@@ -52,4 +52,4 @@ export const fetchDealerColors = async () => {
   }
 };
 
-export { database };
+export { database, firestoreDB};
