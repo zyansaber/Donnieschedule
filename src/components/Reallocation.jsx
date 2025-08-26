@@ -212,7 +212,7 @@ const Reallocation = ({ data }) => {
 
         // Queue email in Firestore
         await addDoc(collection(firestoreDB, "reallocation_mail"), {
-          to: ["dongning@regentrv.com.au", "planning@regentrv.com.au"],
+          to: ["darin@regentrv.com.au", "planning@regentrv.com.au"],
           message: {
             subject: `New Reallocation Request: Chassis ${chassis}`,
             text: `Chassis number ${chassis} has been requested to dealer ${dealer}.`,
@@ -276,9 +276,9 @@ const Reallocation = ({ data }) => {
 
       // Queue completion email in Firestore
       await addDoc(collection(firestoreDB, "reallocation_mail"), {
-        to: ["dongning@regentrv.com.au", "planning@regentrv.com.au"],
+        to: ["planning@regentrv.com.au","darin@regentrv.com.au", "accounts.receivable@regentrv.com.au", "michael@regentrv.com.au","Ashley@regentrv.com.au"],
         message: {
-          subject: `Chassis ${chassisNumber} New Issue`,
+          subject: `New Issue: Chassis ${chassisNumber}`,
           html: `Chassis number <strong>${chassisNumber}</strong> has been marked as <strong>${issueType}</strong>.`,
         },
       });
