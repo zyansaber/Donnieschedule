@@ -22,6 +22,7 @@ const Reallocation = ({ data }) => {
   const [stats, setStats] = useState({ totalPending: 0, totalDone: 0, dealerStats: {} });
   const [showFilter, setShowFilter] = useState('all'); // 'all', 'pending', 'done'
 
+
   // Get unique dealers from data
   useEffect(() => {
     if (data && data.length > 0) {
@@ -177,6 +178,8 @@ const Reallocation = ({ data }) => {
   };
 
   const handleSubmit = async () => {
+
+    console.log(firestoreDB)
 
     try {
       const snap = await getDocs(collection(firestoreDB, "reallocation_mail"));
