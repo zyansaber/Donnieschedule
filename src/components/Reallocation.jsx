@@ -4,6 +4,7 @@ import { getDatabase } from 'firebase/database';
 import { collection, addDoc } from "firebase/firestore";
 import { getFirestore } from "firebase/firestore";
 
+
 const Reallocation = ({ data }) => {
   const [reallocationRows, setReallocationRows] = useState([{ 
     id: 1, 
@@ -21,6 +22,7 @@ const Reallocation = ({ data }) => {
 
   const database = getDatabase();
   const firestoreDB = getFirestore();
+
   console.log(firestoreDB)
 
   // Get unique dealers from data
@@ -207,6 +209,7 @@ const Reallocation = ({ data }) => {
         // Write to Realtime Database
         const reallocationRef = ref(database, `reallocation/${chassis}`);
         await set(reallocationRef, reallocationData);
+        console.log("11111")
 
         // Queue email in Firestore
         await addDoc(collection(firestoreDB, "reallocation_mail"), {
@@ -218,7 +221,7 @@ const Reallocation = ({ data }) => {
           },
         });
 
-        console.log(`✅ Reallocation and email queued for chassis ${chassis}`);
+        console.log(`Reallocation and email queued for chassis ${chassis}`);
       });
 
       await Promise.all(promises);
