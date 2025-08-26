@@ -3,7 +3,7 @@ import { ref, set, get, push } from 'firebase/database';
 import { getDatabase } from 'firebase/database';
 import { collection, addDoc } from "firebase/firestore";
 import { getFirestore } from "firebase/firestore";
-import { database, firestoreDB } from './firestore'; // Import your initialized instances
+import { database, firestoreDB } from '../utils/firebase';
 
 
 const Reallocation = ({ data }) => {
