@@ -183,7 +183,6 @@ const Reallocation = ({ data }) => {
 
     try {
       const snap = await getDocs(collection(firestoreDB, "reallocation_mail"));
-      snap.forEach(doc => console.log(doc.id, "=>", doc.data()));
     } catch (err) {
       console.error("Firestore read error:", err);
     }
