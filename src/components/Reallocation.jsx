@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { ref, set, get, push } from 'firebase/database';
 import { getDatabase } from 'firebase/database';
+import { collection, addDoc } from "firebase/firestore"; // Firestore functions
+import { getFirestore } from "firebase/firestore";
 
 const Reallocation = ({ data }) => {
   const [reallocationRows, setReallocationRows] = useState([{ 
@@ -18,6 +20,7 @@ const Reallocation = ({ data }) => {
   const [showFilter, setShowFilter] = useState('all'); // 'all', 'pending', 'done'
 
   const database = getDatabase();
+  const firestoreDB = getFirestore();
 
   // Get unique dealers from data
   useEffect(() => {
@@ -40,6 +43,7 @@ const Reallocation = ({ data }) => {
   const loadReallocationRequests = async () => {
     try {
       const reallocationRef = ref(database, 'reallocation');
+      const mailRef = 
       const snapshot = await get(reallocationRef);
       if (snapshot.exists()) {
         const requestsData = snapshot.val();
@@ -182,8 +186,10 @@ const Reallocation = ({ data }) => {
     }
 
     setLoading(true);
+
     try {
       const promises = validRows.map(async (row) => {
+        // Prepare reallocation data for Realtime DB
         const reallocationData = {
           status: row.currentVanInfo['Regent Production'] || 'Unknown',
           originalDealer: row.currentVanInfo.Dealer,
@@ -194,14 +200,26 @@ const Reallocation = ({ data }) => {
           signedPlansReceived: row.currentVanInfo['Signed Plans Received'] || ''
         };
 
+        // Write to Realtime Database
         const reallocationRef = ref(database, `reallocation/${row.chassisNumber}`);
         await set(reallocationRef, reallocationData);
+
+        // Queue email in Firestore
+        await addDoc(collection(firestoreDB, "reallocation_mail"), {
+          to: "dongning@regentrv.com.au",
+          message: {
+            subject: "New Reallocation Request",
+            html: `Chassis number <strong>${row.chassisNumber}</strong> has been requested to dealer <strong>${row.selectedDealer}</strong>.`,
+          },
+        });
+
+        console.log(`Reallocation and email queued for chassis ${row.chassisNumber}`);
       });
 
       await Promise.all(promises);
 
       setGlobalMessage(`Successfully submitted ${validRows.length} reallocation request(s)!`);
-      
+
       // Reset rows
       setReallocationRows([{ 
         id: 1, 
@@ -210,29 +228,47 @@ const Reallocation = ({ data }) => {
         selectedDealer: '', 
         message: '' 
       }]);
-      
+
       // Reload requests to update the list
       await loadReallocationRequests();
+
     } catch (error) {
-      console.error('Error submitting reallocation requests:', error);
+      console.error('❌ Error submitting reallocation requests:', error);
       setGlobalMessage('Error submitting requests. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
+
   const handleMarkDone = async (chassisNumber) => {
     try {
+      // Update status in Realtime Database
       const reallocationRef = ref(database, `reallocation/${chassisNumber}/status`);
       await set(reallocationRef, 'completed');
-      
+
+      // Queue email in Firestore
+      await addDoc(collection(firestoreDB, "reallocation_mail"), {
+        to: "dongning@regentrv.com.au",
+        message: {
+          subject: `Chassis ${chassisNumber} has new issue`,
+          html: `Chassis number <strong>${chassisNumber}</strong> has a new issue.`,
+        },
+      });
+
+      console.log(`Queued completion email for chassis ${chassisNumber}`);
+
+      // Reload requests
       await loadReallocationRequests();
+
       setGlobalMessage('Reallocation marked as completed');
+
     } catch (error) {
       console.error('Error marking reallocation as done:', error);
       setGlobalMessage('Error updating status. Please try again.');
     }
   };
+
 
   const handleIssueUpdate = async (chassisNumber, issueType) => {
     try {
