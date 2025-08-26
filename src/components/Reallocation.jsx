@@ -23,8 +23,6 @@ const Reallocation = ({ data }) => {
   const database = getDatabase();
   const firestoreDB = getFirestore();
 
-  console.log(firestoreDB)
-
   // Get unique dealers from data
   useEffect(() => {
     if (data && data.length > 0) {
@@ -367,25 +365,15 @@ const Reallocation = ({ data }) => {
     link.click();
     document.body.removeChild(link);
   };
-  
-  const testReadCollection = async () => {
+
+  (async () => {
     try {
-      const colRef = collection(firestoreDB, "reallocation_mail"); // replace with your collection name
-      const snapshot = await getDocs(colRef);
-
-      if (snapshot.empty) {
-        console.log("✅ Collection is empty");
-      } else {
-        snapshot.forEach(doc => {
-          console.log("📄 Document ID:", doc.id, "Data:", doc.data());
-        });
-      }
-    } catch (error) {
-      console.error("❌ Error reading collection:", error);
+      const snap = await getDocs(collection(firestoreDB, "reallocation_mail"));
+      snap.forEach(doc => console.log(doc.id, "=>", doc.data()));
+    } catch (err) {
+      console.error("Firestore read error:", err);
     }
-  };
-
-  testReadCollection();
+  })();
 
   return (
     <div className="p-4 max-w-7xl mx-auto">
