@@ -3,6 +3,8 @@ import { ref, set, get, push } from 'firebase/database';
 import { getDatabase } from 'firebase/database';
 import { collection, addDoc, getDocs } from "firebase/firestore";
 import { getFirestore } from "firebase/firestore";
+import { database, firestoreDB } from '../utils/firebase';
+
 
 
 const Reallocation = ({ data }) => {
@@ -178,13 +180,14 @@ const Reallocation = ({ data }) => {
   };
 
   const handleSubmit = async () => {
+
     try {
       const snap = await getDocs(collection(firestoreDB, "reallocation_mail"));
       snap.forEach(doc => console.log(doc.id, "=>", doc.data()));
     } catch (err) {
       console.error("Firestore read error:", err);
     }
-    
+
     const validRows = reallocationRows.filter(row => canSubmitRow(row));
 
     if (validRows.length === 0) {
