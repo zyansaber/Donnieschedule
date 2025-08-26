@@ -23,7 +23,7 @@ const Reallocation = ({ data }) => {
   const database = getDatabase();
   const firestoreDB = getFirestore();
 
-  console.log(firestoreDB)
+  console.log(firestoreDB._databaseId);
 
   // Get unique dealers from data
   useEffect(() => {
