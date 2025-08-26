@@ -20,14 +20,14 @@ let database;
 let firestoreDB;
 
 try {
-  app = initializeApp(firebaseConfig);
-  firestoreDB = initializeFirestore(app, {
+  app = initializeFirestore(app, {
     experimentalForceLongPolling: true
-  });
+  })
+  firestoreDB = getFirestore(app, "schedule");
   database = getDatabase(app);
-  console.log("✅ Firebase (Realtime DB) initialized successfully");
+  console.log("Firebase initialized successfully");
 } catch (error) {
-  console.error("❌ Firebase initialization failed:", error);
+  console.error("Firebase initialization failed:", error);
 }
 
 // Save dealer colors
@@ -54,4 +54,4 @@ export const fetchDealerColors = async () => {
   }
 };
 
-export { database, firestoreDB};
+export { database, firestoreDB };
