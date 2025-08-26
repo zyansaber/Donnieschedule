@@ -21,7 +21,9 @@ let firestoreDB;
 
 try {
   app = initializeApp(firebaseConfig);
-  firestoreDB = getFirestore(app);
+  firestoreDB = initializeFirestore(app, {
+    experimentalForceLongPolling: true
+  });
   database = getDatabase(app);
   console.log("✅ Firebase (Realtime DB) initialized successfully");
 } catch (error) {
