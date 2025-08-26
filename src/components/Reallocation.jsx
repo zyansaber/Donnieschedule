@@ -268,9 +268,6 @@ const Reallocation = ({ data }) => {
     try {
 
       const issueRef = ref(database, `reallocation/${chassisNumber}/issue`);
-      const chassis = chassisNumber || 'Unknown';
-      const dealer = selectedDealer || 'Unknown';
-
 
       await set(issueRef, {
         type: issueType,
@@ -281,9 +278,8 @@ const Reallocation = ({ data }) => {
       await addDoc(collection(firestoreDB, "reallocation_mail"), {
         to: ["dongning@regentrv.com.au", "planning@regentrv.com.au"],
         message: {
-          subject: `Chassis ${chassis} Reallocation Completed`,
-          text: `Chassis number ${chassis} has been marked as completed for dealer ${dealer}.`,
-          html: `Chassis number <strong>${chassis}</strong> has been marked as completed for dealer <strong>${dealer}</strong>.`,
+          subject: `Chassis ${chassis} New Issue`,
+          html: `Chassis number <strong>${chassisNumber}</strong> has been marked as <strong>${issueType}</strong>.`,
         },
       });
 
