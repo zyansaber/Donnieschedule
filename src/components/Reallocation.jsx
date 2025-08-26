@@ -23,7 +23,7 @@ const Reallocation = ({ data }) => {
   const database = getDatabase();
   const firestoreDB = getFirestore();
 
-  console.log(firestoreDB._databaseId);
+  console.log(firestoreDB)
 
   // Get unique dealers from data
   useEffect(() => {
@@ -213,7 +213,7 @@ const Reallocation = ({ data }) => {
 
         // Queue email in Firestore
         await addDoc(collection(firestoreDB, "reallocation_mail"), {
-          to: "dongning@regentrv.com.au",
+          to: ["dongning@regentrv.com.au"],
           message: {
             subject: `New Reallocation Request: Chassis ${chassis}`,
             text: `Chassis number ${chassis} has been requested to dealer ${dealer}.`,
@@ -259,7 +259,7 @@ const Reallocation = ({ data }) => {
 
       // Queue completion email in Firestore
       await addDoc(collection(firestoreDB, "reallocation_mail"), {
-        to: "dongning@regentrv.com.au",
+        to: ["dongning@regentrv.com.au"],
         message: {
           subject: `Chassis ${chassis} Reallocation Completed`,
           text: `Chassis number ${chassis} has been marked as completed for dealer ${dealer}.`,
@@ -367,6 +367,25 @@ const Reallocation = ({ data }) => {
     link.click();
     document.body.removeChild(link);
   };
+  
+  const testReadCollection = async () => {
+    try {
+      const colRef = collection(firestoreDB, "reallocation_mail"); // replace with your collection name
+      const snapshot = await getDocs(colRef);
+
+      if (snapshot.empty) {
+        console.log("✅ Collection is empty");
+      } else {
+        snapshot.forEach(doc => {
+          console.log("📄 Document ID:", doc.id, "Data:", doc.data());
+        });
+      }
+    } catch (error) {
+      console.error("❌ Error reading collection:", error);
+    }
+  };
+
+  testReadCollection();
 
   return (
     <div className="p-4 max-w-7xl mx-auto">
