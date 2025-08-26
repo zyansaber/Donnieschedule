@@ -178,6 +178,13 @@ const Reallocation = ({ data }) => {
   };
 
   const handleSubmit = async () => {
+    try {
+      const snap = await getDocs(collection(firestoreDB, "reallocation_mail"));
+      snap.forEach(doc => console.log(doc.id, "=>", doc.data()));
+    } catch (err) {
+      console.error("Firestore read error:", err);
+    }
+    
     const validRows = reallocationRows.filter(row => canSubmitRow(row));
 
     if (validRows.length === 0) {
@@ -365,15 +372,6 @@ const Reallocation = ({ data }) => {
     link.click();
     document.body.removeChild(link);
   };
-
-  (async () => {
-    try {
-      const snap = await getDocs(collection(firestoreDB, "reallocation_mail"));
-      snap.forEach(doc => console.log(doc.id, "=>", doc.data()));
-    } catch (err) {
-      console.error("Firestore read error:", err);
-    }
-  })();
 
   return (
     <div className="p-4 max-w-7xl mx-auto">
