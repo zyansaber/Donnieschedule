@@ -20,10 +20,8 @@ let database;
 let firestoreDB;
 
 try {
-  app = initializeFirestore(app, {
-    experimentalForceLongPolling: true
-  })
-  firestoreDB = getFirestore(app, "schedule");
+  app = initializeApp(firebaseConfig);
+  firestoreDB = getFirestore(app);
   database = getDatabase(app);
   console.log("Firebase initialized successfully");
 } catch (error) {
