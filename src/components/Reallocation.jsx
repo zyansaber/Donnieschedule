@@ -43,7 +43,6 @@ const Reallocation = ({ data }) => {
   const loadReallocationRequests = async () => {
     try {
       const reallocationRef = ref(database, 'reallocation');
-      const mailRef = 
       const snapshot = await get(reallocationRef);
       if (snapshot.exists()) {
         const requestsData = snapshot.val();
