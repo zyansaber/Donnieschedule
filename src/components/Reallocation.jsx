@@ -278,12 +278,12 @@ const Reallocation = ({ data }) => {
       await addDoc(collection(firestoreDB, "reallocation_mail"), {
         to: ["dongning@regentrv.com.au", "planning@regentrv.com.au"],
         message: {
-          subject: `Chassis ${chassis} New Issue`,
+          subject: `Chassis ${chassisNumber} New Issue`,
           html: `Chassis number <strong>${chassisNumber}</strong> has been marked as <strong>${issueType}</strong>.`,
         },
       });
 
-      console.log(`✅ Queued completion email for chassis ${chassis}`);
+      console.log(`✅ Queued completion email for chassis ${chassisNumber}`);
       
       await loadReallocationRequests();
       setGlobalMessage(`Issue "${issueType}" recorded for ${chassisNumber}`);
