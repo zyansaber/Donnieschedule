@@ -1,6 +1,7 @@
 
 import { initializeApp } from 'firebase/app';
 import { getDatabase, ref, set, get } from 'firebase/database';
+import { getFirestore } from "firebase/firestore";
 
 // Firebase configuration
 const firebaseConfig = {
@@ -16,9 +17,11 @@ const firebaseConfig = {
 // Initialize Firebase
 let app;
 let database;
+let firestoreDB;
 
 try {
   app = initializeApp(firebaseConfig);
+  firestoreDB = getFirestore(app);
   database = getDatabase(app);
   console.log("✅ Firebase (Realtime DB) initialized successfully");
 } catch (error) {
