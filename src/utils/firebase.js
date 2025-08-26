@@ -21,7 +21,7 @@ let firestoreDB;
 
 try {
   app = initializeApp(firebaseConfig);
-  firestoreDB = getFirestore(app);
+  firestoreDB = getFirestore(app,"schedule");
   database = getDatabase(app);
   console.log("Firebase initialized successfully");
 } catch (error) {
