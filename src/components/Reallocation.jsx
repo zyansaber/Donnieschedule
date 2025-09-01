@@ -247,9 +247,9 @@ const Reallocation = ({ data }) => {
     }
   };
 
-  const handleMarkDone = async (chassisNumber, selectedDealer) => {
+  const handleMarkDone = async (chassisNumber) => {
     try {
-      const reallocationRef = ref(database, `reallocation/${chassis}/status`);
+      const reallocationRef = ref(database, `reallocation/${chassisNumber}/status`);
       await set(reallocationRef, 'completed');
 
       // Reload requests
