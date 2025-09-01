@@ -47,12 +47,10 @@ const Reallocation = ({ data }) => {
       const snapshot = await get(reallocationRef);
       if (snapshot.exists()) {
         const requestsData = snapshot.val();
-        const requestsList = Object.entries(requestsData).map(([id, data]) => ({
-          id,
-          ...data,
+        const requestsList = Object.entries(requestsData).map(([chassis, data]) => ({
+          chassisNumber: chassis,
+          ...data
         }));
-        // sort by submitTime desc (newest first)
-        requestsList.sort((a, b) => new Date(b.submitTime) - new Date(a.submitTime));
         setReallocationRequests(requestsList);
       }
     } catch (error) {
@@ -208,8 +206,8 @@ const Reallocation = ({ data }) => {
         };
 
         // Write to Realtime Database
-        const newRef = push(ref(database, 'reallocation'));
-        await set(newRef, { chassisNumber: chassis, ...reallocationData });
+        const reallocationRef = ref(database, `reallocation/${chassis}`);
+        await set(reallocationRef, reallocationData);
         console.log("11111")
 
         // Queue email in Firestore
@@ -249,9 +247,9 @@ const Reallocation = ({ data }) => {
     }
   };
 
-  const handleMarkDone = async (requestId) => {
+  const handleMarkDone = async (chassisNumber) => {
     try {
-      const reallocationRef = ref(database, `reallocation/${requestId}/status`);
+      const reallocationRef = ref(database, `reallocation/${chassisNumber}/status`);
       await set(reallocationRef, 'completed');
 
       // Reload requests
@@ -266,10 +264,10 @@ const Reallocation = ({ data }) => {
   };
 
 
-  const handleIssueUpdate = async (requestId, chassisNumber, issueType) => {
+  const handleIssueUpdate = async (chassisNumber, issueType) => {
     try {
 
-      const issueRef = ref(database, `reallocation/${requestId}/issue`);
+      const issueRef = ref(database, `reallocation/${chassisNumber}/issue`);
 
       await set(issueRef, {
         type: issueType,
@@ -337,12 +335,6 @@ const Reallocation = ({ data }) => {
     return true; // 'all'
   });
 
-  // Duplicate counting by chassisNumber for highlighting/tagging
-  const chassisCounts = filteredRequests.reduce((acc, r) => {
-    const key = r.chassisNumber;
-    if (key) acc[key] = (acc[key] || 0) + 1;
-    return acc;
-  }, {});
   const downloadCSV = () => {
     const headers = ['Chassis', 'From Dealer', 'To Dealer', 'Van Status', 'Signed Plans', 'Submit Time', 'Request Status', 'Issue Type', 'Issue Time'];
     const csvData = [
@@ -645,13 +637,8 @@ const Reallocation = ({ data }) => {
               <tbody className="bg-white divide-y divide-gray-200">
                 {filteredRequests.map((request, index) => (
                   <tr key={index} className="hover:bg-gray-50">
-                    <td className={`px-4 py-2 text-sm font-medium ${chassisCounts[request.chassisNumber] > 1 ? 'text-red-600 bg-red-50' : 'text-gray-900'}`}>
+                    <td className="px-4 py-2 text-sm font-medium text-gray-900">
                       {request.chassisNumber}
-                      {chassisCounts[request.chassisNumber] > 1 && (
-                        <span className="ml-2 text-xs bg-red-200 text-red-800 px-1.5 py-0.5 rounded">
-                          x{chassisCounts[request.chassisNumber]}
-                        </span>
-                      )}
                     </td>
                     <td className="px-4 py-2 text-sm text-gray-500">
                       {request.originalDealer}
@@ -698,7 +685,7 @@ const Reallocation = ({ data }) => {
                         <select
                           onChange={(e) => {
                             if (e.target.value) {
-                              handleIssueUpdate(request.id, request.chassisNumber, e.target.value);
+                              handleIssueUpdate(request.chassisNumber, e.target.value);
                               e.target.value = '';
                             }
                           }}
@@ -714,7 +701,7 @@ const Reallocation = ({ data }) => {
                     <td className="px-4 py-2 text-sm text-gray-500">
                       {request.status !== 'completed' && (
                         <button
-                          onClick={() => handleMarkDone(request.id)}
+                          onClick={() => handleMarkDone(request.chassisNumber)}
                           className="bg-green-600 hover:bg-green-700 text-white px-2 py-1 rounded text-xs font-medium"
                         >
                           Done
