@@ -43,15 +43,44 @@ const Reallocation = ({ data }) => {
 
   const loadReallocationRequests = async () => {
     try {
-      const reallocationRef = ref(database, 'reallocation');
+      const reallocationRef = ref(database, 'reallocation-bk');
       const snapshot = await get(reallocationRef);
       if (snapshot.exists()) {
         const requestsData = snapshot.val();
-        const requestsList = Object.entries(requestsData).map(([chassis, data]) => ({
-          chassisNumber: chassis,
-          ...data
-        }));
-        setReallocationRequests(requestsList);
+  
+        const parseDateTime = (s) => {
+          if (!s) return 0;
+        
+          // Example: "27/08/2025, 08:46:41 am"
+          const [datePart, timePart, ampm] = s.replace(",", "").split(" ");
+          const [day, month, year] = datePart.split("/").map(Number);
+          const [hoursStr, minutesStr, secondsStr] = timePart.split(":");
+          let hours = parseInt(hoursStr, 10);
+          const minutes = parseInt(minutesStr, 10);
+          const seconds = parseInt(secondsStr, 10);
+        
+          if (ampm?.toLowerCase() === "pm" && hours < 12) hours += 12;
+          if (ampm?.toLowerCase() === "am" && hours === 12) hours = 0;
+        
+          return new Date(year, month - 1, day, hours, minutes, seconds).getTime();
+        };
+  
+        const requestsList = [];
+          Object.entries(requestsData).forEach(([chassis, requests]) => {
+           Object.entries(requests).forEach(([reqId, data]) => {
+             requestsList.push({
+               id: reqId,
+               chassisNumber: chassis,
+               ...data
+             });
+           });
+         });
+        
+         const sortedRequests = requestsList.sort(
+           (a, b) => parseDateTime(b.submitTime) - parseDateTime(a.submitTime)
+         );
+        
+        setReallocationRequests(sortedRequests);
       }
     } catch (error) {
       console.error('Error loading reallocation requests:', error);
@@ -206,13 +235,14 @@ const Reallocation = ({ data }) => {
         };
 
         // Write to Realtime Database
-        const reallocationRef = ref(database, `reallocation/${chassis}`);
-        await set(reallocationRef, reallocationData);
+        const reallocationRef = ref(database, `reallocation-bk/${chassis}`);
+        const newRequestRef = push(reallocationRef);
+        await set(newRequestRef, reallocationData);
         console.log("11111")
 
         // Queue email in Firestore
         await addDoc(collection(firestoreDB, "reallocation_mail"), {
-          to: ["darin@regentrv.com.au", "planning@regentrv.com.au"],
+          to: ["dongning@regentrv.com.au"],
           message: {
             subject: `New Reallocation Request: Chassis ${chassis}`,
             text: `Chassis number ${chassis} has been requested to dealer ${dealer}.`,
@@ -247,9 +277,9 @@ const Reallocation = ({ data }) => {
     }
   };
 
-  const handleMarkDone = async (chassisNumber) => {
+  const handleMarkDone = async (chassisNumber, requestId) => {
     try {
-      const reallocationRef = ref(database, `reallocation/${chassisNumber}/status`);
+      const reallocationRef = ref(database, `reallocation-bk/${chassisNumber}/${requestId}/status`);
       await set(reallocationRef, 'completed');
 
       // Reload requests
@@ -264,10 +294,10 @@ const Reallocation = ({ data }) => {
   };
 
 
-  const handleIssueUpdate = async (chassisNumber, issueType) => {
+  const handleIssueUpdate = async (chassisNumber, issueType, requestId) => {
     try {
 
-      const issueRef = ref(database, `reallocation/${chassisNumber}/issue`);
+      const issueRef = ref(database, `reallocation-bk/${chassisNumber}/${requestId}/issue`);
 
       await set(issueRef, {
         type: issueType,
@@ -276,7 +306,7 @@ const Reallocation = ({ data }) => {
 
       // Queue completion email in Firestore
       await addDoc(collection(firestoreDB, "reallocation_mail"), {
-        to: ["planning@regentrv.com.au","darin@regentrv.com.au", "accounts.receivable@regentrv.com.au", "michael@regentrv.com.au","Ashley@regentrv.com.au"],
+        to: ["dongning@regentrv.com.au"],
         message: {
           subject: `New Issue: Chassis ${chassisNumber}`,
           html: `Chassis number <strong>${chassisNumber}</strong> has been marked as <strong>${issueType}</strong>.`,
@@ -363,6 +393,29 @@ const Reallocation = ({ data }) => {
     link.click();
     document.body.removeChild(link);
   };
+
+  const chassisColorMap = {};
+  const getChassisColor = (chassis) => { 
+    if (!chassis) return '';
+  
+    if (!chassisColorMap[chassis]) {
+      // Generate a deterministic hue based on chassis string
+      let hash = 0;
+      for (let i = 0; i < chassis.length; i++) {
+        hash = chassis.charCodeAt(i) + ((hash << 5) - hash);
+      }
+      const hue = Math.abs(hash) % 360;
+      chassisColorMap[chassis] = `hsl(${hue}, 70%, 90%)`;
+    }
+  
+    return chassisColorMap[chassis];
+  };
+
+  const chassisCount = {};
+    filteredRequests.forEach(req => {
+      const ch = req.chassisNumber;
+      if (ch) chassisCount[ch] = (chassisCount[ch] || 0) + 1;
+    });
 
   return (
     <div className="p-4 max-w-7xl mx-auto">
@@ -635,84 +688,78 @@ const Reallocation = ({ data }) => {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {filteredRequests.map((request, index) => (
-                  <tr key={index} className="hover:bg-gray-50">
-                    <td className="px-4 py-2 text-sm font-medium text-gray-900">
-                      {request.chassisNumber}
-                    </td>
-                    <td className="px-4 py-2 text-sm text-gray-500">
-                      {request.originalDealer}
-                    </td>
-                    <td className="px-4 py-2 text-sm text-gray-500">
-                      {request.reallocatedTo}
-                    </td>
-                    <td className="px-4 py-2 text-sm text-gray-500">
-                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                        request.status === 'completed' 
-                          ? 'bg-green-100 text-green-800'
-                          : request.status === 'finished'
-                          ? 'bg-blue-100 text-blue-800'
-                          : 'bg-yellow-100 text-yellow-800'
-                      }`}>
-                        {request.status === 'completed' ? 'Done' : request.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2 text-sm text-gray-500">
-                      <span className={`px-2 py-1 text-xs rounded ${
-                        (request.signedPlansReceived || '').toLowerCase() === 'no'
-                          ? 'bg-red-100 text-red-800'
-                          : 'bg-green-100 text-green-800'
-                      }`}>
-                        {request.signedPlansReceived || 'N/A'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2 text-sm text-gray-500">
-                      {request.submitTime}
-                    </td>
-                    <td className="px-4 py-2 text-sm text-gray-500">
-                      {request.issue ? (
-                        <div className="text-xs">
-                          <div className={`px-2 py-1 rounded text-white text-center ${
-                            request.issue.type === 'SAP Issue' ? 'bg-red-500' :
-                            request.issue.type === 'Invoice Issue' ? 'bg-orange-500' :
-                            request.issue.type === 'Dispatched Status Issue' ? 'bg-blue-500' : 'bg-gray-500'
-                          }`}>
-                            {request.issue.type}
+                {filteredRequests.map((request, index) => {
+                  const rowBgColor = chassisCount[request.chassisNumber] > 1
+                    ? getChassisColor(request.chassisNumber)
+                    : 'white';
+                  return (
+                    <tr key={index} style={{ backgroundColor: rowBgColor }}>
+                      <td className="px-4 py-2 text-sm text-black font-bold">
+                        {request.chassisNumber}
+                      </td>
+                      <td className="px-4 py-2 text-sm text-gray-500">
+                        {request.originalDealer}
+                      </td>
+                      <td className="px-4 py-2 text-sm text-black font-bold">
+                        {request.reallocatedTo}
+                      </td>
+                      <td className="px-4 py-2 text-sm text-gray-500">
+                        <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                          request.status === 'completed' 
+                            ? 'bg-green-100 text-green-800'
+                            : request.status === 'finished'
+                            ? 'bg-blue-100 text-blue-800'
+                            : 'bg-yellow-100 text-yellow-800'
+                        }`}>
+                          {request.status === 'completed' ? 'Done' : request.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2 text-sm text-gray-500">{request.signedPlansReceived || 'N/A'}</td>
+                      <td className="px-4 py-2 text-sm text-gray-500">{request.submitTime}</td>
+                      <td className="px-4 py-2 text-sm text-gray-500">
+                        {request.issue ? (
+                          <div className="text-xs">
+                            <div className={`px-2 py-1 rounded text-white text-center ${
+                              request.issue.type === 'SAP Issue' ? 'bg-red-500' :
+                              request.issue.type === 'Invoice Issue' ? 'bg-orange-500' :
+                              request.issue.type === 'Dispatched Status Issue' ? 'bg-blue-500' : 'bg-gray-500'
+                            }`}>
+                              {request.issue.type}
+                            </div>
+                            <div className="text-gray-400 mt-1">{request.issue.timestamp}</div>
                           </div>
-                          <div className="text-gray-400 mt-1">{request.issue.timestamp}</div>
-                        </div>
-                      ) : (
-                        <select
-                          onChange={(e) => {
-                            if (e.target.value) {
-                              handleIssueUpdate(request.chassisNumber, e.target.value);
-                              e.target.value = '';
-                            }
-                          }}
-                          className="text-xs border border-gray-300 rounded px-1 py-1"
-                        >
-                          <option value="">Select Issue</option>
-                          <option value="SAP Issue">SAP Issue</option>
-                          <option value="Invoice Issue">Invoice Issue</option>
-                          <option value="Dispatched Status Issue">Dispatched Status Issue</option>
-                        </select>
-                      )}
-                    </td>
-                    <td className="px-4 py-2 text-sm text-gray-500">
-                      {request.status !== 'completed' && (
-                        <button
-                          onClick={() => handleMarkDone(request.chassisNumber)}
-                          className="bg-green-600 hover:bg-green-700 text-white px-2 py-1 rounded text-xs font-medium"
-                        >
-                          Done
-                        </button>
-                      )}
-                      {request.status === 'completed' && (
-                        <span className="text-green-600 text-xs font-medium">✓ Completed</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                        ) : (
+                          <select
+                            onChange={(e) => {
+                              if (e.target.value) {
+                                handleIssueUpdate(request.chassisNumber, e.target.value, request.id);
+                                e.target.value = '';
+                              }
+                            }}
+                            className="text-xs border border-gray-300 rounded px-1 py-1"
+                          >
+                            <option value="">Select Issue</option>
+                            <option value="SAP Issue">SAP Issue</option>
+                            <option value="Invoice Issue">Invoice Issue</option>
+                            <option value="Dispatched Status Issue">Dispatched Status Issue</option>
+                          </select>
+                        )}
+                      </td>
+                      <td className="px-4 py-2 text-sm text-gray-500">
+                        {request.status !== 'completed' ? (
+                          <button
+                            onClick={() => handleMarkDone(request.chassisNumber, request.id)}
+                            className="bg-green-600 hover:bg-green-700 text-white px-2 py-1 rounded text-xs font-medium"
+                          >
+                            Done
+                          </button>
+                        ) : (
+                          <span className="text-green-600 text-xs font-medium">✓ Completed</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
