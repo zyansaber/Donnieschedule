@@ -43,7 +43,7 @@ const Reallocation = ({ data }) => {
 
   const loadReallocationRequests = async () => {
     try {
-      const reallocationRef = ref(database, 'reallocation-bk');
+      const reallocationRef = ref(database, 'reallocation');
       const snapshot = await get(reallocationRef);
       if (snapshot.exists()) {
         const requestsData = snapshot.val();
@@ -235,14 +235,14 @@ const Reallocation = ({ data }) => {
         };
 
         // Write to Realtime Database
-        const reallocationRef = ref(database, `reallocation-bk/${chassis}`);
+        const reallocationRef = ref(database, `reallocation/${chassis}`);
         const newRequestRef = push(reallocationRef);
         await set(newRequestRef, reallocationData);
         console.log("11111")
 
         // Queue email in Firestore
         await addDoc(collection(firestoreDB, "reallocation_mail"), {
-          to: ["dongning@regentrv.com.au"],
+          to: ["darin@regentrv.com.au", "planning@regentrv.com.au"],
           message: {
             subject: `New Reallocation Request: Chassis ${chassis}`,
             text: `Chassis number ${chassis} has been requested to dealer ${dealer}.`,
@@ -279,7 +279,7 @@ const Reallocation = ({ data }) => {
 
   const handleMarkDone = async (chassisNumber, requestId) => {
     try {
-      const reallocationRef = ref(database, `reallocation-bk/${chassisNumber}/${requestId}/status`);
+      const reallocationRef = ref(database, `reallocation/${chassisNumber}/${requestId}/status`);
       await set(reallocationRef, 'completed');
 
       // Reload requests
@@ -297,7 +297,7 @@ const Reallocation = ({ data }) => {
   const handleIssueUpdate = async (chassisNumber, issueType, requestId) => {
     try {
 
-      const issueRef = ref(database, `reallocation-bk/${chassisNumber}/${requestId}/issue`);
+      const issueRef = ref(database, `reallocation/${chassisNumber}/${requestId}/issue`);
 
       await set(issueRef, {
         type: issueType,
@@ -306,7 +306,7 @@ const Reallocation = ({ data }) => {
 
       // Queue completion email in Firestore
       await addDoc(collection(firestoreDB, "reallocation_mail"), {
-        to: ["dongning@regentrv.com.au"],
+        to: ["planning@regentrv.com.au","darin@regentrv.com.au", "accounts.receivable@regentrv.com.au", "michael@regentrv.com.au","Ashley@regentrv.com.au"],
         message: {
           subject: `New Issue: Chassis ${chassisNumber}`,
           html: `Chassis number <strong>${chassisNumber}</strong> has been marked as <strong>${issueType}</strong>.`,
