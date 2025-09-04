@@ -242,7 +242,7 @@ const Reallocation = ({ data }) => {
 
         // Queue email in Firestore
         await addDoc(collection(firestoreDB, "reallocation_mail"), {
-          to: ["darin@regentrv.com.au", "planning@regentrv.com.au"],
+          to: ["darin@regentrv.com.au", "planning@regentrv.com.au", "MARGATE-SPAREPARTS@regentrv.com.au"],
           message: {
             subject: `New Reallocation Request: Chassis ${chassis}`,
             text: `Chassis number ${chassis} has been requested to dealer ${dealer}.`,
