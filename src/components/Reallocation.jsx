@@ -1,12 +1,12 @@
-import React, { useState, useEffect } from 'react';
-import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend, LineChart, Line, XAxis, YAxis, CartesianGrid, BarChart, Bar } from 'recharts';
+import React, { useState, useEffect, useMemo } from 'react';
+import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend, LineChart, Line, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { ref, set, get, push } from 'firebase/database';
 import { getDatabase } from 'firebase/database';
 import { collection, addDoc, getDocs } from "firebase/firestore";
 import { getFirestore } from "firebase/firestore";
 import { database, firestoreDB } from '../utils/firebase';
 
-// Chart color palette
+// Chart color palette (stable order)
 const chartColors = [
   '#2563eb','#16a34a','#f59e0b','#ef4444','#8b5cf6','#06b6d4',
   '#dc2626','#059669','#d946ef','#10b981','#f97316','#64748b'
@@ -26,206 +26,102 @@ const Reallocation = ({ data }) => {
   const [reallocationRequests, setReallocationRequests] = useState([]);
   const [loading, setLoading] = useState(false);
   const [globalMessage, setGlobalMessage] = useState('');
+  // ===== Charts Data (scoped with useMemo to avoid redeclarations) =====
+  const rxCharts = useMemo(() => {
+    const getModel = (ch) => {
+      if (!ch) return 'UNKNOWN';
+      const onlyLetters = String(ch).toUpperCase().replace(/[^A-Z]/g, '');
+      return (onlyLetters.slice(0, 3) || 'UNKNOWN');
+    };
 
-  // ===== Charts Data: Professional look (English labels) =====
-  const getModel = (ch) => {
-    if (!ch) return 'UNKNOWN';
-    const onlyLetters = String(ch).toUpperCase().replace(/[^A-Z]/g, '');
-    return (onlyLetters.slice(0, 3) || 'UNKNOWN');
-  };
-
-  // 1) Snapshot: Dealer = 'Snowy Stock' & Regent Production != 'Finished'
-  const chSnowyNotFinished = (data || []).filter(item => {
-    const dealer = (item?.Dealer || '').trim();
-    const prod = (item?.['Regent Production'] || item?.['Regent Production Status'] || item?.status || '').trim();
-    return dealer === 'Snowy Stock' && prod !== 'Finished';
-  });
-
-  const chTotalActiveSnowy = chSnowyNotFinished.length;
-
-  const chModelCounts = chSnowyNotFinished.reduce((acc, it) => {
-    const model = getModel(it?.Chassis);
-    acc[model] = (acc[model] || 0) + 1;
-    return acc;
-  }, {});
-
-  const chPieData = Object.entries(chModelCounts)
-    .map(([model, count]) => ({ model, count }))
-    .sort((a, b) => b.count - a.count);
-
-  // 2) Last 10 chWeeks trend by model (from reallocationRequests)
-  const chParseSubmitToDate = (s) => {
-    if (!s) return null;
-    try {
-      const parts = s.replace(',', '').split(' ');
-      const [day, month, year] = parts[0].split('/').map(Number);
-      let [hh, mm, ss] = (parts[1] || '00:00:00').split(':').map(Number);
-      const ampm = (parts[2] || '').toLowerCase();
-      if (ampm === 'pm' && hh < 12) hh += 12;
-      if (ampm === 'am' && hh === 12) hh = 0;
-      return new Date(year, (month || 1) - 1, day || 1, hh || 0, mm || 0, ss || 0);
-    } catch { return null; }
-  };
-
-  const chGetMonday = (d) => {
-    const dt = new Date(d);
-    const day = dt.getDay(); // 0 Sun .. 6 Sat
-    const diff = (day === 0 ? -6 : 1) - day;
-    dt.setDate(dt.getDate() + diff);
-    dt.setHours(0,0,0,0);
-    return dt;
-  };
-
-  // Build last 10 chWeeks labels (oldest -> newest)
-  const chNow = new Date();
-  const chWeeks = [];
-  let chCur = chGetMonday(chNow);
-  for (let i = 0; i < 10; i++) {
-    const label = chCur.toLocaleDateString('en-AU', { month: '2-digit', day: '2-digit' }); // e.g., 09/09
-    chWeeks.unshift({ start: new Date(chCur), label });
-    chCur = new Date(chCur); chCur.setDate(chCur.getDate() - 7);
-  }
-
-  // Aggregate reallocation counts per model per week
-  const chModelWeekCounts = {}; // {Model: {label: count}}
-  (reallocationRequests || []).forEach(req => {
-    const dt = chParseSubmitToDate(req?.submitTime);
-    if (!dt) return;
-    for (const w of chWeeks) {
-      const start = w.start.getTime();
-      const end = start + 7 * 24 * 3600 * 1000;
-      const t = dt.getTime();
-      if (t >= start && t < end) {
-        const model = getModel(req?.chassisNumber);
-        chModelWeekCounts[model] = chModelWeekCounts[model] || {};
-        chModelWeekCounts[model][w.label] = (chModelWeekCounts[model][w.label] || 0) + 1;
-        break;
-      }
-    }
-  });
-
-  // Select top 6 models by total count across 10 chWeeks; group the rest as OTHER
-  const chTotalsByModel = Object.entries(chModelWeekCounts).map(([m, obj]) => ({
-    model: m,
-    total: Object.values(obj).reduce((a,b)=>a+b,0)
-  })).sort((a,b)=>b.total-a.total);
-
-  const chTopModels = chTotalsByModel.slice(0, 6).map(x => x.model);
-
-  const chLineData = chWeeks.map(w => {
-    const row = { week: w.label };
-    Object.keys(chModelWeekCounts).forEach(m => {
-      const key = chTopModels.includes(m) ? m : 'OTHER';
-      row[key] = (row[key] || 0) + (chModelWeekCounts[m][w.label] || 0);
+    // Snapshot: Dealer = 'Snowy Stock' & Regent Production != 'Finished'
+    const rxSnowyNotFinished = (data || []).filter(item => {
+      const dealer = (item?.Dealer || '').trim();
+      const prod = (item?.['Regent Production'] || item?.['Regent Production Status'] || item?.status || '').trim();
+      return dealer === 'Snowy Stock' && prod !== 'Finished';
     });
-    return row;
-  });
+    const rxTotalActiveSnowy = rxSnowyNotFinished.length;
 
-  const chLineModels = Array.from(new Set(
-    chLineData.flatMap(row => Object.keys(row).filter(k => k !== 'week'))
-  ));
+    const rxModelCounts = rxSnowyNotFinished.reduce((acc, it) => {
+      const model = getModel(it?.Chassis);
+      acc[model] = (acc[model] || 0) + 1;
+      return acc;
+    }, {});
+    const rxPieData = Object.entries(rxModelCounts)
+      .map(([model, count]) => ({ model, count }))
+      .sort((a, b) => b.count - a.count);
 
-  const colors = chartColors;
-
-  // ====== Charts Data (Snowy Stock not finished + Prefix distribution + 10-week trend) ======
-  const getPrefix = (ch) => {
-    if (!ch) return 'UNK';
-    const onlyLetters = String(ch).toUpperCase().replace(/[^A-Z]/g, '');
-    return (onlyLetters.slice(0, 3) || 'UNK');
-  };
-
-  // 1) Current snapshot from schedule data: Dealer == 'Snowy Stock' && Regent Production != 'Finished'
-  const chSnowyNotFinished = (data || []).filter(item => {
-    const dealer = (item?.Dealer || '').trim();
-    const prod = (item?.['Regent Production'] || item?.['Regent Production Status'] || item?.status || '').trim();
-    return dealer === 'Snowy Stock' && prod !== 'Finished';
-  });
-
-  const totalSnowy = chSnowyNotFinished.length;
-  const prefixCounts = chSnowyNotFinished.reduce((acc, it) => {
-    const p = getPrefix(it?.Chassis);
-    acc[p] = (acc[p] || 0) + 1;
-    return acc;
-  }, {});
-  const prefixPieData = Object.entries(prefixCounts).map(([name, count]) => ({
-    name,
-    value: count,
-    percent: totalSnowy ? Math.round((count / totalSnowy) * 1000) / 10 : 0,
-  })).sort((a, b) => b.value - a.value);
-
-  // 2) Last 10 chWeeks trend from reallocationRequests: count per prefix by submitTime week
-  const chParseSubmitToDate = (s) => {
-    if (!s) return null;
-    // Expect "DD/MM/YYYY, hh:mm:ss am/pm"
-    try {
-      const parts = s.replace(',', '').split(' ');
-      const [day, month, year] = parts[0].split('/').map(Number);
-      let [hh, mm, ss] = (parts[1] || '00:00:00').split(':').map(Number);
-      const ampm = (parts[2] || '').toLowerCase();
-      if (ampm === 'pm' && hh < 12) hh += 12;
-      if (ampm === 'am' && hh === 12) hh = 0;
-      return new Date(year, (month || 1) - 1, day || 1, hh || 0, mm || 0, ss || 0);
-    } catch { return null; }
-  };
-
-  const chGetMonday = (d) => {
-    const dt = new Date(d);
-    const day = dt.getDay(); // 0 Sun .. 6 Sat
-    const diff = (day === 0 ? -6 : 1) - day; // back to Monday
-    dt.setDate(dt.getDate() + diff);
-    dt.setHours(0,0,0,0);
-    return dt;
-  };
-
-  // Build last 10 Monday week-start labels
-  const chNow = new Date();
-  const chWeeks = [];
-  let chCur = chGetMonday(chNow);
-  for (let i = 0; i < 10; i++) {
-    const label = chCur.toLocaleDateString('en-AU', { year: '2-digit', month: '2-digit', day: '2-digit' }); // e.g., 09/09/25
-    chWeeks.unshift({ start: new Date(chCur), label }); // oldest -> newest
-    chCur = new Date(chCur); chCur.setDate(chCur.getDate() - 7);
-  }
-
-  // Aggregate counts per prefix
-  const prefixWeekCounts = {}; // {prefix: {label: count}}
-  (reallocationRequests || []).forEach(req => {
-    const dt = chParseSubmitToDate(req?.submitTime);
-    if (!dt) return;
-    // map to the week bucket by finding the week whose start <= dt < start+7d
-    for (const w of chWeeks) {
-      const start = w.start.getTime();
-      const end = start + 7 * 24 * 3600 * 1000;
-      const t = dt.getTime();
-      if (t >= start && t < end) {
-        const p = getPrefix(req?.chassisNumber);
-        prefixWeekCounts[p] = prefixWeekCounts[p] || {};
-        prefixWeekCounts[p][w.label] = (prefixWeekCounts[p][w.label] || 0) + 1;
-        break;
-      }
+    // Trend (last 10 Mondays) by model from reallocationRequests
+    const parseSubmitToDate = (s) => {
+      if (!s) return null;
+      try {
+        const parts = s.replace(',', '').split(' ');
+        const [day, month, year] = parts[0].split('/').map(Number);
+        let [hh, mm, ss] = (parts[1] || '00:00:00').split(':').map(Number);
+        const ampm = (parts[2] || '').toLowerCase();
+        if (ampm === 'pm' && hh < 12) hh += 12;
+        if (ampm === 'am' && hh === 12) hh = 0;
+        return new Date(year, (month || 1) - 1, day || 1, hh || 0, mm || 0, ss || 0);
+      } catch { return null; }
+    };
+    const getMonday = (d) => {
+      const dt = new Date(d);
+      const day = dt.getDay();
+      const diff = (day === 0 ? -6 : 1) - day;
+      dt.setDate(dt.getDate() + diff);
+      dt.setHours(0,0,0,0);
+      return dt;
+    };
+    const rxWeeks = [];
+    let cur = getMonday(new Date());
+    for (let i = 0; i < 10; i++) {
+      const label = cur.toLocaleDateString('en-AU', { month: '2-digit', day: '2-digit' });
+      rxWeeks.unshift({ start: new Date(cur), label });
+      cur = new Date(cur); cur.setDate(cur.getDate() - 7);
     }
-  });
 
-  // Pick top 6 prefixes by total counts across 10 chWeeks; others grouped as 'OTHER'
-  const totalsByPrefix = Object.entries(prefixWeekCounts).map(([p, obj]) => ({
-    prefix: p,
-    total: Object.values(obj).reduce((a,b)=>a+b,0)
-  })).sort((a,b)=>b.total-a.total);
-
-  const topPrefixes = totalsByPrefix.slice(0, 6).map(x => x.prefix);
-  const trendData = chWeeks.map(w => {
-    const row = { week: w.label };
-    Object.keys(prefixWeekCounts).forEach(p => {
-      const key = topPrefixes.includes(p) ? p : 'OTHER';
-      row[key] = (row[key] || 0) + (prefixWeekCounts[p][w.label] || 0);
+    const rxModelWeekCounts = {};
+    (reallocationRequests || []).forEach(req => {
+      const dt = parseSubmitToDate(req?.submitTime);
+      if (!dt) return;
+      for (const w of rxWeeks) {
+        const start = w.start.getTime();
+        const end = start + 7 * 24 * 3600 * 1000;
+        const t = dt.getTime();
+        if (t >= start && t < end) {
+          const model = getModel(req?.chassisNumber);
+          rxModelWeekCounts[model] = rxModelWeekCounts[model] || {};
+          rxModelWeekCounts[model][w.label] = (rxModelWeekCounts[model][w.label] || 0) + 1;
+          break;
+        }
+      }
     });
-    return row;
-  });
 
-  const trendSeriesKeys = Array.from(new Set(Object.keys(trendData.reduce((acc,row)=>{
-    Object.keys(row).forEach(k=>{ if(k!=='week') acc[k]=true; });
-    return acc;
-  }, {}))));
+    const totalsByModel = Object.entries(rxModelWeekCounts).map(([m, obj]) => ({
+      model: m,
+      total: Object.values(obj).reduce((a,b)=>a+b,0)
+    })).sort((a,b)=>b.total-a.total);
+    const rxTopModels = totalsByModel.slice(0, 6).map(x => x.model);
+
+    const rxLineData = rxWeeks.map(w => {
+      const row = { week: w.label };
+      Object.keys(rxModelWeekCounts).forEach(m => {
+        const key = rxTopModels.includes(m) ? m : 'OTHER';
+        row[key] = (row[key] || 0) + (rxModelWeekCounts[m][w.label] || 0);
+      });
+      return row;
+    });
+    const rxLineModels = Array.from(new Set(
+      rxLineData.flatMap(row => Object.keys(row).filter(k => k !== 'week'))
+    ));
+
+    return {
+      pieData: rxPieData,
+      totalActive: rxTotalActiveSnowy,
+      lineData: rxLineData,
+      lineModels: rxLineModels
+    };
+  }, [data, reallocationRequests]);
 
   const [stats, setStats] = useState({ totalPending: 0, totalDone: 0, dealerStats: {} });
   const [showFilter, setShowFilter] = useState('all'); // 'all', 'pending', 'done'
@@ -816,21 +712,20 @@ const Reallocation = ({ data }) => {
         </div>
       </div>
 
-      
-      
+      {
       {/* ===== Charts Section ===== */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
         {/* Pie Chart by Model */}
         <div className="bg-white rounded-lg shadow p-4">
           <div className="flex items-center justify-between mb-2">
             <h4 className="text-sm font-semibold text-gray-700">Active Vans by Model (Snowy Stock)</h4>
-            <div className="text-xs text-gray-500">Total: {chTotalActiveSnowy}</div>
+            <div className="text-xs text-gray-500">Total: {rxCharts.totalActive}</div>
           </div>
           <div style={{ width: '100%', height: 280 }}>
             <ResponsiveContainer>
               <PieChart>
                 <Pie
-                  data={chPieData}
+                  data={rxCharts.pieData}
                   dataKey="count"
                   nameKey="model"
                   cx="50%"
@@ -839,8 +734,8 @@ const Reallocation = ({ data }) => {
                   labelLine={false}
                   label={({ percent, count }) => (percent > 0.1 ? `${count}` : '')}
                 >
-                  {chPieData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />
+                  {rxCharts.pieData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={chartColors[index % chartColors.length]} />
                   ))}
                 </Pie>
                 <Tooltip formatter={(value) => [`${value}`, 'Count']} />
@@ -855,14 +750,14 @@ const Reallocation = ({ data }) => {
           <h4 className="text-sm font-semibold text-gray-700 mb-2">Reallocation Trend (Last 10 Weeks)</h4>
           <div style={{ width: '100%', height: 280 }}>
             <ResponsiveContainer>
-              <LineChart data={chLineData} margin={{ top: 10, right: 10, bottom: 0, left: 0 }}>
+              <LineChart data={rxCharts.lineData} margin={{ top: 10, right: 10, bottom: 0, left: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="week" />
                 <YAxis allowDecimals={false} />
                 <Tooltip />
                 <Legend />
-                {chLineModels.map((m, idx) => (
-                  <Line key={m} type="monotone" dataKey={m} stroke={colors[idx % colors.length]} strokeWidth={2} dot={false} />
+                {rxCharts.lineModels.map((m, idx) => (
+                  <Line key={m} type="monotone" dataKey={m} stroke={chartColors[idx % chartColors.length]} strokeWidth={2} dot={false} />
                 ))}
               </LineChart>
             </ResponsiveContainer>
@@ -871,9 +766,6 @@ const Reallocation = ({ data }) => {
         </div>
       </div>
 
-
-
-      /* Reallocation Requests List */
       <div className="bg-white rounded-lg shadow-sm p-4">
         <div className="flex justify-between items-center mb-4">
           <h3 className="text-lg font-semibold text-gray-700">Reallocation Requests</h3>
