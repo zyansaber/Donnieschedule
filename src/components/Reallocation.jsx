@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend, LineChart, Line, XAxis, YAxis, CartesianGrid, BarChart, Bar } from 'recharts';
 import { ref, set, get, push } from 'firebase/database';
 import { getDatabase } from 'firebase/database';
 import { collection, addDoc, getDocs } from "firebase/firestore";
@@ -19,6 +20,106 @@ const Reallocation = ({ data }) => {
   const [reallocationRequests, setReallocationRequests] = useState([]);
   const [loading, setLoading] = useState(false);
   const [globalMessage, setGlobalMessage] = useState('');
+  // ====== Charts Data (Snowy Stock not finished + Prefix distribution + 10-week trend) ======
+  const getPrefix = (ch) => {
+    if (!ch) return 'UNK';
+    const onlyLetters = String(ch).toUpperCase().replace(/[^A-Z]/g, '');
+    return (onlyLetters.slice(0, 3) || 'UNK');
+  };
+
+  // 1) Current snapshot from schedule data: Dealer == 'Snowy Stock' && Regent Production != 'Finished'
+  const snowyNotFinished = (data || []).filter(item => {
+    const dealer = (item?.Dealer || '').trim();
+    const prod = (item?.['Regent Production'] || item?.['Regent Production Status'] || item?.status || '').trim();
+    return dealer === 'Snowy Stock' && prod !== 'Finished';
+  });
+
+  const totalSnowy = snowyNotFinished.length;
+  const prefixCounts = snowyNotFinished.reduce((acc, it) => {
+    const p = getPrefix(it?.Chassis);
+    acc[p] = (acc[p] || 0) + 1;
+    return acc;
+  }, {});
+  const prefixPieData = Object.entries(prefixCounts).map(([name, count]) => ({
+    name,
+    value: count,
+    percent: totalSnowy ? Math.round((count / totalSnowy) * 1000) / 10 : 0,
+  })).sort((a, b) => b.value - a.value);
+
+  // 2) Last 10 weeks trend from reallocationRequests: count per prefix by submitTime week
+  const parseSubmitToDate = (s) => {
+    if (!s) return null;
+    // Expect "DD/MM/YYYY, hh:mm:ss am/pm"
+    try {
+      const parts = s.replace(',', '').split(' ');
+      const [day, month, year] = parts[0].split('/').map(Number);
+      let [hh, mm, ss] = (parts[1] || '00:00:00').split(':').map(Number);
+      const ampm = (parts[2] || '').toLowerCase();
+      if (ampm === 'pm' && hh < 12) hh += 12;
+      if (ampm === 'am' && hh === 12) hh = 0;
+      return new Date(year, (month || 1) - 1, day || 1, hh || 0, mm || 0, ss || 0);
+    } catch { return null; }
+  };
+
+  const getMonday = (d) => {
+    const dt = new Date(d);
+    const day = dt.getDay(); // 0 Sun .. 6 Sat
+    const diff = (day === 0 ? -6 : 1) - day; // back to Monday
+    dt.setDate(dt.getDate() + diff);
+    dt.setHours(0,0,0,0);
+    return dt;
+  };
+
+  // Build last 10 Monday week-start labels
+  const now = new Date();
+  const weeks = [];
+  let cur = getMonday(now);
+  for (let i = 0; i < 10; i++) {
+    const label = cur.toLocaleDateString('en-AU', { year: '2-digit', month: '2-digit', day: '2-digit' }); // e.g., 09/09/25
+    weeks.unshift({ start: new Date(cur), label }); // oldest -> newest
+    cur = new Date(cur); cur.setDate(cur.getDate() - 7);
+  }
+
+  // Aggregate counts per prefix
+  const prefixWeekCounts = {}; // {prefix: {label: count}}
+  (reallocationRequests || []).forEach(req => {
+    const dt = parseSubmitToDate(req?.submitTime);
+    if (!dt) return;
+    // map to the week bucket by finding the week whose start <= dt < start+7d
+    for (const w of weeks) {
+      const start = w.start.getTime();
+      const end = start + 7 * 24 * 3600 * 1000;
+      const t = dt.getTime();
+      if (t >= start && t < end) {
+        const p = getPrefix(req?.chassisNumber);
+        prefixWeekCounts[p] = prefixWeekCounts[p] || {};
+        prefixWeekCounts[p][w.label] = (prefixWeekCounts[p][w.label] || 0) + 1;
+        break;
+      }
+    }
+  });
+
+  // Pick top 6 prefixes by total counts across 10 weeks; others grouped as 'OTHER'
+  const totalsByPrefix = Object.entries(prefixWeekCounts).map(([p, obj]) => ({
+    prefix: p,
+    total: Object.values(obj).reduce((a,b)=>a+b,0)
+  })).sort((a,b)=>b.total-a.total);
+
+  const topPrefixes = totalsByPrefix.slice(0, 6).map(x => x.prefix);
+  const trendData = weeks.map(w => {
+    const row = { week: w.label };
+    Object.keys(prefixWeekCounts).forEach(p => {
+      const key = topPrefixes.includes(p) ? p : 'OTHER';
+      row[key] = (row[key] || 0) + (prefixWeekCounts[p][w.label] || 0);
+    });
+    return row;
+  });
+
+  const trendSeriesKeys = Array.from(new Set(Object.keys(trendData.reduce((acc,row)=>{
+    Object.keys(row).forEach(k=>{ if(k!=='week') acc[k]=true; });
+    return acc;
+  }, {}))));
+
   const [stats, setStats] = useState({ totalPending: 0, totalDone: 0, dealerStats: {} });
   const [showFilter, setShowFilter] = useState('all'); // 'all', 'pending', 'done'
 
@@ -608,7 +709,50 @@ const Reallocation = ({ data }) => {
         </div>
       </div>
 
-      {/* Reallocation Requests List */}
+      {
+      {/* ===== Charts Section (placed under tabs) ===== */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+        {/* Pie: Prefix percentage within Snowy Stock & not finished */}
+        <div className="bg-white rounded-lg shadow-sm p-4">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-base font-semibold">Snowy Stock 未完成数量 & 前三字母占比</h3>
+            <div className="text-sm text-gray-500">总数：{totalSnowy}</div>
+          </div>
+          <div style={{ width: '100%', height: 260 }}>
+            <ResponsiveContainer>
+              <PieChart>
+                <Pie data={prefixPieData} dataKey="value" nameKey="name" outerRadius={80} label={({name, percent}) => `${name} ${percent}%`}>
+                  {prefixPieData.map((entry, index) => <Cell key={`cell-${index}`} />)}
+                </Pie>
+                <Tooltip formatter={(v, n, p)=>[v, `${p?.payload?.name} (${p?.payload?.percent}%)`]} />
+                <Legend />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Line: last 10 weeks trend by prefix */}
+        <div className="bg-white rounded-lg shadow-sm p-4">
+          <h3 className="text-base font-semibold mb-2">过去10周 Reallocation 趋势（按前三字母）</h3>
+          <div style={{ width: '100%', height: 260 }}>
+            <ResponsiveContainer>
+              <LineChart data={trendData} margin={{ top: 10, right: 10, bottom: 0, left: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="week" />
+                <YAxis allowDecimals={false} />
+                <Tooltip />
+                <Legend />
+                {trendSeriesKeys.map((key, idx) => (
+                  <Line key={key} type="monotone" dataKey={key} dot={false} />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="text-xs text-gray-500 mt-1">显示 Top6 前缀，其余合并为 OTHER。</div>
+        </div>
+      </div>
+
+      /* Reallocation Requests List */}
       <div className="bg-white rounded-lg shadow-sm p-4">
         <div className="flex justify-between items-center mb-4">
           <h3 className="text-lg font-semibold text-gray-700">Reallocation Requests</h3>
