@@ -35,26 +35,26 @@ const Reallocation = ({ data }) => {
   };
 
   // 1) Snapshot: Dealer = 'Snowy Stock' & Regent Production != 'Finished'
-  const snowyNotFinished = (data || []).filter(item => {
+  const chSnowyNotFinished = (data || []).filter(item => {
     const dealer = (item?.Dealer || '').trim();
     const prod = (item?.['Regent Production'] || item?.['Regent Production Status'] || item?.status || '').trim();
     return dealer === 'Snowy Stock' && prod !== 'Finished';
   });
 
-  const totalActiveSnowy = snowyNotFinished.length;
+  const chTotalActiveSnowy = chSnowyNotFinished.length;
 
-  const modelCounts = snowyNotFinished.reduce((acc, it) => {
+  const chModelCounts = chSnowyNotFinished.reduce((acc, it) => {
     const model = getModel(it?.Chassis);
     acc[model] = (acc[model] || 0) + 1;
     return acc;
   }, {});
 
-  const pieData = Object.entries(modelCounts)
+  const chPieData = Object.entries(chModelCounts)
     .map(([model, count]) => ({ model, count }))
     .sort((a, b) => b.count - a.count);
 
-  // 2) Last 10 weeks trend by model (from reallocationRequests)
-  const parseSubmitToDate = (s) => {
+  // 2) Last 10 chWeeks trend by model (from reallocationRequests)
+  const chParseSubmitToDate = (s) => {
     if (!s) return null;
     try {
       const parts = s.replace(',', '').split(' ');
@@ -67,7 +67,7 @@ const Reallocation = ({ data }) => {
     } catch { return null; }
   };
 
-  const getMonday = (d) => {
+  const chGetMonday = (d) => {
     const dt = new Date(d);
     const day = dt.getDay(); // 0 Sun .. 6 Sat
     const diff = (day === 0 ? -6 : 1) - day;
@@ -76,53 +76,53 @@ const Reallocation = ({ data }) => {
     return dt;
   };
 
-  // Build last 10 weeks labels (oldest -> newest)
-  const now = new Date();
-  const weeks = [];
-  let cur = getMonday(now);
+  // Build last 10 chWeeks labels (oldest -> newest)
+  const chNow = new Date();
+  const chWeeks = [];
+  let chCur = chGetMonday(chNow);
   for (let i = 0; i < 10; i++) {
-    const label = cur.toLocaleDateString('en-AU', { month: '2-digit', day: '2-digit' }); // e.g., 09/09
-    weeks.unshift({ start: new Date(cur), label });
-    cur = new Date(cur); cur.setDate(cur.getDate() - 7);
+    const label = chCur.toLocaleDateString('en-AU', { month: '2-digit', day: '2-digit' }); // e.g., 09/09
+    chWeeks.unshift({ start: new Date(chCur), label });
+    chCur = new Date(chCur); chCur.setDate(chCur.getDate() - 7);
   }
 
   // Aggregate reallocation counts per model per week
-  const modelWeekCounts = {}; // {Model: {label: count}}
+  const chModelWeekCounts = {}; // {Model: {label: count}}
   (reallocationRequests || []).forEach(req => {
-    const dt = parseSubmitToDate(req?.submitTime);
+    const dt = chParseSubmitToDate(req?.submitTime);
     if (!dt) return;
-    for (const w of weeks) {
+    for (const w of chWeeks) {
       const start = w.start.getTime();
       const end = start + 7 * 24 * 3600 * 1000;
       const t = dt.getTime();
       if (t >= start && t < end) {
         const model = getModel(req?.chassisNumber);
-        modelWeekCounts[model] = modelWeekCounts[model] || {};
-        modelWeekCounts[model][w.label] = (modelWeekCounts[model][w.label] || 0) + 1;
+        chModelWeekCounts[model] = chModelWeekCounts[model] || {};
+        chModelWeekCounts[model][w.label] = (chModelWeekCounts[model][w.label] || 0) + 1;
         break;
       }
     }
   });
 
-  // Select top 6 models by total count across 10 weeks; group the rest as OTHER
-  const totalsByModel = Object.entries(modelWeekCounts).map(([m, obj]) => ({
+  // Select top 6 models by total count across 10 chWeeks; group the rest as OTHER
+  const chTotalsByModel = Object.entries(chModelWeekCounts).map(([m, obj]) => ({
     model: m,
     total: Object.values(obj).reduce((a,b)=>a+b,0)
   })).sort((a,b)=>b.total-a.total);
 
-  const topModels = totalsByModel.slice(0, 6).map(x => x.model);
+  const chTopModels = chTotalsByModel.slice(0, 6).map(x => x.model);
 
-  const lineData = weeks.map(w => {
+  const chLineData = chWeeks.map(w => {
     const row = { week: w.label };
-    Object.keys(modelWeekCounts).forEach(m => {
-      const key = topModels.includes(m) ? m : 'OTHER';
-      row[key] = (row[key] || 0) + (modelWeekCounts[m][w.label] || 0);
+    Object.keys(chModelWeekCounts).forEach(m => {
+      const key = chTopModels.includes(m) ? m : 'OTHER';
+      row[key] = (row[key] || 0) + (chModelWeekCounts[m][w.label] || 0);
     });
     return row;
   });
 
-  const lineModels = Array.from(new Set(
-    lineData.flatMap(row => Object.keys(row).filter(k => k !== 'week'))
+  const chLineModels = Array.from(new Set(
+    chLineData.flatMap(row => Object.keys(row).filter(k => k !== 'week'))
   ));
 
   const colors = chartColors;
@@ -135,14 +135,14 @@ const Reallocation = ({ data }) => {
   };
 
   // 1) Current snapshot from schedule data: Dealer == 'Snowy Stock' && Regent Production != 'Finished'
-  const snowyNotFinished = (data || []).filter(item => {
+  const chSnowyNotFinished = (data || []).filter(item => {
     const dealer = (item?.Dealer || '').trim();
     const prod = (item?.['Regent Production'] || item?.['Regent Production Status'] || item?.status || '').trim();
     return dealer === 'Snowy Stock' && prod !== 'Finished';
   });
 
-  const totalSnowy = snowyNotFinished.length;
-  const prefixCounts = snowyNotFinished.reduce((acc, it) => {
+  const totalSnowy = chSnowyNotFinished.length;
+  const prefixCounts = chSnowyNotFinished.reduce((acc, it) => {
     const p = getPrefix(it?.Chassis);
     acc[p] = (acc[p] || 0) + 1;
     return acc;
@@ -153,8 +153,8 @@ const Reallocation = ({ data }) => {
     percent: totalSnowy ? Math.round((count / totalSnowy) * 1000) / 10 : 0,
   })).sort((a, b) => b.value - a.value);
 
-  // 2) Last 10 weeks trend from reallocationRequests: count per prefix by submitTime week
-  const parseSubmitToDate = (s) => {
+  // 2) Last 10 chWeeks trend from reallocationRequests: count per prefix by submitTime week
+  const chParseSubmitToDate = (s) => {
     if (!s) return null;
     // Expect "DD/MM/YYYY, hh:mm:ss am/pm"
     try {
@@ -168,7 +168,7 @@ const Reallocation = ({ data }) => {
     } catch { return null; }
   };
 
-  const getMonday = (d) => {
+  const chGetMonday = (d) => {
     const dt = new Date(d);
     const day = dt.getDay(); // 0 Sun .. 6 Sat
     const diff = (day === 0 ? -6 : 1) - day; // back to Monday
@@ -178,22 +178,22 @@ const Reallocation = ({ data }) => {
   };
 
   // Build last 10 Monday week-start labels
-  const now = new Date();
-  const weeks = [];
-  let cur = getMonday(now);
+  const chNow = new Date();
+  const chWeeks = [];
+  let chCur = chGetMonday(chNow);
   for (let i = 0; i < 10; i++) {
-    const label = cur.toLocaleDateString('en-AU', { year: '2-digit', month: '2-digit', day: '2-digit' }); // e.g., 09/09/25
-    weeks.unshift({ start: new Date(cur), label }); // oldest -> newest
-    cur = new Date(cur); cur.setDate(cur.getDate() - 7);
+    const label = chCur.toLocaleDateString('en-AU', { year: '2-digit', month: '2-digit', day: '2-digit' }); // e.g., 09/09/25
+    chWeeks.unshift({ start: new Date(chCur), label }); // oldest -> newest
+    chCur = new Date(chCur); chCur.setDate(chCur.getDate() - 7);
   }
 
   // Aggregate counts per prefix
   const prefixWeekCounts = {}; // {prefix: {label: count}}
   (reallocationRequests || []).forEach(req => {
-    const dt = parseSubmitToDate(req?.submitTime);
+    const dt = chParseSubmitToDate(req?.submitTime);
     if (!dt) return;
     // map to the week bucket by finding the week whose start <= dt < start+7d
-    for (const w of weeks) {
+    for (const w of chWeeks) {
       const start = w.start.getTime();
       const end = start + 7 * 24 * 3600 * 1000;
       const t = dt.getTime();
@@ -206,14 +206,14 @@ const Reallocation = ({ data }) => {
     }
   });
 
-  // Pick top 6 prefixes by total counts across 10 weeks; others grouped as 'OTHER'
+  // Pick top 6 prefixes by total counts across 10 chWeeks; others grouped as 'OTHER'
   const totalsByPrefix = Object.entries(prefixWeekCounts).map(([p, obj]) => ({
     prefix: p,
     total: Object.values(obj).reduce((a,b)=>a+b,0)
   })).sort((a,b)=>b.total-a.total);
 
   const topPrefixes = totalsByPrefix.slice(0, 6).map(x => x.prefix);
-  const trendData = weeks.map(w => {
+  const trendData = chWeeks.map(w => {
     const row = { week: w.label };
     Object.keys(prefixWeekCounts).forEach(p => {
       const key = topPrefixes.includes(p) ? p : 'OTHER';
@@ -824,13 +824,13 @@ const Reallocation = ({ data }) => {
         <div className="bg-white rounded-lg shadow p-4">
           <div className="flex items-center justify-between mb-2">
             <h4 className="text-sm font-semibold text-gray-700">Active Vans by Model (Snowy Stock)</h4>
-            <div className="text-xs text-gray-500">Total: {totalActiveSnowy}</div>
+            <div className="text-xs text-gray-500">Total: {chTotalActiveSnowy}</div>
           </div>
           <div style={{ width: '100%', height: 280 }}>
             <ResponsiveContainer>
               <PieChart>
                 <Pie
-                  data={pieData}
+                  data={chPieData}
                   dataKey="count"
                   nameKey="model"
                   cx="50%"
@@ -839,7 +839,7 @@ const Reallocation = ({ data }) => {
                   labelLine={false}
                   label={({ percent, count }) => (percent > 0.1 ? `${count}` : '')}
                 >
-                  {pieData.map((entry, index) => (
+                  {chPieData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />
                   ))}
                 </Pie>
@@ -855,13 +855,13 @@ const Reallocation = ({ data }) => {
           <h4 className="text-sm font-semibold text-gray-700 mb-2">Reallocation Trend (Last 10 Weeks)</h4>
           <div style={{ width: '100%', height: 280 }}>
             <ResponsiveContainer>
-              <LineChart data={lineData} margin={{ top: 10, right: 10, bottom: 0, left: 0 }}>
+              <LineChart data={chLineData} margin={{ top: 10, right: 10, bottom: 0, left: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="week" />
                 <YAxis allowDecimals={false} />
                 <Tooltip />
                 <Legend />
-                {lineModels.map((m, idx) => (
+                {chLineModels.map((m, idx) => (
                   <Line key={m} type="monotone" dataKey={m} stroke={colors[idx % colors.length]} strokeWidth={2} dot={false} />
                 ))}
               </LineChart>
