@@ -709,7 +709,6 @@ const Reallocation = ({ data }) => {
         </div>
       </div>
 
-      {
       {/* ===== Charts Section (placed under tabs) ===== */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
         {/* Pie: Prefix percentage within Snowy Stock & not finished */}
