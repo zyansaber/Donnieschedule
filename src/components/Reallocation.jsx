@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend, LineChart, Line, XAxis, YAxis, CartesianGrid, BarChart, Bar } from 'recharts';
+import React, { useEffect, useMemo, useState } from 'react';
+import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend, LineChart, Line, XAxis, YAxis, CartesianGrid } from 'recharts';
 
-// Chart colors
+// Chart color palette
 const chartColors = ['#2563eb','#16a34a','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#10b981','#f97316','#64748b','#d946ef'];
 import { ref, set, get, push } from 'firebase/database';
 import { getDatabase } from 'firebase/database';
@@ -23,105 +23,102 @@ const Reallocation = ({ data }) => {
   const [reallocationRequests, setReallocationRequests] = useState([]);
   const [loading, setLoading] = useState(false);
   const [globalMessage, setGlobalMessage] = useState('');
-  // ====== Charts Data (Snowy Stock not finished + Prefix distribution + 10-week trend) ======
-  const getPrefix = (ch) => {
-    if (!ch) return 'UNK';
-    const onlyLetters = String(ch).toUpperCase().replace(/[^A-Z]/g, '');
-    return (onlyLetters.slice(0, 3) || 'UNK');
-  };
+  // ===== Charts Data (scoped with useMemo; no changes to DB/Firestore logic) =====
+  const rxCharts = useMemo(() => {
+    const getModel = (ch) => {
+      if (!ch) return 'UNKNOWN';
+      const onlyLetters = String(ch).toUpperCase().replace(/[^A-Z]/g, '');
+      return (onlyLetters.slice(0, 3) || 'UNKNOWN');
+    };
 
-  // 1) Current snapshot from schedule data: Dealer == 'Snowy Stock' && Regent Production != 'Finished'
-  const snowyNotFinished = (data || []).filter(item => {
-    const dealer = (item?.Dealer || '').trim();
-    const prod = (item?.['Regent Production'] || item?.['Regent Production Status'] || item?.status || '').trim();
-    return dealer === 'Snowy Stock' && prod !== 'Finished';
-  });
-
-  const totalSnowy = snowyNotFinished.length;
-  const prefixCounts = snowyNotFinished.reduce((acc, it) => {
-    const p = getPrefix(it?.Chassis);
-    acc[p] = (acc[p] || 0) + 1;
-    return acc;
-  }, {});
-  const prefixPieData = Object.entries(prefixCounts).map(([name, count]) => ({
-    name,
-    value: count,
-    percent: totalSnowy ? Math.round((count / totalSnowy) * 1000) / 10 : 0,
-  })).sort((a, b) => b.value - a.value);
-
-  // 2) Last 10 weeks trend from reallocationRequests: count per prefix by submitTime week
-  const parseSubmitToDate = (s) => {
-    if (!s) return null;
-    // Expect "DD/MM/YYYY, hh:mm:ss am/pm"
-    try {
-      const parts = s.replace(',', '').split(' ');
-      const [day, month, year] = parts[0].split('/').map(Number);
-      let [hh, mm, ss] = (parts[1] || '00:00:00').split(':').map(Number);
-      const ampm = (parts[2] || '').toLowerCase();
-      if (ampm === 'pm' && hh < 12) hh += 12;
-      if (ampm === 'am' && hh === 12) hh = 0;
-      return new Date(year, (month || 1) - 1, day || 1, hh || 0, mm || 0, ss || 0);
-    } catch { return null; }
-  };
-
-  const getMonday = (d) => {
-    const dt = new Date(d);
-    const day = dt.getDay(); // 0 Sun .. 6 Sat
-    const diff = (day === 0 ? -6 : 1) - day; // back to Monday
-    dt.setDate(dt.getDate() + diff);
-    dt.setHours(0,0,0,0);
-    return dt;
-  };
-
-  // Build last 10 Monday week-start labels
-  const now = new Date();
-  const weeks = [];
-  let cur = getMonday(now);
-  for (let i = 0; i < 10; i++) {
-    const label = cur.toLocaleDateString('en-AU', { year: '2-digit', month: '2-digit', day: '2-digit' }); // e.g., 09/09/25
-    weeks.unshift({ start: new Date(cur), label }); // oldest -> newest
-    cur = new Date(cur); cur.setDate(cur.getDate() - 7);
-  }
-
-  // Aggregate counts per prefix
-  const prefixWeekCounts = {}; // {prefix: {label: count}}
-  (reallocationRequests || []).forEach(req => {
-    const dt = parseSubmitToDate(req?.submitTime);
-    if (!dt) return;
-    // map to the week bucket by finding the week whose start <= dt < start+7d
-    for (const w of weeks) {
-      const start = w.start.getTime();
-      const end = start + 7 * 24 * 3600 * 1000;
-      const t = dt.getTime();
-      if (t >= start && t < end) {
-        const p = getPrefix(req?.chassisNumber);
-        prefixWeekCounts[p] = prefixWeekCounts[p] || {};
-        prefixWeekCounts[p][w.label] = (prefixWeekCounts[p][w.label] || 0) + 1;
-        break;
-      }
-    }
-  });
-
-  // Pick top 6 prefixes by total counts across 10 weeks; others grouped as 'OTHER'
-  const totalsByPrefix = Object.entries(prefixWeekCounts).map(([p, obj]) => ({
-    prefix: p,
-    total: Object.values(obj).reduce((a,b)=>a+b,0)
-  })).sort((a,b)=>b.total-a.total);
-
-  const topPrefixes = totalsByPrefix.slice(0, 6).map(x => x.prefix);
-  const trendData = weeks.map(w => {
-    const row = { week: w.label };
-    Object.keys(prefixWeekCounts).forEach(p => {
-      const key = topPrefixes.includes(p) ? p : 'OTHER';
-      row[key] = (row[key] || 0) + (prefixWeekCounts[p][w.label] || 0);
+    // Snapshot: Dealer = 'Snowy Stock' & Regent Production != 'Finished'
+    const rxSnowyNotFinished = (data || []).filter(item => {
+      const dealer = (item?.Dealer || '').trim();
+      const prod = (item?.['Regent Production'] || item?.['Regent Production Status'] || item?.status || '').trim();
+      return dealer === 'Snowy Stock' && prod !== 'Finished';
     });
-    return row;
-  });
+    const rxTotalActiveSnowy = rxSnowyNotFinished.length;
 
-  const trendSeriesKeys = Array.from(new Set(Object.keys(trendData.reduce((acc,row)=>{
-    Object.keys(row).forEach(k=>{ if(k!=='week') acc[k]=true; });
-    return acc;
-  }, {}))));
+    const rxModelCounts = rxSnowyNotFinished.reduce((acc, it) => {
+      const model = getModel(it?.Chassis);
+      acc[model] = (acc[model] || 0) + 1;
+      return acc;
+    }, {});
+    const rxPieData = Object.entries(rxModelCounts)
+      .map(([model, count]) => ({ model, count }))
+      .sort((a, b) => b.count - a.count);
+
+    // Trend (last 10 Mondays) by model from reallocationRequests
+    const parseSubmitToDate = (s) => {
+      if (!s) return null;
+      try {
+        const parts = s.replace(',', '').split(' ');
+        const [day, month, year] = parts[0].split('/').map(Number);
+        let [hh, mm, ss] = (parts[1] || '00:00:00').split(':').map(Number);
+        const ampm = (parts[2] || '').toLowerCase();
+        if (ampm === 'pm' && hh < 12) hh += 12;
+        if (ampm === 'am' && hh === 12) hh = 0;
+        return new Date(year, (month || 1) - 1, day || 1, hh || 0, mm || 0, ss || 0);
+      } catch { return null; }
+    };
+    const getMonday = (d) => {
+      const dt = new Date(d);
+      const day = dt.getDay();
+      const diff = (day === 0 ? -6 : 1) - day;
+      dt.setDate(dt.getDate() + diff);
+      dt.setHours(0,0,0,0);
+      return dt;
+    };
+    const rxWeeks = [];
+    let cur = getMonday(new Date());
+    for (let i = 0; i < 10; i++) {
+      const label = cur.toLocaleDateString('en-AU', { month: '2-digit', day: '2-digit' });
+      rxWeeks.unshift({ start: new Date(cur), label });
+      cur = new Date(cur); cur.setDate(cur.getDate() - 7);
+    }
+
+    const rxModelWeekCounts = {};
+    (reallocationRequests || []).forEach(req => {
+      const dt = parseSubmitToDate(req?.submitTime);
+      if (!dt) return;
+      for (const w of rxWeeks) {
+        const start = w.start.getTime();
+        const end = start + 7 * 24 * 3600 * 1000;
+        const t = dt.getTime();
+        if (t >= start && t < end) {
+          const model = getModel(req?.chassisNumber);
+          rxModelWeekCounts[model] = rxModelWeekCounts[model] || {};
+          rxModelWeekCounts[model][w.label] = (rxModelWeekCounts[model][w.label] || 0) + 1;
+          break;
+        }
+      }
+    });
+
+    const totalsByModel = Object.entries(rxModelWeekCounts).map(([m, obj]) => ({
+      model: m,
+      total: Object.values(obj).reduce((a,b)=>a+b,0)
+    })).sort((a,b)=>b.total-a.total);
+    const rxTopModels = totalsByModel.slice(0, 6).map(x => x.model);
+
+    const rxLineData = rxWeeks.map(w => {
+      const row = { week: w.label };
+      Object.keys(rxModelWeekCounts).forEach(m => {
+        const key = rxTopModels.includes(m) ? m : 'OTHER';
+        row[key] = (row[key] || 0) + (rxModelWeekCounts[m][w.label] || 0);
+      });
+      return row;
+    });
+    const rxLineModels = Array.from(new Set(
+      rxLineData.flatMap(row => Object.keys(row).filter(k => k !== 'week'))
+    ));
+
+    return {
+      pieData: rxPieData,
+      totalActive: rxTotalActiveSnowy,
+      lineData: rxLineData,
+      lineModels: rxLineModels
+    };
+  }, [data, reallocationRequests]);
 
   const [stats, setStats] = useState({ totalPending: 0, totalDone: 0, dealerStats: {} });
   const [showFilter, setShowFilter] = useState('all'); // 'all', 'pending', 'done'
@@ -712,49 +709,61 @@ const Reallocation = ({ data }) => {
         </div>
       </div>
 
-{/* ===== Charts Section ===== */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
-        {/* Pie: Prefix percentage within Snowy Stock & not finished */}
-        <div className="bg-white rounded-lg shadow-sm p-4">
+      {/* Reallocation Requests List */
+      
+      {/* ===== Charts Section ===== */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+        {/* Pie Chart by Model */}
+        <div className="bg-white rounded-lg shadow p-4">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-base font-semibold">Active Vans by Model (Snowy Stock)</h3>
-            <div className="text-sm text-gray-500">Total: {totalSnowy}</div>
+            <h4 className="text-sm font-semibold text-gray-700">Active Vans by Model (Snowy Stock)</h4>
+            <div className="text-xs text-gray-500">Total: {rxCharts.totalActive}</div>
           </div>
-          <div style={{ width: '100%', height: 260 }}>
+          <div style={{ width: '100%', height: 280 }}>
             <ResponsiveContainer>
               <PieChart>
-                <Pie data={prefixPieData} dataKey="value" nameKey="name" outerRadius={80} label={({ percent, value }) => (percent > 0.1 ? `${value}` : "")}>
-                  {prefixPieData.map((entry, index) => (<Cell key={`cell-${index}`} fill={chartColors[index % chartColors.length]} />))}
+                <Pie
+                  data={rxCharts.pieData}
+                  dataKey="count"
+                  nameKey="model"
+                  cx="50%"
+                  cy="50%"
+                  outerRadius={110}
+                  labelLine={false}
+                  label={({ percent, count }) => (percent > 0.1 ? `${count}` : '')}
+                >
+                  {rxCharts.pieData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={chartColors[index % chartColors.length]} />
+                  ))}
                 </Pie>
-                <Tooltip formatter={(v) => [String(v), "Count"]} />
+                <Tooltip formatter={(value) => [String(value), 'Count']} />
                 <Legend />
               </PieChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        {/* Line: last 10 weeks trend by prefix */}
-        <div className="bg-white rounded-lg shadow-sm p-4">
-          <h3 className="text-base font-semibold mb-2">Reallocation Trend (Last 10 Weeks)</h3>
-          <div style={{ width: '100%', height: 260 }}>
+        {/* Line Chart Trend by Model */}
+        <div className="bg-white rounded-lg shadow p-4">
+          <h4 className="text-sm font-semibold text-gray-700 mb-2">Reallocation Trend (Last 10 Weeks)</h4>
+          <div style={{ width: '100%', height: 280 }}>
             <ResponsiveContainer>
-              <LineChart data={trendData} margin={{ top: 10, right: 10, bottom: 0, left: 0 }}>
+              <LineChart data={rxCharts.lineData} margin={{ top: 10, right: 10, bottom: 0, left: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="week" />
                 <YAxis allowDecimals={false} />
                 <Tooltip />
                 <Legend />
-                {trendSeriesKeys.map((key, idx) => (
-                  <Line key={key} type="monotone" dataKey={key} dot={false} />
+                {rxCharts.lineModels.map((m, idx) => (
+                  <Line key={m} type="monotone" dataKey={m} stroke={chartColors[idx % chartColors.length]} strokeWidth={2} dot={false} />
                 ))}
               </LineChart>
             </ResponsiveContainer>
           </div>
-          <div className="text-xs text-gray-500 mt-1">Top 6 models shown; others are grouped as OTHER.</div>
+          <div className="text-[10px] text-gray-500 mt-1">Top 6 models shown; others are grouped as OTHER.</div>
         </div>
       </div>
 
-      /* Reallocation Requests List */
       <div className="bg-white rounded-lg shadow-sm p-4">
         <div className="flex justify-between items-center mb-4">
           <h3 className="text-lg font-semibold text-gray-700">Reallocation Requests</h3>
