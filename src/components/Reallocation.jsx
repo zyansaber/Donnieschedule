@@ -1,4 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend, LineChart, Line, XAxis, YAxis, CartesianGrid } from 'recharts';
+
+// Chart color palette
+const chartColors = ['#2563eb','#16a34a','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#10b981','#f97316','#64748b','#d946ef'];
 import { ref, set, get, push } from 'firebase/database';
 import { getDatabase } from 'firebase/database';
 import { collection, addDoc, getDocs } from "firebase/firestore";
@@ -59,7 +63,7 @@ const Reallocation = ({ data }) => {
     };
     const getMonday = (d) => {
       const dt = new Date(d);
-      const day = dt.getDay(); // 0 Sun .. 6 Sat
+      const day = dt.getDay();
       const diff = (day === 0 ? -6 : 1) - day;
       dt.setDate(dt.getDate() + diff);
       dt.setHours(0,0,0,0);
@@ -705,8 +709,62 @@ const Reallocation = ({ data }) => {
         </div>
       </div>
 
-      {/* Reallocation Requests List */}
-      <div className="bg-white rounded-lg shadow-sm p-4">
+      {/* Reallocation Requests List */
+      
+      {/* ===== Charts Section ===== */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+        {/* Pie Chart by Model */}
+        <div className="bg-white rounded-lg shadow p-4">
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="text-sm font-semibold text-gray-700">Active Vans by Model (Snowy Stock)</h4>
+            <div className="text-xs text-gray-500">Total: {rxCharts.totalActive}</div>
+          </div>
+          <div style={{ width: '100%', height: 280 }}>
+            <ResponsiveContainer>
+              <PieChart>
+                <Pie
+                  data={rxCharts.pieData}
+                  dataKey="count"
+                  nameKey="model"
+                  cx="50%"
+                  cy="50%"
+                  outerRadius={110}
+                  labelLine={false}
+                  label={({ percent, count }) => (percent > 0.1 ? `${count}` : '')}
+                >
+                  {rxCharts.pieData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={chartColors[index % chartColors.length]} />
+                  ))}
+                </Pie>
+                <Tooltip formatter={(value) => [String(value), 'Count']} />
+                <Legend />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Line Chart Trend by Model */}
+        <div className="bg-white rounded-lg shadow p-4">
+          <h4 className="text-sm font-semibold text-gray-700 mb-2">Reallocation Trend (Last 10 Weeks)</h4>
+          <div style={{ width: '100%', height: 280 }}>
+            <ResponsiveContainer>
+              <LineChart data={rxCharts.lineData} margin={{ top: 10, right: 10, bottom: 0, left: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="week" />
+                <YAxis allowDecimals={false} />
+                <Tooltip />
+                <Legend />
+                {rxCharts.lineModels.map((m, idx) => (
+                  <Line key={m} type="monotone" dataKey={m} stroke={chartColors[idx % chartColors.length]} strokeWidth={2} dot={false} />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="text-[10px] text-gray-500 mt-1">Top 6 models shown; others are grouped as OTHER.</div>
+        </div>
+      </div>
+
+<div className="bg-white rounded-lg shadow-sm p-4">
         <div className="flex justify-between items-center mb-4">
           <h3 className="text-lg font-semibold text-gray-700">Reallocation Requests</h3>
           <div className="flex gap-2">
