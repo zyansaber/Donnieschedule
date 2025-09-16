@@ -323,14 +323,15 @@ const Reallocation = ({ data }) => {
 
     try {
       const promises = validRows.map(async (row) => {
-        const chassis = row.chassisNumber || 'Unknown';
-        const dealer = row.selectedDealer || 'Unknown';
+        const chassis = row.chassisNumber || '';
+        const dealer = row.selectedDealer || '';
         const currentVan = row.currentVanInfo || {};
+        const dealerOri = currentVan.Dealer || '';
 
         // Realtime DB data
         const reallocationData = {
           status: currentVan['Regent Production'] || 'Unknown',
-          originalDealer: currentVan.Dealer || 'Unknown',
+          originalDealer: dealerOri,
           reallocatedTo: dealer,
           submitTime: getMelbourneTime(),
           model: currentVan.Model || '',
@@ -342,15 +343,14 @@ const Reallocation = ({ data }) => {
         const reallocationRef = ref(database, `reallocation/${chassis}`);
         const newRequestRef = push(reallocationRef);
         await set(newRequestRef, reallocationData);
-        console.log("11111")
 
         // Queue email in Firestore
         await addDoc(collection(firestoreDB, "reallocation_mail"), {
           to: ["darin@regentrv.com.au", "planning@regentrv.com.au", "marg@regentrv.com.au"],
           message: {
             subject: `New Reallocation Request: Chassis ${chassis}`,
-            text: `Chassis number ${chassis} has been requested to dealer ${dealer}.`,
-            html: `Chassis number <strong>${chassis}</strong> has been requested to dealer <strong>${dealer}</strong>.`,
+            text: `Chassis number ${chassis} has been requested for dealer ${dealer}.`,
+            html: `Chassis number <strong>${chassis}</strong> has been reallocated from dealer <strong>${dealerOri}</strong> to dealer <strong>${dealer}</strong>.`,
           },
         });
 
