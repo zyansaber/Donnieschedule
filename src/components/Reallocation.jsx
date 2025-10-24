@@ -498,29 +498,6 @@ const Reallocation = ({ data }) => {
     document.body.removeChild(link);
   };
 
-  const chassisColorMap = {};
-  const getChassisColor = (chassis) => { 
-    if (!chassis) return '';
-  
-    if (!chassisColorMap[chassis]) {
-      // Generate a deterministic hue based on chassis string
-      let hash = 0;
-      for (let i = 0; i < chassis.length; i++) {
-        hash = chassis.charCodeAt(i) + ((hash << 5) - hash);
-      }
-      const hue = Math.abs(hash) % 360;
-      chassisColorMap[chassis] = `hsl(${hue}, 70%, 90%)`;
-    }
-  
-    return chassisColorMap[chassis];
-  };
-
-  const chassisCount = {};
-    filteredRequests.forEach(req => {
-      const ch = req.chassisNumber;
-      if (ch) chassisCount[ch] = (chassisCount[ch] || 0) + 1;
-    });
-
   return (
     <div className="p-4 max-w-7xl mx-auto">
       <h2 className="text-2xl font-semibold mb-4 text-gray-800">Dealer Reallocation</h2>
@@ -834,9 +811,7 @@ const Reallocation = ({ data }) => {
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {filteredRequests.map((request, index) => {
-                  const rowBgColor = chassisCount[request.chassisNumber] > 1
-                    ? getChassisColor(request.chassisNumber)
-                    : 'white';
+                  const rowBgColor = 'white';
                   return (
                     <tr key={index} style={{ backgroundColor: rowBgColor }}>
                       <td className="px-4 py-2 text-sm text-black font-bold">
