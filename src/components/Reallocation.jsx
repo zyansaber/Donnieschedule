@@ -437,7 +437,7 @@ const Reallocation = ({ data }) => {
 
       // Queue completion email in Firestore
       await addDoc(collection(firestoreDB, "reallocation_mail"), {
-        to: ["planning@regentrv.com.au","darin@regentrv.com.au", "accounts.receivable@regentrv.com.au", "Ashley@regentrv.com.au","karena@regentrv.com.au"],
+        to: ["planning@regentrv.com.au","Ryan.Hogan@regentrv.com.au", "accounts.receivable@regentrv.com.au", "michaele@regentrv.com.au","karena@regentrv.com.au"],
         message: {
           subject: `New Issue: Chassis ${chassisNumber}`,
           html: `Chassis number <strong>${chassisNumber}</strong> has been marked as <strong>${issueType}</strong>.`,
