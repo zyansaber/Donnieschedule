@@ -23,6 +23,7 @@ const Reallocation = ({ data }) => {
   const [reallocationRequests, setReallocationRequests] = useState([]);
   const [loading, setLoading] = useState(false);
   const [globalMessage, setGlobalMessage] = useState('');
+  const [trendFilter, setTrendFilter] = useState('all'); // 'all' | 'snowy'
   // ====== Charts Data (Snowy Stock not finished + Prefix distribution + 10-week trend) ======
   const getPrefix = (ch) => {
     if (!ch) return 'UNK';
@@ -83,9 +84,15 @@ const Reallocation = ({ data }) => {
     cur = new Date(cur); cur.setDate(cur.getDate() - 7);
   }
 
+  const trendFilteredRequests = (reallocationRequests || []).filter(req => {
+    if (trendFilter !== 'snowy') return true;
+    const origin = (req?.originalDealer || '').trim().toLowerCase();
+    return origin === 'snowy stock';
+  });
+
   // Aggregate counts per prefix
   const prefixWeekCounts = {}; // {prefix: {label: count}}
-  (reallocationRequests || []).forEach(req => {
+  trendFilteredRequests.forEach(req => {
     const dt = parseSubmitToDate(req?.submitTime);
     if (!dt) return;
     // map to the week bucket by finding the week whose start <= dt < start+7d
@@ -733,7 +740,19 @@ const Reallocation = ({ data }) => {
 
         {/* Line: last 10 weeks trend by prefix */}
         <div className="bg-white rounded-lg shadow-sm p-4">
-          <h3 className="text-base font-semibold mb-2">Reallocation Trend (Last 10 Weeks)</h3>
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <h3 className="text-base font-semibold">Reallocation Trend (Last 10 Weeks)</h3>
+            <button
+              onClick={() => setTrendFilter(trendFilter === 'snowy' ? 'all' : 'snowy')}
+              className={`px-3 py-1 rounded text-sm ${
+                trendFilter === 'snowy'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+            >
+              {trendFilter === 'snowy' ? 'Showing Snowy Stock' : 'Show Snowy Stock Only'}
+            </button>
+          </div>
           <div style={{ width: '100%', height: 260 }}>
             <ResponsiveContainer>
               <LineChart data={trendData} margin={{ top: 10, right: 10, bottom: 0, left: 0 }}>
@@ -748,7 +767,11 @@ const Reallocation = ({ data }) => {
               </LineChart>
             </ResponsiveContainer>
           </div>
-          <div className="text-xs text-gray-500 mt-1">Top 6 models shown; others are grouped as OTHER.</div>
+          <div className="text-xs text-gray-500 mt-1">
+            {trendFilter === 'snowy'
+              ? 'Displaying reallocation requests originating from Snowy Stock only. Top 6 models shown; others are grouped as OTHER.'
+              : 'Top 6 models shown; others are grouped as OTHER.'}
+          </div>
         </div>
       </div>
 
