@@ -175,7 +175,6 @@ const StockLevelAnalysis = ({ data }) => {
           if (!estimateDates[dateStr]) {
             estimateDates[dateStr] = 0;
           }
-          }
           estimateDates[dateStr]++;
         }
       }
