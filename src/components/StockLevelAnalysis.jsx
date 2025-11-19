@@ -24,45 +24,89 @@ const StockLevelAnalysis = ({ data }) => {
   // Get today's date
   const today = new Date();
 
-  // Filter calendar data to only show dates from today onwards
+  // Filter calendar data to only show valid daily entries from today onwards (for stock trend)
   const getFilteredCalendarData = () => {
+    if (!calendarData) return {};
+
     const filteredData = {};
     const todayStr = today.toISOString().split('T')[0]; // YYYY-MM-DD format
-    
+
     Object.entries(calendarData).forEach(([dateStr, quantity]) => {
-      if (dateStr >= todayStr) {
+      const isFullDate = /^\d{4}-\d{2}-\d{2}$/.test(dateStr);
+
+      if (isFullDate && dateStr >= todayStr) {
         filteredData[dateStr] = quantity;
       }
     });
-    
+
     return filteredData;
   };
 
-  // Group calendar dates by month and calculate monthly totals
-  const getMonthlyCalendarData = () => {
-    const filteredCalendar = getFilteredCalendarData();
+  // Helper to parse DD/MM/YYYY strings to Date objects
+  const parseScheduleDate = (dateString) => {
+    if (!dateString) return null;
+
+    const parts = dateString.split('/');
+    if (parts.length !== 3) return null;
+
+    const [day, month, year] = parts.map((value) => value.padStart(2, '0'));
+    const parsedDate = new Date(`${year}-${month}-${day}T00:00:00`);
+
+    return Number.isNaN(parsedDate.getTime()) ? null : parsedDate;
+  };
+
+  // Safely read working day counts from the calendar dataset
+  const getWorkingDaysForMonth = (monthKey) => {
+    const monthEntry = calendarData?.[monthKey];
+
+    if (typeof monthEntry === 'number') {
+      return monthEntry;
+    }
+
+    if (monthEntry && typeof monthEntry === 'object') {
+      return monthEntry.workingDays || monthEntry.workDays || 0;
+    }
+
+    return 0;
+  };
+
+  // Build production counts per month and per week directly from schedule data
+  const getMonthlyProductionData = () => {
+    if (!data || data.length === 0) return {};
+
     const monthlyData = {};
-    
-    Object.entries(filteredCalendar).forEach(([dateStr, quantity]) => {
-      const [year, month] = dateStr.split('-');
+
+    data.forEach((item) => {
+      const forecastDate = parseScheduleDate(item["Forecast Production Date"]);
+      if (!forecastDate) return;
+
+      const year = forecastDate.getFullYear();
+      const month = String(forecastDate.getMonth() + 1).padStart(2, '0');
+      const day = forecastDate.getDate();
       const monthKey = `${year}-${month}`;
-      const monthName = new Date(year, month - 1, 1).toLocaleDateString('en-US', { 
-        month: 'long', 
-        year: 'numeric' 
+      const monthName = new Date(year, forecastDate.getMonth(), 1).toLocaleDateString('en-US', {
+        month: 'long',
+        year: 'numeric'
       });
-      
+
+      // Calculate week-of-month (1-based) to surface weekly production volume
+      const monthStartDay = new Date(year, forecastDate.getMonth(), 1).getDay();
+      const weekInMonth = Math.ceil((day + monthStartDay) / 7);
+
       if (!monthlyData[monthKey]) {
         monthlyData[monthKey] = {
           monthName,
-          dateCount: 0,
-          total: 0
+          total: 0,
+          workingDays: getWorkingDaysForMonth(monthKey),
+          weeklyBreakdown: {}
         };
       }
-      
-      monthlyData[monthKey].dateCount++;
-      monthlyData[monthKey].total += quantity;
+
+      monthlyData[monthKey].total += 1;
+      monthlyData[monthKey].weeklyBreakdown[weekInMonth] =
+        (monthlyData[monthKey].weeklyBreakdown[weekInMonth] || 0) + 1;
     });
-    
+
     return monthlyData;
   };
 
@@ -105,7 +149,7 @@ const StockLevelAnalysis = ({ data }) => {
     if (!data) return [];
     
     const filteredCalendar = getFilteredCalendarData();
-    
+
     // Get estimate date data from actual schedule data
     const estimateDates = {};
     let maxEstimateDate = new Date(today);
@@ -130,6 +174,7 @@ const StockLevelAnalysis = ({ data }) => {
           
           if (!estimateDates[dateStr]) {
             estimateDates[dateStr] = 0;
+          }
           }
           estimateDates[dateStr]++;
         }
@@ -239,7 +284,7 @@ const StockLevelAnalysis = ({ data }) => {
     })).sort((a, b) => a.date.localeCompare(b.date));
   };
 
-  const monthlyCalendarData = getMonthlyCalendarData();
+  const monthlyProductionData = getMonthlyProductionData();
   const combinedChartData = getCombinedChartData();
   const vanOnSeaData = getVanOnSeaData();
 
@@ -255,19 +300,19 @@ const StockLevelAnalysis = ({ data }) => {
     <div className="p-6 space-y-8">
       <h1 className="text-2xl font-bold text-gray-900 mb-6">Stock Level Analysis</h1>
       
-      {/* Monthly Calendar Data - showing each day and monthly totals */}
+      {/* Monthly production by schedule, reconciled with calendar working days */}
       <div className="bg-white rounded-lg shadow-md p-6">
         <h2 className="text-xl font-semibold text-gray-800 mb-4">
-          Calendar Data (From Today Onwards)
+          Monthly Production (Schedule vs Working Days)
         </h2>
-        
-        {Object.keys(monthlyCalendarData).length === 0 ? (
+
+        {Object.keys(monthlyProductionData).length === 0 ? (
           <div className="text-center text-gray-500 py-8">
-            No calendar data available for future dates
+            No production data available
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {Object.entries(monthlyCalendarData)
+            {Object.entries(monthlyProductionData)
               .sort(([a], [b]) => a.localeCompare(b))
               .map(([monthKey, monthData]) => (
                 <div key={monthKey} className="bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200 rounded-lg p-6 text-center">
@@ -283,14 +328,27 @@ const StockLevelAnalysis = ({ data }) => {
                     <div className="bg-white rounded-lg p-3">
                       <div className="text-sm text-gray-600">Daily Average</div>
                       <div className="text-xl font-bold text-green-600">
-                        {(monthData.total / monthData.dateCount).toFixed(1)}
+                        {monthData.workingDays > 0 ? (monthData.total / monthData.workingDays).toFixed(1) : '0.0'}
                       </div>
                       <div className="text-xs text-gray-500">units per day</div>
                     </div>
                     <div className="bg-white rounded-lg p-3">
-                      <div className="text-sm text-gray-600">Total Days</div>
-                      <div className="text-lg font-bold text-purple-600">{monthData.dateCount}</div>
-                      <div className="text-xs text-gray-500">delivery days</div>
+                      <div className="text-sm text-gray-600">Working Days (Calendar)</div>
+                      <div className="text-lg font-bold text-purple-600">{monthData.workingDays || 0}</div>
+                      <div className="text-xs text-gray-500">days available</div>
+                    </div>
+                    <div className="bg-white rounded-lg p-3 text-left">
+                      <div className="text-sm text-gray-600 mb-1">Weekly Breakdown</div>
+                      <ul className="space-y-1">
+                        {Object.entries(monthData.weeklyBreakdown)
+                          .sort(([weekA], [weekB]) => Number(weekA) - Number(weekB))
+                          .map(([week, count]) => (
+                            <li key={week} className="flex items-center justify-between text-sm">
+                              <span className="text-gray-600">Week {week}</span>
+                              <span className="font-semibold text-blue-700">{count}</span>
+                            </li>
+                          ))}
+                      </ul>
                     </div>
                   </div>
                 </div>
