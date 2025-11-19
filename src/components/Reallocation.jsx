@@ -9,15 +9,14 @@ import { collection, addDoc, getDocs } from "firebase/firestore";
 import { getFirestore } from "firebase/firestore";
 import { database, firestoreDB } from '../utils/firebase';
 
-
-
 const Reallocation = ({ data }) => {
-  const [reallocationRows, setReallocationRows] = useState([{ 
-    id: 1, 
-    chassisNumber: '', 
-    currentVanInfo: null, 
-    selectedDealer: '', 
-    message: '' 
+  const [reallocationRows, setReallocationRows] = useState([{
+    id: 1,
+    chassisNumber: '',
+    currentVanInfo: null,
+    selectedDealer: '',
+    message: '',
+    historyInfo: null
   }]);
   const [allDealers, setAllDealers] = useState([]);
   const [reallocationRequests, setReallocationRequests] = useState([]);
@@ -133,6 +132,13 @@ const Reallocation = ({ data }) => {
   const [stats, setStats] = useState({ totalPending: 0, totalDone: 0, dealerStats: {} });
   const [showFilter, setShowFilter] = useState('all'); // 'all', 'pending', 'done'
 
+  const chassisRequestCounts = reallocationRequests.reduce((acc, req) => {
+    const key = (req?.chassisNumber || '').toLowerCase();
+    if (!key) return acc;
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+  
   const dealerEntries = Object.entries(stats.dealerStats || {}).map(([dealer, counts]) => ({
     dealer,
     counts,
@@ -255,7 +261,7 @@ const Reallocation = ({ data }) => {
       if (row.id === rowId) {
         if (chassis) {
           // Find van information from data
-          const vanInfo = data.find(item => 
+          const vanInfo = data.find(item =>
             item.Chassis && item.Chassis.toLowerCase() === chassis.toLowerCase()
           );
           
@@ -266,13 +272,25 @@ const Reallocation = ({ data }) => {
             if (signedPlansReceived.toLowerCase() === 'no') {
               message = "⚠️ The van isn't signed, please sign off or cancel to reorder";
             }
+
+            const historyMatches = reallocationRequests.filter(req =>
+              (req?.chassisNumber || '').toLowerCase() === chassis.toLowerCase()
+            );
+            const historyInfo = historyMatches.length
+              ? {
+                  count: historyMatches.length,
+                  lastDealer: historyMatches[0]?.reallocatedTo || 'N/A',
+                  lastSubmitTime: historyMatches[0]?.submitTime || 'Unknown'
+                }
+              : null;
             
             return {
               ...row,
               chassisNumber: chassis,
               currentVanInfo: vanInfo,
               selectedDealer: '',
-              message
+              message,
+              historyInfo
             };
           } else {
             return {
@@ -280,7 +298,8 @@ const Reallocation = ({ data }) => {
               chassisNumber: chassis,
               currentVanInfo: null,
               selectedDealer: '',
-              message: 'Chassis number not found'
+              message: 'Chassis number not found',
+              historyInfo: null
             };
           }
         } else {
@@ -289,7 +308,8 @@ const Reallocation = ({ data }) => {
             chassisNumber: chassis,
             currentVanInfo: null,
             selectedDealer: '',
-            message: ''
+            message: '',
+            historyInfo: null
           };
         }
       }
@@ -310,12 +330,13 @@ const Reallocation = ({ data }) => {
 
   const addRow = () => {
     const newId = Math.max(...reallocationRows.map(r => r.id)) + 1;
-    setReallocationRows([...reallocationRows, { 
-      id: newId, 
-      chassisNumber: '', 
-      currentVanInfo: null, 
-      selectedDealer: '', 
-      message: '' 
+    setReallocationRows([...reallocationRows, {
+      id: newId,
+      chassisNumber: '',
+      currentVanInfo: null,
+      selectedDealer: '',
+      message: '',
+      historyInfo: null
     }]);
   };
 
@@ -394,7 +415,8 @@ const Reallocation = ({ data }) => {
         chassisNumber: '',
         currentVanInfo: null,
         selectedDealer: '',
-        message: ''
+        message: '',
+        historyInfo: null
       }]);
 
       // Reload requests
@@ -666,17 +688,29 @@ const Reallocation = ({ data }) => {
               </div>
 
               {/* Row Messages */}
-              {row.message && (
-                <div className={`mt-2 text-xs ${
-                  row.message.includes('Error') || row.message.includes('not found') 
-                    ? 'text-red-600' 
-                    : row.message.includes("isn't signed")
-                    ? 'text-orange-600 font-medium'
-                    : 'text-green-600'
-                }`}>
-                  {row.message}
-                </div>
-              )}
+                {row.message && (
+                  <div className={`mt-2 text-xs ${
+                    row.message.includes('Error') || row.message.includes('not found')
+                      ? 'text-red-600'
+                      : row.message.includes("isn't signed")
+                      ? 'text-orange-600 font-medium'
+                      : 'text-green-600'
+                  }`}>
+                    {row.message}
+                  </div>
+                )}
+
+                {row.historyInfo && (
+                  <div className="mt-2 flex items-center gap-3 bg-blue-50 border border-blue-100 rounded-md px-3 py-2 shadow-inner">
+                    <div className="flex items-center justify-center w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-white font-semibold shadow">
+                      ×{row.historyInfo.count}
+                    </div>
+                    <div className="text-xs text-blue-900 space-y-0.5">
+                      <div className="font-semibold">Previously reallocated {row.historyInfo.count} {row.historyInfo.count === 1 ? 'time' : 'times'}</div>
+                      <div className="text-[11px] text-blue-800/80">Last to <span className="font-semibold">{row.historyInfo.lastDealer}</span> on {row.historyInfo.lastSubmitTime}</div>
+                    </div>
+                  </div>
+                )}
 
               {getRowStatus(row) && (
                 <div className={`mt-2 text-xs ${
@@ -855,11 +889,19 @@ const Reallocation = ({ data }) => {
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {filteredRequests.map((request, index) => {
+                  const chassisCount = chassisRequestCounts[(request.chassisNumber || '').toLowerCase()] || 0;
                   const rowBgColor = 'white';
                   return (
                     <tr key={index} style={{ backgroundColor: rowBgColor }}>
                       <td className="px-4 py-2 text-sm text-black font-bold">
-                        {request.chassisNumber}
+                        <div className="flex items-center gap-2">
+                          <span>{request.chassisNumber}</span>
+                          {chassisCount > 0 && (
+                            <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 text-white text-[11px] font-semibold shadow-md" title={`Submitted ${chassisCount} ${chassisCount === 1 ? 'time' : 'times'} in total`}>
+                              ×{chassisCount}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-4 py-2 text-sm text-gray-500">
                         {request.originalDealer}
