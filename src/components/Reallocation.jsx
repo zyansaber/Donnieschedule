@@ -149,6 +149,21 @@ const Reallocation = ({ data }) => {
     .sort((a, b) => b.total - a.total || a.dealer.localeCompare(b.dealer))
     .slice(0, 8);
 
+const repetitionBadgeStyles = {
+    2: 'from-blue-500 to-indigo-600 shadow-blue-200/80 text-white',
+    3: 'from-emerald-500 to-teal-600 shadow-emerald-200/80 text-white',
+    4: 'from-amber-500 to-orange-600 shadow-amber-200/80 text-white',
+    5: 'from-rose-500 to-pink-600 shadow-rose-200/80 text-white',
+    6: 'from-purple-500 to-fuchsia-600 shadow-purple-200/80 text-white',
+  };
+
+  const getRepetitionBadgeClass = (count) => {
+    if (count <= 1) return '';
+    const base = 'inline-flex items-center justify-center w-7 h-7 rounded-full bg-gradient-to-br text-[11px] font-semibold shadow-md border border-white';
+    return `${base} ${repetitionBadgeStyles[count] || 'from-slate-500 to-slate-700 shadow-slate-200/80 text-white'}`;
+  };
+
+
   const maxMovementValue = topDealerEntries.reduce(
     (max, entry) => Math.max(max, entry.counts?.moved_from || 0, entry.counts?.moved_to || 0),
     0
@@ -283,7 +298,7 @@ const Reallocation = ({ data }) => {
                   lastSubmitTime: historyMatches[0]?.submitTime || 'Unknown'
                 }
               : null;
-            
+
             return {
               ...row,
               chassisNumber: chassis,
@@ -736,6 +751,7 @@ const Reallocation = ({ data }) => {
                 : 'bg-gray-400 text-gray-200 cursor-not-allowed'
             }`}
           >
+
             {loading ? 'Submitting...' : 'Submit All Requests'}
           </button>
           
@@ -896,8 +912,11 @@ const Reallocation = ({ data }) => {
                       <td className="px-4 py-2 text-sm text-black font-bold">
                         <div className="flex items-center gap-2">
                           <span>{request.chassisNumber}</span>
-                          {chassisCount > 0 && (
-                            <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 text-white text-[11px] font-semibold shadow-md" title={`Submitted ${chassisCount} ${chassisCount === 1 ? 'time' : 'times'} in total`}>
+                          {chassisCount > 1 && (
+                            <span
+                              className={getRepetitionBadgeClass(chassisCount)}
+                              title={`Submitted ${chassisCount} ${chassisCount === 1 ? 'time' : 'times'} in total`}
+                            >
                               ×{chassisCount}
                             </span>
                           )}
