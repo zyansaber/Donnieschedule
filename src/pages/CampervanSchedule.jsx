@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { ref, set } from 'firebase/database';
 import { database } from '../utils/firebase';
 
@@ -99,8 +99,9 @@ const normalizeHeader = (value) => value.toLowerCase().replace(/[^a-z0-9]/g, '')
 
 const CampervanSchedule = () => {
   const [rows, setRows] = useState([emptyRow(1)]);
+  const [searchTerm, setSearchTerm] = useState('');
   const [statusMessage, setStatusMessage] = useState('');
-  const [isUploading, setIsUploading] = useState(false);
+  const saveTimersRef = useRef({});
 
   const headerMap = useMemo(() => {
     const mapping = {};
@@ -122,11 +123,34 @@ const CampervanSchedule = () => {
     };
   };
 
+  const scheduleRowSave = (row) => {
+    const rowNumber = row.rowNumber;
+    if (!rowNumber) return;
+    const payload = recalcRow(row);
+
+    if (saveTimersRef.current[rowNumber]) {
+      clearTimeout(saveTimersRef.current[rowNumber]);
+    }
+
+    saveTimersRef.current[rowNumber] = setTimeout(async () => {
+      try {
+        const rowRef = ref(database, `campervanSchedule/${rowNumber}`);
+        await set(rowRef, payload);
+        setStatusMessage(`Row ${rowNumber} saved to Firebase.`);
+      } catch (error) {
+        console.error('Failed to save campervan schedule row:', error);
+        setStatusMessage(`Row ${rowNumber} failed to save.`);
+      }
+    }, 600);
+  };
+
   const updateRow = (index, key, value) => {
     setRows((prev) => {
       const next = [...prev];
       const updated = { ...next[index], [key]: value };
-      next[index] = recalcRow(updated);
+      const recalculated = recalcRow(updated);
+      next[index] = recalculated;
+      scheduleRowSave(recalculated);
       return next;
     });
   };
@@ -136,27 +160,13 @@ const CampervanSchedule = () => {
   };
 
   const removeRow = (index) => {
-    setRows((prev) => prev.filter((_, idx) => idx !== index));
-  };
-
-  const handleUpload = async () => {
-    setStatusMessage('');
-    setIsUploading(true);
-    try {
-      const updates = rows.map((row, index) => {
-        const rowNumber = row.rowNumber || index + 1;
-        const payload = recalcRow({ ...row, rowNumber });
-        const rowRef = ref(database, `campervanSchedule/${rowNumber}`);
-        return set(rowRef, payload);
-      });
-      await Promise.all(updates);
-      setStatusMessage('Upload completed. Data saved to Firebase.');
-    } catch (error) {
-      console.error('Failed to upload campervan schedule data:', error);
-      setStatusMessage('Upload failed. Please try again.');
-    } finally {
-      setIsUploading(false);
-    }
+    setRows((prev) => {
+      const rowNumber = prev[index]?.rowNumber;
+      if (rowNumber && saveTimersRef.current[rowNumber]) {
+        clearTimeout(saveTimersRef.current[rowNumber]);
+      }
+      return prev.filter((_, idx) => idx !== index);
+    });
   };
 
   const parseCsvLine = (line) => {
@@ -208,10 +218,80 @@ const CampervanSchedule = () => {
         return recalcRow(row);
       });
 
-      setRows(nextRows.length ? nextRows : [emptyRow(1)]);
+      const fallbackRows = nextRows.length ? nextRows : [emptyRow(1)];
+      setRows(fallbackRows);
+      fallbackRows.forEach((row) => scheduleRowSave(row));
     };
     reader.readAsText(file);
   };
+
+  const handleTemplateDownload = () => {
+    const headers = columns.map((column) => column.label);
+    const sampleRow = [
+      '2025-02-15',
+      'Scheduled',
+      'CHS-001',
+      'VIN-001',
+      'Campervan',
+      'Model X',
+      'Sample Dealer',
+      'Sample Customer',
+      '',
+      '2024-08-19',
+      '2024-09-01',
+      '',
+      '2024-12-17',
+      '2025-01-05',
+      '',
+      '2024-11-17',
+      '2024-12-05',
+      '2024-10-01',
+      '2025-02-10',
+      '2025-02-01',
+      '2025-02-14',
+      '',
+    ];
+
+    const escapeValue = (value) => {
+      if (value == null) return '';
+      const stringValue = String(value);
+      if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n')) {
+        return `"${stringValue.replace(/"/g, '""')}"`;
+      }
+      return stringValue;
+    };
+
+    const csvContent = [headers, sampleRow]
+      .map((row) => row.map(escapeValue).join(','))
+      .join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'campervan-schedule-template.csv';
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const filteredRows = useMemo(() => {
+    if (!searchTerm.trim()) {
+      return rows.map((row, index) => ({ row, index }));
+    }
+    const term = searchTerm.toLowerCase();
+    return rows
+      .map((row, index) => ({ row, index }))
+      .filter(({ row }) => {
+        const rowText = [
+          row.rowNumber,
+          ...columns.map((column) => row[column.key]),
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        return rowText.includes(term);
+      });
+  }, [rows, searchTerm]);
 
   return (
     <div className="space-y-6">
@@ -220,10 +300,17 @@ const CampervanSchedule = () => {
           <div>
             <h2 className="text-xl font-semibold text-gray-800">Campervan Schedule</h2>
             <p className="text-sm text-gray-500">
-              Fill in the table and upload rows to Firebase using the row number as the identifier.
+              Fill in the table to auto-save rows to Firebase using the row number as the identifier.
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={handleTemplateDownload}
+              className="px-3 py-2 border border-gray-300 text-gray-700 text-sm rounded-md bg-white hover:bg-gray-50"
+            >
+              Download Template
+            </button>
             <label className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-600 bg-white cursor-pointer hover:bg-gray-50">
               Upload CSV
               <input type="file" accept=".csv" className="hidden" onChange={handleCsvUpload} />
@@ -235,14 +322,20 @@ const CampervanSchedule = () => {
             >
               Add Row
             </button>
-            <button
-              type="button"
-              onClick={handleUpload}
-              disabled={isUploading}
-              className="px-3 py-2 bg-emerald-600 text-white text-sm rounded-md hover:bg-emerald-700 disabled:opacity-60"
-            >
-              {isUploading ? 'Uploading...' : 'Upload to Firebase'}
-            </button>
+          </div>
+        </div>
+        <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="flex-1">
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+              placeholder="Search all rows..."
+              className="w-full md:max-w-md rounded-md border border-gray-300 px-3 py-2 text-sm"
+            />
+          </div>
+          <div className="text-xs text-gray-500">
+            Showing {filteredRows.length} of {rows.length} rows
           </div>
         </div>
         {statusMessage && (
@@ -266,7 +359,7 @@ const CampervanSchedule = () => {
             </tr>
           </thead>
           <tbody>
-            {rows.map((row, index) => (
+            {filteredRows.map(({ row, index }) => (
               <tr key={row.rowNumber} className="border-b last:border-none">
                 <td className="px-3 py-2 sticky left-0 bg-white z-10 font-semibold text-gray-600">
                   {row.rowNumber}
