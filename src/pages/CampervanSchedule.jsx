@@ -135,6 +135,9 @@ const CampervanSchedule = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusMessage, setStatusMessage] = useState('');
   const saveTimersRef = useRef({});
+  const [scrollWidth, setScrollWidth] = useState(0);
+  const topScrollRef = useRef(null);
+  const tableScrollRef = useRef(null);
 
   const headerMap = useMemo(() => {
     const mapping = {};
@@ -195,6 +198,18 @@ const CampervanSchedule = () => {
 
     loadRows();
   }, []);
+
+  const handleTopScroll = () => {
+    if (topScrollRef.current && tableScrollRef.current) {
+      tableScrollRef.current.scrollLeft = topScrollRef.current.scrollLeft;
+    }
+  };
+
+  const handleTableScroll = () => {
+    if (topScrollRef.current && tableScrollRef.current) {
+      topScrollRef.current.scrollLeft = tableScrollRef.current.scrollLeft;
+    }
+  };
 
   const scheduleRowSave = (row) => {
     const rowNumber = row.rowNumber;
@@ -366,6 +381,12 @@ const CampervanSchedule = () => {
       });
   }, [rows, searchTerm]);
 
+  useEffect(() => {
+    if (tableScrollRef.current) {
+      setScrollWidth(tableScrollRef.current.scrollWidth);
+    }
+  }, [filteredRows.length]);
+
   return (
     <div className="space-y-6">
       <div className="bg-white shadow rounded-lg p-4">
@@ -418,8 +439,18 @@ const CampervanSchedule = () => {
         )}
       </div>
 
-      <div className="bg-white shadow rounded-lg overflow-auto">
+      <div className="bg-white shadow rounded-lg overflow-hidden">
         <div
+          ref={topScrollRef}
+          onScroll={handleTopScroll}
+          className="overflow-x-scroll overflow-y-hidden"
+          style={{ scrollbarGutter: 'stable both-edges' }}
+        >
+          <div style={{ width: scrollWidth || '100%' }} className="h-4" />
+        </div>
+        <div
+          ref={tableScrollRef}
+          onScroll={handleTableScroll}
           className="min-w-full overflow-x-scroll overflow-y-visible"
           style={{ scrollbarGutter: 'stable both-edges' }}
         >
