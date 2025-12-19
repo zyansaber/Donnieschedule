@@ -111,6 +111,7 @@ function App() {
               </>
             )}
             {activeView === 'reallocation' && <Reallocation data={scheduleData} />}
+            {activeView === 'campervan-schedule' && <CampervanSchedule />}
           </>
         )}
       </main>
