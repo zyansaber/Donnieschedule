@@ -193,21 +193,21 @@ const InternalSnowyPage = () => {
 
   useEffect(() => {
     const r = ref(database, "yardstock");
-    const handler = (snap: any) => setYardstockAll(snap?.exists() ? snap.val() || {} : {});
+    const handler = (snap) => setYardstockAll(snap?.exists() ? snap.val() || {} : {});
     onValue(r, handler);
     return () => off(r, "value", handler);
   }, []);
 
   useEffect(() => {
     const r = ref(database, "handover");
-    const handler = (snap: any) => setHandoverAll(snap?.exists() ? snap.val() || {} : {});
+    const handler = (snap) => setHandoverAll(snap?.exists() ? snap.val() || {} : {});
     onValue(r, handler);
     return () => off(r, "value", handler);
   }, []);
 
   useEffect(() => {
     const r = ref(database, "internalSnowy/hiddenDealers");
-    const handler = (snap: any) => setHiddenSlugs(snap?.exists() ? snap.val() || [] : []);
+    const handler = (snap) => setHiddenSlugs(snap?.exists() ? snap.val() || [] : []);
     onValue(r, handler);
     return () => off(r, "value", handler);
   }, []);
