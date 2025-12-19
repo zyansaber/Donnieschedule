@@ -5,7 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { X } from "lucide-react";
+const XIcon = (props) => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" {...props}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+  </svg>
+);
 import { Line, LineChart, ResponsiveContainer, Tooltip as RechartsTooltip, XAxis, YAxis } from "recharts";
 import { database, subscribeAllDealerConfigs, subscribeToPGIRecords } from "@/lib/firebase";
 import { off, onValue, ref, set } from "firebase/database";
@@ -389,7 +393,7 @@ const InternalSnowyPage = () => {
               <Badge key={item.slug} variant="secondary" className="flex items-center gap-1">
                 {item.name}
                 <button type="button" onClick={() => updateHidden(hiddenSlugs.filter((s) => s !== item.slug))}>
-                  <X className="h-3 w-3" />
+                  <XIcon className="h-3 w-3" />
                 </button>
               </Badge>
             ))}
@@ -408,7 +412,7 @@ const InternalSnowyPage = () => {
                 className="absolute right-2 top-2 rounded-md p-1 text-slate-500 hover:bg-slate-100"
                 onClick={() => updateHidden([...hiddenSlugs, dealer.slug])}
               >
-                <X className="h-4 w-4" />
+                <XIcon className="h-4 w-4" />
               </button>
               <CardHeader className="pb-2">
                 <CardTitle className="text-lg text-slate-800">{dealer.name}</CardTitle>
