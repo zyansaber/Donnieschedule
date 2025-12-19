@@ -1,3 +1,6 @@
++444
+-0
+
 import React, { useMemo, useRef, useState } from 'react';
 import { ref, set } from 'firebase/database';
 import { database } from '../utils/firebase';
@@ -12,12 +15,44 @@ const formatDate = (date) => {
   return `${year}-${month}-${day}`;
 };
 
+const parseDateValue = (value) => {
+  if (!value) return null;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+
+  const stringValue = String(value).trim();
+  if (!stringValue) return null;
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(stringValue)) {
+    const date = new Date(`${stringValue}T00:00:00`);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  const slashParts = stringValue.split('/');
+  if (slashParts.length === 3) {
+    const [first, second, third] = slashParts.map((part) => parseInt(part, 10));
+    if (!Number.isNaN(first) && !Number.isNaN(second) && !Number.isNaN(third)) {
+      const day = first;
+      const month = second;
+      const year = third;
+      const date = new Date(year, month - 1, day);
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+  }
+
+  const fallback = new Date(stringValue);
+  return Number.isNaN(fallback.getTime()) ? null : fallback;
+};
+
 const addDays = (value, days) => {
-  if (!value) return '';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
+  const date = parseDateValue(value);
+  if (!date) return '';
   const next = new Date(date.getTime() + days * DAY_MS);
   return formatDate(next);
+};
+
+const normalizeDateString = (value) => {
+  const date = parseDateValue(value);
+  return date ? formatDate(date) : '';
 };
 
 const parseDuration = (startValue, endValue) => {
@@ -96,6 +131,7 @@ const columns = [
 ];
 
 const normalizeHeader = (value) => value.toLowerCase().replace(/[^a-z0-9]/g, '');
+const dateKeys = columns.filter((column) => column.type === 'date').map((column) => column.key);
 
 const CampervanSchedule = () => {
   const [rows, setRows] = useState([emptyRow(1)]);
@@ -113,13 +149,21 @@ const CampervanSchedule = () => {
   }, []);
 
   const recalcRow = (row) => {
-    const forecastDate = row.forecastProductionDate;
+    const normalizedDates = dateKeys.reduce((acc, key) => {
+      acc[key] = normalizeDateString(row[key]);
+      return acc;
+    }, {});
+    const forecastDate = normalizedDates.forecastProductionDate;
     return {
       ...row,
+      ...normalizedDates,
       latestVehicleOrder: addDays(forecastDate, -180),
       latestEurPartsOrder: addDays(forecastDate, -60),
       latestLongtreePartsOrder: addDays(forecastDate, -90),
-      duration: parseDuration(row.productionPlannedStartDate, row.productionPlannedEndDate),
+      duration: parseDuration(
+        normalizedDates.productionPlannedStartDate,
+        normalizedDates.productionPlannedEndDate,
+      ),
     };
   };
 
