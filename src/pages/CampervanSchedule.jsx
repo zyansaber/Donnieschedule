@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState, type ChangeEvent } from "react";
+import * as React from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -347,7 +348,7 @@ const InternalSnowyPage = () => {
     URL.revokeObjectURL(url);
   };
 
-  const handleTemplateUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+  const handleTemplateUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
     const text = await file.text();
