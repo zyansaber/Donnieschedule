@@ -10,6 +10,12 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url))
     }
   },
+  build: {
+    outDir: 'dist',
+    assetsDir: 'assets',
+    sourcemap: false,
+    minify: false
+  },
   server: {
     port: 3000,
     host: '0.0.0.0',
