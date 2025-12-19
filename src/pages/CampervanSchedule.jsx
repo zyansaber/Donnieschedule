@@ -346,6 +346,7 @@ const CampervanSchedule = () => {
       </div>
 
       <div className="bg-white shadow rounded-lg overflow-auto">
+        <div className="min-w-full overflow-x-auto overflow-y-visible">
         <table className="min-w-full text-xs text-left">
           <thead className="bg-gray-100 text-gray-700">
             <tr>
@@ -393,6 +394,7 @@ const CampervanSchedule = () => {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );
