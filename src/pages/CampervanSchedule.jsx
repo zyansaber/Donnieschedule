@@ -17,14 +17,14 @@ const yardRangeDefs = [
   { label: "180+", min: 181, max: 9999 },
 ];
 
-const toStr = (v: unknown) => String(v ?? "");
-const slugifyDealerName = (name?: string | null) =>
+const toStr = (v) => String(v ?? "");
+const slugifyDealerName = (name) =>
   toStr(name)
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
 
-const daysSinceISO = (iso?: string | null) => {
+const daysSinceISO = (iso) => {
   if (!iso) return 0;
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return 0;
@@ -32,7 +32,7 @@ const daysSinceISO = (iso?: string | null) => {
   return Math.max(0, Math.floor(diff / (1000 * 60 * 60 * 24)));
 };
 
-const startOfWeekMonday = (d: Date) => {
+const startOfWeekMonday = (d) => {
   const date = new Date(d);
   const day = date.getDay();
   const diff = (day + 6) % 7;
@@ -41,21 +41,21 @@ const startOfWeekMonday = (d: Date) => {
   return date;
 };
 
-const addDays = (d: Date, n: number) => {
+const addDays = (d, n) => {
   const next = new Date(d);
   next.setDate(next.getDate() + n);
   return next;
 };
 
-const fmtWeekLabel = (d: Date) => `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`;
+const fmtWeekLabel = (d) => `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`;
 
-const parseHandoverDate = (raw?: string | null) => {
+const parseHandoverDate = (raw) => {
   if (!raw) return null;
   const d = new Date(raw);
   return Number.isNaN(d.getTime()) ? null : d;
 };
 
-const normalizeType = (value: unknown) => {
+const normalizeType = (value) => {
   const t = toStr(value).toLowerCase();
   if (t.includes("stock")) return "Stock";
   if (t.includes("customer") || t.includes("retail")) return "Customer";
@@ -64,18 +64,18 @@ const normalizeType = (value: unknown) => {
 
 const csvHeaders = ["slug", "name", "hidden"];
 
-const escapeCsvValue = (value: string) => {
+const escapeCsvValue = (value) => {
   if (/[",\n]/.test(value)) {
     return `"${value.replace(/"/g, '""')}"`;
   }
   return value;
 };
 
-const buildCsv = (rows: string[][]) => rows.map((row) => row.map((cell) => escapeCsvValue(cell)).join(",")).join("\n");
+const buildCsv = (rows) => rows.map((row) => row.map((cell) => escapeCsvValue(cell)).join(",")).join("\n");
 
-const parseCsvRows = (input: string) => {
-  const rows: string[][] = [];
-  let currentRow: string[] = [];
+const parseCsvRows = (input) => {
+  const rows = [];
+  let currentRow = [];
   let current = "";
   let inQuotes = false;
   for (let i = 0; i < input.length; i += 1) {
@@ -112,7 +112,7 @@ const parseCsvRows = (input: string) => {
   return rows;
 };
 
-const parseHiddenFromCsv = (input: string) => {
+const parseHiddenFromCsv = (input) => {
   const rows = parseCsvRows(input).filter((row) => row.some((cell) => cell.trim() !== ""));
   if (rows.length === 0) return [];
   const header = rows[0].map((cell) => cell.trim().toLowerCase());
@@ -120,7 +120,7 @@ const parseHiddenFromCsv = (input: string) => {
   const nameIdx = header.indexOf("name");
   const hiddenIdx = header.indexOf("hidden");
   if (slugIdx === -1 || hiddenIdx === -1) return [];
-  const hidden: string[] = [];
+  const hidden = [];
   rows.slice(1).forEach((row) => {
     const slug = row[slugIdx]?.trim();
     const name = nameIdx > -1 ? row[nameIdx]?.trim() : "";
@@ -132,23 +132,14 @@ const parseHiddenFromCsv = (input: string) => {
   return hidden;
 };
 
-type DealerSnapshot = {
-  slug: string;
-  name: string;
-  waitingCount: number;
-  stockTrend: { week: string; level: number }[];
-  yardRanges: { label: string; count: number }[];
-  yardInventory: { stock: number; customer: number; total: number; stockPct: number; customerPct: number };
-};
-
 const computeStockTrend = (
-  yardEntries: { receivedAt?: string | null }[],
-  handoverEntries: { handoverAt?: string | null }[],
-  currentTotal: number
+  yardEntries,
+  handoverEntries,
+  currentTotal
 ) => {
   const now = new Date();
   const latestStart = startOfWeekMonday(now);
-  const starts: Date[] = [];
+  const starts = [];
   for (let i = 9; i >= 0; i -= 1) {
     starts.push(addDays(latestStart, -7 * i));
   }
@@ -182,13 +173,13 @@ const computeStockTrend = (
 };
 
 const InternalSnowyPage = () => {
-  const [dealerConfigs, setDealerConfigs] = useState<Record<string, any>>({});
-  const [pgiRecords, setPgiRecords] = useState<Record<string, any>>({});
-  const [yardstockAll, setYardstockAll] = useState<Record<string, any>>({});
-  const [handoverAll, setHandoverAll] = useState<Record<string, any>>({});
-  const [hiddenSlugs, setHiddenSlugs] = useState<string[]>([]);
+  const [dealerConfigs, setDealerConfigs] = useState({});
+  const [pgiRecords, setPgiRecords] = useState({});
+  const [yardstockAll, setYardstockAll] = useState({});
+  const [handoverAll, setHandoverAll] = useState({});
+  const [hiddenSlugs, setHiddenSlugs] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
-  const [templateMessage, setTemplateMessage] = useState<string | null>(null);
+  const [templateMessage, setTemplateMessage] = useState(null);
 
   useEffect(() => {
     const unsub = subscribeAllDealerConfigs((data) => setDealerConfigs(data || {}));
@@ -221,14 +212,14 @@ const InternalSnowyPage = () => {
     return () => off(r, "value", handler);
   }, []);
 
-  const updateHidden = async (next: string[]) => {
+  const updateHidden = async (next) => {
     const unique = Array.from(new Set(next));
     setHiddenSlugs(unique);
     await set(ref(database, "internalSnowy/hiddenDealers"), unique);
   };
 
   const dealerNameMap = useMemo(() => {
-    const map: Record<string, string> = {};
+    const map = {};
     Object.keys(dealerConfigs || {}).forEach((slug) => {
       const config = dealerConfigs[slug] || {};
       const normalizedSlug = slugifyDealerName(config.slug || slug);
@@ -237,7 +228,7 @@ const InternalSnowyPage = () => {
     return map;
   }, [dealerConfigs]);
 
-  const dealerSnapshots = useMemo<DealerSnapshot[]>(() => {
+  const dealerSnapshots = useMemo(() => {
     const pgiList = Object.values(pgiRecords || {});
 
     return Object.keys(dealerConfigs || {})
@@ -264,7 +255,7 @@ const InternalSnowyPage = () => {
         const yardChassisSet = new Set(yardEntries.map((x) => x.chassis));
         const handoverChassisSet = new Set(handoverEntries.map((x) => x.chassis));
 
-        const waitingCount = pgiList.filter((row: any) => {
+        const waitingCount = pgiList.filter((row) => {
           const targetSlug = slugifyDealerName(row?.dealer || row?.Dealer || "");
           const ch = toStr(row?.chassis).toUpperCase();
           if (targetSlug !== normalizedSlug || !ch) return false;
@@ -330,7 +321,7 @@ const InternalSnowyPage = () => {
   }, [dealerSnapshots, searchQuery]);
 
   const downloadTemplate = () => {
-    const rows: string[][] = [];
+    const rows = [];
     rows.push(csvHeaders);
     rows.push(["example-dealer", "Example Dealer", "false"]);
     Object.keys(dealerNameMap).forEach((slug) => {
@@ -348,7 +339,7 @@ const InternalSnowyPage = () => {
     URL.revokeObjectURL(url);
   };
 
-  const handleTemplateUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleTemplateUpload = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
     const text = await file.text();
