@@ -1,8 +1,5 @@
-+444
--0
-
-import React, { useMemo, useRef, useState } from 'react';
-import { ref, set } from 'firebase/database';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { get, ref, set } from 'firebase/database';
 import { database } from '../utils/firebase';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -166,6 +163,38 @@ const CampervanSchedule = () => {
       ),
     };
   };
+
+  useEffect(() => {
+    const loadRows = async () => {
+      try {
+        const scheduleRef = ref(database, 'campervanSchedule');
+        const snapshot = await get(scheduleRef);
+        if (!snapshot.exists()) return;
+
+        const data = snapshot.val();
+        const parsedRows = Object.entries(data)
+          .map(([key, value]) => {
+            const rowNumber = Number(key);
+            return recalcRow({
+              ...emptyRow(Number.isNaN(rowNumber) ? 0 : rowNumber),
+              ...value,
+              rowNumber: Number.isNaN(rowNumber) ? value.rowNumber : rowNumber,
+            });
+          })
+          .filter((row) => row.rowNumber)
+          .sort((a, b) => a.rowNumber - b.rowNumber);
+
+        if (parsedRows.length) {
+          setRows(parsedRows);
+        }
+      } catch (error) {
+        console.error('Failed to load campervan schedule data:', error);
+        setStatusMessage('Failed to load Firebase data.');
+      }
+    };
+
+    loadRows();
+  }, []);
 
   const scheduleRowSave = (row) => {
     const rowNumber = row.rowNumber;
@@ -390,7 +419,10 @@ const CampervanSchedule = () => {
       </div>
 
       <div className="bg-white shadow rounded-lg overflow-auto">
-        <div className="min-w-full overflow-x-auto overflow-y-visible">
+        <div
+          className="min-w-full overflow-x-scroll overflow-y-visible"
+          style={{ scrollbarGutter: 'stable both-edges' }}
+        >
         <table className="min-w-full text-xs text-left">
           <thead className="bg-gray-100 text-gray-700">
             <tr>
