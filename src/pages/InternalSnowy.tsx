@@ -320,10 +320,70 @@ const InternalSnowyPage = () => {
                     <CardTitle className="text-base text-slate-800">{dealer.name}</CardTitle>
                     <p className="text-xs text-slate-500">{dealer.slug}</p>
                   </CardHeader>
-                  <CardContent className="space-y-3 text-sm text-slate-700">
-                    <div className="flex items-center justify-between rounded-lg bg-blue-50 p-3 shadow-inner">
+                  <CardContent className="space-y-4 text-sm text-slate-700">
+                    <div className="flex items-center justify-between rounded-lg bg-white p-3 shadow-inner">
                       <span className="text-slate-600">Waiting for Receiving</span>
                       <span className="text-lg font-semibold text-blue-700">{dealer.waitingCount}</span>
+                    </div>
+
+                    <div>
+                      <div className="mb-1 flex items-center justify-between text-xs text-slate-500">
+                        <span>Stock level (10 weeks)</span>
+                        <span>Current: {dealer.yardInventory.total}</span>
+                      </div>
+                      <div className="h-28 bg-white">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart data={dealer.stockTrend} margin={{ left: 0, right: 0, top: 5, bottom: 5 }}>
+                            <XAxis dataKey="week" hide />
+                            <YAxis allowDecimals={false} hide domain={[0, "dataMax + 2"]} />
+                            <RechartsTooltip />
+                            <Line type="monotone" dataKey="level" stroke="#2563eb" strokeWidth={2} dot={false} />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="mb-2 text-xs font-semibold text-slate-600">Days In Yard</div>
+                      <div className="grid grid-cols-2 gap-2">
+                        {dealer.yardRanges.map((range) => (
+                          <div key={range.label} className="rounded-lg bg-white p-2 shadow-inner">
+                            <div className="text-xs text-slate-500">{range.label} days</div>
+                            <div className="text-base font-semibold text-slate-800">{range.count}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg bg-white p-3 shadow-inner">
+                      <div className="mb-2 flex items-center justify-between text-xs text-slate-500">
+                        <span>Yard Inventory</span>
+                        <span>Total: {dealer.yardInventory.total}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-sm">
+                        <Tooltip>
+                          <TooltipTrigger className="flex items-center gap-1">
+                            <span className="h-3 w-3 rounded-full bg-blue-500" />
+                            <span>Stock</span>
+                          </TooltipTrigger>
+                          <TooltipContent>{dealer.yardInventory.stockPct}%</TooltipContent>
+                        </Tooltip>
+                        <span className="font-semibold text-slate-800">{dealer.yardInventory.stock}</span>
+                      </div>
+                      <div className="mt-1 flex items-center justify-between text-sm">
+                        <Tooltip>
+                          <TooltipTrigger className="flex items-center gap-1">
+                            <span className="h-3 w-3 rounded-full bg-emerald-500" />
+                            <span>Customer</span>
+                          </TooltipTrigger>
+                          <TooltipContent>{dealer.yardInventory.customerPct}%</TooltipContent>
+                        </Tooltip>
+                        <span className="font-semibold text-slate-800">{dealer.yardInventory.customer}</span>
+                      </div>
+                      <div className="mt-2 flex h-2 w-full overflow-hidden rounded-full bg-slate-100">
+                        <div className="h-full bg-blue-500" style={{ width: `${dealer.yardInventory.stockPct}%` }} />
+                        <div className="h-full bg-emerald-500" style={{ width: `${dealer.yardInventory.customerPct}%` }} />
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
