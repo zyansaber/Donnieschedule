@@ -378,7 +378,7 @@ const InternalSnowyPage = () => {
       <div className="min-h-screen bg-slate-50 p-6">
         <header className="mb-4">
           <h1 className="text-2xl font-semibold text-slate-800">Internal Snowy Overview</h1>
-          <p className="text-sm text-slate-600">xxx/internal-snowy-2487 · standalone internal view without sidebar</p>
+          <p className="text-sm text-slate-600">Dealer cards overview</p>
         </header>
 
         <div className="mb-6 flex flex-col gap-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
