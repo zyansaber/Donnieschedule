@@ -1,13 +1,12 @@
 import * as React from "react";
 import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Line, LineChart, ResponsiveContainer, Tooltip as RechartsTooltip, XAxis, YAxis } from "recharts";
 import { database, subscribeAllDealerConfigs, subscribeToPGIRecords } from "@/lib/firebase";
-import { off, onValue, ref, set } from "firebase/database";
+import { off, onValue, ref } from "firebase/database";
 
 const yardRangeDefs = [
   { label: "0–30", min: 0, max: 30 },
@@ -61,93 +60,28 @@ const normalizeType = (value: unknown) => {
   return "Customer";
 };
 
-const csvHeaders = ["slug", "name", "hidden"];
-
-const escapeCsvValue = (value: string) => {
-  if (/[",\n]/.test(value)) {
-    return `"${value.replace(/"/g, '""')}"`;
-  }
-  return value;
+const parseDateInput = (value?: string | null) => {
+  if (!value) return null;
+  const date = new Date(`${value}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
 };
 
-const buildCsv = (rows: string[][]) => rows.map((row) => row.map((cell) => escapeCsvValue(cell)).join(",")).join("\n");
-
-const parseCsvRows = (input: string) => {
-  const rows: string[][] = [];
-  let currentRow: string[] = [];
-  let current = "";
-  let inQuotes = false;
-  for (let i = 0; i < input.length; i += 1) {
-    const char = input[i];
-    const next = input[i + 1];
-    if (char === '"' && inQuotes && next === '"') {
-      current += '"';
-      i += 1;
-      continue;
-    }
-    if (char === '"') {
-      inQuotes = !inQuotes;
-      continue;
-    }
-    if (!inQuotes && (char === "\n" || char === "\r")) {
-      if (char === "\r" && next === "\n") i += 1;
-      currentRow.push(current);
-      rows.push(currentRow);
-      currentRow = [];
-      current = "";
-      continue;
-    }
-    if (!inQuotes && char === ",") {
-      currentRow.push(current);
-      current = "";
-      continue;
-    }
-    current += char;
-  }
-  if (current.length > 0 || currentRow.length > 0) {
-    currentRow.push(current);
-    rows.push(currentRow);
-  }
-  return rows;
+const parsePgiDate = (value?: string | null) => {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
 };
 
-const parseHiddenFromCsv = (input: string) => {
-  const rows = parseCsvRows(input).filter((row) => row.some((cell) => cell.trim() !== ""));
-  if (rows.length === 0) return [];
-  const header = rows[0].map((cell) => cell.trim().toLowerCase());
-  const slugIdx = header.indexOf("slug");
-  const nameIdx = header.indexOf("name");
-  const hiddenIdx = header.indexOf("hidden");
-  if (slugIdx === -1 || hiddenIdx === -1) return [];
-  const hidden: string[] = [];
-  rows.slice(1).forEach((row) => {
-    const slug = row[slugIdx]?.trim();
-    const name = nameIdx > -1 ? row[nameIdx]?.trim() : "";
-    const hiddenRaw = row[hiddenIdx]?.trim().toLowerCase();
-    if (!slug && !name) return;
-    const isHidden = ["true", "1", "yes", "y", "hidden"].includes(hiddenRaw);
-    if (slug && isHidden) hidden.push(slugifyDealerName(slug));
-  });
-  return hidden;
+const isDateInRange = (date: Date, start: Date | null, end: Date | null) => {
+  const time = date.getTime();
+  if (start && time < start.getTime()) return false;
+  if (end) {
+    const endTime = new Date(end);
+    endTime.setHours(23, 59, 59, 999);
+    if (time > endTime.getTime()) return false;
+  }
+  return true;
 };
-
-const CloseIcon = ({ className = "" }: { className?: string }) => (
-  <svg
-    className={className}
-    xmlns="http://www.w3.org/2000/svg"
-    viewBox="0 0 20 20"
-    fill="currentColor"
-    aria-hidden="true"
-  >
-    <path
-      fillRule="evenodd"
-      d="M4.22 4.22a.75.75 0 0 1 1.06 0L10 8.94l4.72-4.72a.75.75 0 1 1 1.06 1.06L11.06 10l4.72 4.72a.75.75 0 1 1-1.06 1.06L10 11.06l-4.72 4.72a.75.75 0 1 1-1.06-1.06L8.94 10 4.22 5.28a.75.75 0 0 1 0-1.06Z"
-      clipRule="evenodd"
-    />
-  </svg>
-);
-
-const X = CloseIcon;
 
 type DealerSnapshot = {
   slug: string;
@@ -203,9 +137,9 @@ const InternalSnowyPage = () => {
   const [pgiRecords, setPgiRecords] = useState<Record<string, any>>({});
   const [yardstockAll, setYardstockAll] = useState<Record<string, any>>({});
   const [handoverAll, setHandoverAll] = useState<Record<string, any>>({});
-  const [hiddenSlugs, setHiddenSlugs] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
-  const [templateMessage, setTemplateMessage] = useState<string | null>(null);
+  const [rangeStart, setRangeStart] = useState<string>("");
+  const [rangeEnd, setRangeEnd] = useState<string>("");
 
   useEffect(() => {
     const unsub = subscribeAllDealerConfigs((data) => setDealerConfigs(data || {}));
@@ -231,31 +165,10 @@ const InternalSnowyPage = () => {
     return () => off(r, "value", handler);
   }, []);
 
-  useEffect(() => {
-    const r = ref(database, "internalSnowy/hiddenDealers");
-    const handler = (snap: any) => setHiddenSlugs(snap?.exists() ? snap.val() || [] : []);
-    onValue(r, handler);
-    return () => off(r, "value", handler);
-  }, []);
-
-  const updateHidden = async (next: string[]) => {
-    const unique = Array.from(new Set(next));
-    setHiddenSlugs(unique);
-    await set(ref(database, "internalSnowy/hiddenDealers"), unique);
-  };
-
-  const dealerNameMap = useMemo(() => {
-    const map: Record<string, string> = {};
-    Object.keys(dealerConfigs || {}).forEach((slug) => {
-      const config = dealerConfigs[slug] || {};
-      const normalizedSlug = slugifyDealerName(config.slug || slug);
-      map[normalizedSlug] = config.name || normalizedSlug;
-    });
-    return map;
-  }, [dealerConfigs]);
-
   const dealerSnapshots = useMemo<DealerSnapshot[]>(() => {
     const pgiList = Object.values(pgiRecords || {});
+    const startDate = parseDateInput(rangeStart);
+    const endDate = parseDateInput(rangeEnd);
 
     return Object.keys(dealerConfigs || {})
       .map((slug) => {
@@ -285,6 +198,11 @@ const InternalSnowyPage = () => {
           const targetSlug = slugifyDealerName(row?.dealer || row?.Dealer || "");
           const ch = toStr(row?.chassis).toUpperCase();
           if (targetSlug !== normalizedSlug || !ch) return false;
+          const pgiDate =
+            parsePgiDate(row?.pgidate || row?.pgiDate || row?.PGIDate || row?.pgi_date || row?.PGI_Date);
+          const hasRange = Boolean(startDate || endDate);
+          if (!pgiDate && hasRange) return false;
+          if (pgiDate && !isDateInRange(pgiDate, startDate, endDate)) return false;
           return !yardChassisSet.has(ch) && !handoverChassisSet.has(ch);
         }).length;
 
@@ -315,65 +233,28 @@ const InternalSnowyPage = () => {
           stockTrend,
         };
       })
-      .filter((snap) => !hiddenSlugs.includes(snap.slug));
-  }, [dealerConfigs, handoverAll, hiddenSlugs, pgiRecords, yardstockAll]);
-
-  const hiddenList = useMemo(
-    () =>
-      hiddenSlugs.map((slug) => ({
-        slug,
-        name: dealerNameMap[slug] || slug,
-      })),
-    [dealerNameMap, hiddenSlugs]
-  );
+      .filter((snap) => !["alldealers", "selfowned"].includes(snap.slug));
+  }, [dealerConfigs, handoverAll, pgiRecords, rangeEnd, rangeStart, yardstockAll]);
 
   const visibleSnapshots = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     if (!query) return dealerSnapshots;
     return dealerSnapshots.filter((dealer) => {
-      const searchBlob = [
-        dealer.name,
-        dealer.slug,
-        dealer.waitingCount,
-        dealer.yardInventory.total,
-        dealer.yardInventory.stock,
-        dealer.yardInventory.customer,
-        dealer.yardRanges.map((range) => `${range.label}:${range.count}`).join(" "),
-      ]
-        .join(" ")
-        .toLowerCase();
-      return searchBlob.includes(query);
+      return dealer.name.toLowerCase().includes(query);
     });
   }, [dealerSnapshots, searchQuery]);
 
-  const downloadTemplate = () => {
-    const rows: string[][] = [];
-    rows.push(csvHeaders);
-    rows.push(["example-dealer", "Example Dealer", "false"]);
-    Object.keys(dealerNameMap).forEach((slug) => {
-      rows.push([slug, dealerNameMap[slug], hiddenSlugs.includes(slug) ? "true" : "false"]);
-    });
-    const csv = buildCsv(rows);
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "internal-snowy-template.csv";
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
-  };
+  const selfOwnedDealers = useMemo(() => {
+    const selfOwnedNames = ["Frankston", "Launceston", "ST James", "Traralgon"];
+    const selfOwnedSlugs = new Set(selfOwnedNames.map((name) => slugifyDealerName(name)));
+    return visibleSnapshots.filter((dealer) => selfOwnedSlugs.has(dealer.slug));
+  }, [visibleSnapshots]);
 
-  const handleTemplateUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    const text = await file.text();
-    const hidden = parseHiddenFromCsv(text);
-    await updateHidden(hidden);
-    setTemplateMessage(`Saved ${hidden.length} hidden dealers from template.`);
-    event.target.value = "";
-  };
+  const otherDealers = useMemo(() => {
+    const selfOwnedNames = ["Frankston", "Launceston", "ST James", "Traralgon"];
+    const selfOwnedSlugs = new Set(selfOwnedNames.map((name) => slugifyDealerName(name)));
+    return visibleSnapshots.filter((dealer) => !selfOwnedSlugs.has(dealer.slug));
+  }, [visibleSnapshots]);
 
   return (
     <TooltipProvider>
@@ -385,59 +266,75 @@ const InternalSnowyPage = () => {
 
         <div className="mb-6 flex flex-col gap-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-center gap-3">
-              <Button type="button" onClick={downloadTemplate}>
-                Download template
-              </Button>
-              <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-600">
-                <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1">Upload filled template</span>
-                <input type="file" accept=".csv" className="hidden" onChange={handleTemplateUpload} />
+            <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-end sm:gap-4 lg:w-auto">
+              <label className="flex flex-col text-xs font-medium text-slate-600">
+                PGI start date
+                <Input
+                  type="date"
+                  value={rangeStart}
+                  onChange={(event) => setRangeStart(event.target.value)}
+                  className="mt-1"
+                />
+              </label>
+              <label className="flex flex-col text-xs font-medium text-slate-600">
+                PGI end date
+                <Input
+                  type="date"
+                  value={rangeEnd}
+                  onChange={(event) => setRangeEnd(event.target.value)}
+                  className="mt-1"
+                />
               </label>
             </div>
             <div className="w-full lg:w-80">
               <Input
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder="Search dealers, counts, ranges..."
+                placeholder="Search dealer name..."
               />
             </div>
           </div>
           <p className="text-xs text-slate-500">
-            Template columns: slug, name, hidden. Editing and uploading saves immediately—no extra button needed.
+            Waiting for Receiving = PGI issued (On the Road), in the selected date range, not yet received in yardstock,
+            and not already handover/dispatch.
           </p>
-          {templateMessage && <p className="text-xs text-emerald-600">{templateMessage}</p>}
         </div>
 
-        {hiddenList.length > 0 && (
-          <div className="mb-4 flex flex-wrap items-center gap-2 text-sm text-slate-700">
-            <span className="font-medium">Hidden dealers:</span>
-            {hiddenList.map((item) => (
-              <Badge key={item.slug} variant="secondary" className="flex items-center gap-1">
-                {item.name}
-                <button type="button" onClick={() => updateHidden(hiddenSlugs.filter((s) => s !== item.slug))}>
-                  <CloseIcon className="h-3 w-3" />
-                  <X className="h-3 w-3" />
-                </button>
+        {selfOwnedDealers.length > 0 && (
+          <div className="mb-8 rounded-xl border-2 border-blue-200 bg-white p-4 shadow-sm">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-800">Self owned dealers</h2>
+                <p className="text-xs text-slate-500">
+                  Frankston, Launceston, ST James, Traralgon
+                </p>
+              </div>
+              <Badge variant="secondary" className="bg-blue-50 text-blue-700">
+                Waiting for Receiving
               </Badge>
-            ))}
-            <Button variant="ghost" size="sm" onClick={() => updateHidden([])}>
-              Show All
-            </Button>
+            </div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {selfOwnedDealers.map((dealer) => (
+                <Card key={dealer.slug} className="relative overflow-hidden border-blue-100 shadow-sm">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base text-slate-800">{dealer.name}</CardTitle>
+                    <p className="text-xs text-slate-500">{dealer.slug}</p>
+                  </CardHeader>
+                  <CardContent className="space-y-3 text-sm text-slate-700">
+                    <div className="flex items-center justify-between rounded-lg bg-blue-50 p-3 shadow-inner">
+                      <span className="text-slate-600">Waiting for Receiving</span>
+                      <span className="text-lg font-semibold text-blue-700">{dealer.waitingCount}</span>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
           </div>
         )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
-          {visibleSnapshots.map((dealer) => (
+          {otherDealers.map((dealer) => (
             <Card key={dealer.slug} className="relative overflow-hidden border-slate-200 shadow-sm">
-              <button
-                type="button"
-                aria-label="Hide dealer"
-                className="absolute right-2 top-2 rounded-md p-1 text-slate-500 hover:bg-slate-100"
-                onClick={() => updateHidden([...hiddenSlugs, dealer.slug])}
-              >
-                <CloseIcon className="h-4 w-4" />
-                <X className="h-4 w-4" />
-              </button>
               <CardHeader className="pb-2">
                 <CardTitle className="text-lg text-slate-800">{dealer.name}</CardTitle>
                 <p className="text-xs text-slate-500">{dealer.slug}</p>
