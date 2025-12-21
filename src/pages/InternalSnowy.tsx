@@ -147,6 +147,8 @@ const CloseIcon = ({ className = "" }: { className?: string }) => (
   </svg>
 );
 
+const X = CloseIcon;
+
 type DealerSnapshot = {
   slug: string;
   name: string;
