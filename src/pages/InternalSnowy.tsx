@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { X } from "lucide-react";
 import { Line, LineChart, ResponsiveContainer, Tooltip as RechartsTooltip, XAxis, YAxis } from "recharts";
 import { database, subscribeAllDealerConfigs, subscribeToPGIRecords } from "@/lib/firebase";
 import { off, onValue, ref, set } from "firebase/database";
@@ -131,6 +130,22 @@ const parseHiddenFromCsv = (input: string) => {
   });
   return hidden;
 };
+
+const CloseIcon = ({ className = "" }: { className?: string }) => (
+  <svg
+    className={className}
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 20 20"
+    fill="currentColor"
+    aria-hidden="true"
+  >
+    <path
+      fillRule="evenodd"
+      d="M4.22 4.22a.75.75 0 0 1 1.06 0L10 8.94l4.72-4.72a.75.75 0 1 1 1.06 1.06L11.06 10l4.72 4.72a.75.75 0 1 1-1.06 1.06L10 11.06l-4.72 4.72a.75.75 0 1 1-1.06-1.06L8.94 10 4.22 5.28a.75.75 0 0 1 0-1.06Z"
+      clipRule="evenodd"
+    />
+  </svg>
+);
 
 type DealerSnapshot = {
   slug: string;
@@ -398,6 +413,7 @@ const InternalSnowyPage = () => {
               <Badge key={item.slug} variant="secondary" className="flex items-center gap-1">
                 {item.name}
                 <button type="button" onClick={() => updateHidden(hiddenSlugs.filter((s) => s !== item.slug))}>
+                  <CloseIcon className="h-3 w-3" />
                   <X className="h-3 w-3" />
                 </button>
               </Badge>
@@ -417,6 +433,7 @@ const InternalSnowyPage = () => {
                 className="absolute right-2 top-2 rounded-md p-1 text-slate-500 hover:bg-slate-100"
                 onClick={() => updateHidden([...hiddenSlugs, dealer.slug])}
               >
+                <CloseIcon className="h-4 w-4" />
                 <X className="h-4 w-4" />
               </button>
               <CardHeader className="pb-2">
