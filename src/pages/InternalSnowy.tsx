@@ -66,10 +66,37 @@ const parseDateInput = (value?: string | null) => {
   return Number.isNaN(date.getTime()) ? null : date;
 };
 
+const parseDDMMYYYY = (value?: string | null) => {
+  if (!value) return null;
+  const parts = String(value).split("/");
+  if (parts.length !== 3) return null;
+  const day = Number(parts[0]);
+  const month = Number(parts[1]);
+  const year = Number(parts[2]);
+  if (!day || !month || !year) return null;
+  const date = new Date(year, month - 1, day);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
 const parsePgiDate = (value?: string | null) => {
   if (!value) return null;
+  const ddmmyyyy = parseDDMMYYYY(value);
+  if (ddmmyyyy) return ddmmyyyy;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const getChassisValue = (chassisValue: unknown, row: Record<string, any>) => {
+  const nested = row?.chassis || row?.Chassis || row?.vehicle || row?.Vehicle || null;
+  const nestedVin =
+    nested?.vinNumber ||
+    nested?.VinNumber ||
+    nested?.vinnumber ||
+    nested?.VINNumber ||
+    nested?.vin ||
+    nested?.VIN;
+  const raw = chassisValue ?? row?.chassis ?? row?.vinNumber ?? row?.VINNumber ?? row?.vinnumber ?? nestedVin;
+  return toStr(raw).trim();
 };
 
 const isDateInRange = (date: Date, start: Date | null, end: Date | null) => {
@@ -107,8 +134,8 @@ const computeStockTrend = (
 
   const receivedByWeek = starts.map((s, i) => {
     const e = nextStarts[i];
-    return yardEntries.filter((x) => {
-      const d = x.receivedAt ? new Date(x.receivedAt) : null;
+    return handoverEntries.filter((x) => {
+      const d = parseHandoverDate(x.handoverAt);
       return d && d >= s && d < e;
     }).length;
   });
@@ -166,7 +193,10 @@ const InternalSnowyPage = () => {
   }, []);
 
   const dealerSnapshots = useMemo<DealerSnapshot[]>(() => {
-    const pgiList = Object.values(pgiRecords || {});
+    const pgiList = Object.entries(pgiRecords || {}).map(([chassis, rec]) => ({
+      chassis,
+      ...(rec as Record<string, any>),
+    }));
     const startDate = parseDateInput(rangeStart);
     const endDate = parseDateInput(rangeEnd);
 
@@ -196,7 +226,7 @@ const InternalSnowyPage = () => {
 
         const waitingCount = pgiList.filter((row: any) => {
           const targetSlug = slugifyDealerName(row?.dealer || row?.Dealer || "");
-          const ch = toStr(row?.chassis).toUpperCase();
+          const ch = getChassisValue(row?.chassis, row).toUpperCase();
           if (targetSlug !== normalizedSlug || !ch) return false;
           const pgiDate =
             parsePgiDate(row?.pgidate || row?.pgiDate || row?.PGIDate || row?.pgi_date || row?.PGI_Date);
@@ -245,13 +275,13 @@ const InternalSnowyPage = () => {
   }, [dealerSnapshots, searchQuery]);
 
   const selfOwnedDealers = useMemo(() => {
-    const selfOwnedNames = ["Frankston", "Launceston", "ST James", "Traralgon"];
+    const selfOwnedNames = ["Frankston", "Geelong", "Launceston", "ST James", "Traralgon"];
     const selfOwnedSlugs = new Set(selfOwnedNames.map((name) => slugifyDealerName(name)));
     return visibleSnapshots.filter((dealer) => selfOwnedSlugs.has(dealer.slug));
   }, [visibleSnapshots]);
 
   const otherDealers = useMemo(() => {
-    const selfOwnedNames = ["Frankston", "Launceston", "ST James", "Traralgon"];
+    const selfOwnedNames = ["Frankston", "Geelong", "Launceston", "ST James", "Traralgon"];
     const selfOwnedSlugs = new Set(selfOwnedNames.map((name) => slugifyDealerName(name)));
     return visibleSnapshots.filter((dealer) => !selfOwnedSlugs.has(dealer.slug));
   }, [visibleSnapshots]);
@@ -306,7 +336,7 @@ const InternalSnowyPage = () => {
               <div>
                 <h2 className="text-lg font-semibold text-slate-800">Self owned dealers</h2>
                 <p className="text-xs text-slate-500">
-                  Frankston, Launceston, ST James, Traralgon
+                  Frankston, Geelong, Launceston, ST James, Traralgon
                 </p>
               </div>
               <Badge variant="secondary" className="bg-blue-50 text-blue-700">
