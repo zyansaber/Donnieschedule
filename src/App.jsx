@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import ReminderChecker from './components/ReminderChecker';
 import Header from './components/Header';
@@ -13,6 +12,7 @@ import StockLevelAnalysis from './components/StockLevelAnalysis';
 import UnfinishedVanTracking from './components/UnfinishedVanTracking';
 import Reallocation from './components/Reallocation';
 import CampervanSchedule from './pages/CampervanSchedule';
+import InternalSnowyPage from './pages/InternalSnowy';
 import { fetchScheduleData, mockScheduleData } from './data/scheduleData';
 
 function App() {
@@ -20,6 +20,8 @@ function App() {
   const [scheduleData, setScheduleData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const internalSnowyPath = '/xxx/internal-snowy-2487';
+  const isInternalSnowy = window.location.pathname === internalSnowyPath;
 
   const menuItems = [
     { id: 'schedule', name: 'Schedule', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
@@ -66,6 +68,10 @@ function App() {
     setActiveView(itemId);
   };
 
+  if (isInternalSnowy) {
+    return <InternalSnowyPage />;
+  }
+  
   return (
     <div className="flex flex-col min-h-screen bg-gray-50">
       <Header />
