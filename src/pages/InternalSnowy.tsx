@@ -60,32 +60,6 @@ const normalizeType = (value: unknown) => {
   return "Customer";
 };
 
-const parseDateInput = (value?: string | null) => {
-  if (!value) return null;
-  const date = new Date(`${value}T00:00:00`);
-  return Number.isNaN(date.getTime()) ? null : date;
-};
-
-const parseDDMMYYYY = (value?: string | null) => {
-  if (!value) return null;
-  const parts = String(value).split("/");
-  if (parts.length !== 3) return null;
-  const day = Number(parts[0]);
-  const month = Number(parts[1]);
-  const year = Number(parts[2]);
-  if (!day || !month || !year) return null;
-  const date = new Date(year, month - 1, day);
-  return Number.isNaN(date.getTime()) ? null : date;
-};
-
-const parsePgiDate = (value?: string | null) => {
-  if (!value) return null;
-  const ddmmyyyy = parseDDMMYYYY(value);
-  if (ddmmyyyy) return ddmmyyyy;
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date;
-};
-
 const getChassisValue = (chassisValue: unknown, row: Record<string, any>) => {
   const nested = row?.chassis || row?.Chassis || row?.vehicle || row?.Vehicle || null;
   const nestedVin =
@@ -97,17 +71,6 @@ const getChassisValue = (chassisValue: unknown, row: Record<string, any>) => {
     nested?.VIN;
   const raw = chassisValue ?? row?.chassis ?? row?.vinNumber ?? row?.VINNumber ?? row?.vinnumber ?? nestedVin;
   return toStr(raw).trim();
-};
-
-const isDateInRange = (date: Date, start: Date | null, end: Date | null) => {
-  const time = date.getTime();
-  if (start && time < start.getTime()) return false;
-  if (end) {
-    const endTime = new Date(end);
-    endTime.setHours(23, 59, 59, 999);
-    if (time > endTime.getTime()) return false;
-  }
-  return true;
 };
 
 type DealerSnapshot = {
@@ -134,7 +97,7 @@ const computeStockTrend = (
 
   const receivedByWeek = starts.map((s, i) => {
     const e = nextStarts[i];
-    return handoverEntries.filter((x) => {
+    return yardEntries.filter((x) => {
       const d = parseHandoverDate(x.handoverAt);
       return d && d >= s && d < e;
     }).length;
@@ -165,8 +128,6 @@ const InternalSnowyPage = () => {
   const [yardstockAll, setYardstockAll] = useState<Record<string, any>>({});
   const [handoverAll, setHandoverAll] = useState<Record<string, any>>({});
   const [searchQuery, setSearchQuery] = useState("");
-  const [rangeStart, setRangeStart] = useState<string>("");
-  const [rangeEnd, setRangeEnd] = useState<string>("");
 
   useEffect(() => {
     const unsub = subscribeAllDealerConfigs((data) => setDealerConfigs(data || {}));
@@ -197,9 +158,6 @@ const InternalSnowyPage = () => {
       chassis,
       ...(rec as Record<string, any>),
     }));
-    const startDate = parseDateInput(rangeStart);
-    const endDate = parseDateInput(rangeEnd);
-
     return Object.keys(dealerConfigs || {})
       .map((slug) => {
         const config = dealerConfigs[slug] || {};
@@ -228,11 +186,6 @@ const InternalSnowyPage = () => {
           const targetSlug = slugifyDealerName(row?.dealer || row?.Dealer || "");
           const ch = getChassisValue(row?.chassis, row).toUpperCase();
           if (targetSlug !== normalizedSlug || !ch) return false;
-          const pgiDate =
-            parsePgiDate(row?.pgidate || row?.pgiDate || row?.PGIDate || row?.pgi_date || row?.PGI_Date);
-          const hasRange = Boolean(startDate || endDate);
-          if (!pgiDate && hasRange) return false;
-          if (pgiDate && !isDateInRange(pgiDate, startDate, endDate)) return false;
           return !yardChassisSet.has(ch) && !handoverChassisSet.has(ch);
         }).length;
 
@@ -264,7 +217,7 @@ const InternalSnowyPage = () => {
         };
       })
       .filter((snap) => !["alldealers", "selfowned"].includes(snap.slug));
-  }, [dealerConfigs, handoverAll, pgiRecords, rangeEnd, rangeStart, yardstockAll]);
+  }, [dealerConfigs, handoverAll, pgiRecords, yardstockAll]);
 
   const visibleSnapshots = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -296,26 +249,6 @@ const InternalSnowyPage = () => {
 
         <div className="mb-6 flex flex-col gap-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-end sm:gap-4 lg:w-auto">
-              <label className="flex flex-col text-xs font-medium text-slate-600">
-                PGI start date
-                <Input
-                  type="date"
-                  value={rangeStart}
-                  onChange={(event) => setRangeStart(event.target.value)}
-                  className="mt-1"
-                />
-              </label>
-              <label className="flex flex-col text-xs font-medium text-slate-600">
-                PGI end date
-                <Input
-                  type="date"
-                  value={rangeEnd}
-                  onChange={(event) => setRangeEnd(event.target.value)}
-                  className="mt-1"
-                />
-              </label>
-            </div>
             <div className="w-full lg:w-80">
               <Input
                 value={searchQuery}
@@ -325,8 +258,8 @@ const InternalSnowyPage = () => {
             </div>
           </div>
           <p className="text-xs text-slate-500">
-            Waiting for Receiving = PGI issued (On the Road), in the selected date range, not yet received in yardstock,
-            and not already handover/dispatch.
+            Waiting for Receiving = PGI issued (On the Road), not yet received in yardstock, and not already
+            handover/dispatch.
           </p>
         </div>
 
@@ -371,6 +304,85 @@ const InternalSnowyPage = () => {
                           </LineChart>
                         </ResponsiveContainer>
                       </div>
+                    </div>
+
+                    <div>
+                      <div className="mb-2 text-xs font-semibold text-slate-600">Days In Yard</div>
+                      <div className="grid grid-cols-2 gap-2">
+                        {dealer.yardRanges.map((range) => (
+                          <div key={range.label} className="rounded-lg bg-white p-2 shadow-inner">
+                            <div className="text-xs text-slate-500">{range.label} days</div>
+                            <div className="text-base font-semibold text-slate-800">{range.count}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg bg-white p-3 shadow-inner">
+                      <div className="mb-2 flex items-center justify-between text-xs text-slate-500">
+                        <span>Yard Inventory</span>
+                        <span>Total: {dealer.yardInventory.total}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-sm">
+                        <Tooltip>
+                          <TooltipTrigger className="flex items-center gap-1">
+                            <span className="h-3 w-3 rounded-full bg-blue-500" />
+                            <span>Stock</span>
+                          </TooltipTrigger>
+                          <TooltipContent>{dealer.yardInventory.stockPct}%</TooltipContent>
+                        </Tooltip>
+                        <span className="font-semibold text-slate-800">{dealer.yardInventory.stock}</span>
+                      </div>
+                      <div className="mt-1 flex items-center justify-between text-sm">
+                        <Tooltip>
+                          <TooltipTrigger className="flex items-center gap-1">
+                            <span className="h-3 w-3 rounded-full bg-emerald-500" />
+                            <span>Customer</span>
+                          </TooltipTrigger>
+                          <TooltipContent>{dealer.yardInventory.customerPct}%</TooltipContent>
+                        </Tooltip>
+                        <span className="font-semibold text-slate-800">{dealer.yardInventory.customer}</span>
+                      </div>
+                      <div className="mt-2 flex h-2 w-full overflow-hidden rounded-full bg-slate-100">
+                        <div className="h-full bg-blue-500" style={{ width: `${dealer.yardInventory.stockPct}%` }} />
+                        <div className="h-full bg-emerald-500" style={{ width: `${dealer.yardInventory.customerPct}%` }} />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
+          {otherDealers.map((dealer) => (
+            <Card key={dealer.slug} className="relative overflow-hidden border-slate-200 shadow-sm">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-lg text-slate-800">{dealer.name}</CardTitle>
+                <p className="text-xs text-slate-500">{dealer.slug}</p>
+              </CardHeader>
+              <CardContent className="space-y-4 text-sm text-slate-700">
+                <div className="flex items-center justify-between rounded-lg bg-white p-3 shadow-inner">
+                  <span className="text-slate-600">Waiting for Receiving</span>
+                  <span className="text-lg font-semibold text-blue-700">{dealer.waitingCount}</span>
+                </div>
+
+                <div>
+                  <div className="mb-1 flex items-center justify-between text-xs text-slate-500">
+                    <span>Stock level (10 weeks)</span>
+                    <span>Current: {dealer.yardInventory.total}</span>
+                  </div>
+                  <div className="h-28 bg-white">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={dealer.stockTrend} margin={{ left: 0, right: 0, top: 5, bottom: 5 }}>
+                        <XAxis dataKey="week" hide />
+                        <YAxis allowDecimals={false} hide domain={[0, "dataMax + 2"]} />
+                        <RechartsTooltip />
+                        <Line type="monotone" dataKey="level" stroke="#2563eb" strokeWidth={2} dot={false} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
                     </div>
 
                     <div>
