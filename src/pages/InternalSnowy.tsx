@@ -16,9 +16,10 @@ const yardRangeDefs = [
 ];
 
 const toStr = (v: unknown) => String(v ?? "");
-const slugifyDealerName = (name?: string | null) =>
+const normalizeDealerSlug = (name?: string | null) =>
   toStr(name)
     .toLowerCase()
+    .replace(/&/g, "and")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
 
@@ -47,10 +48,21 @@ const addDays = (d: Date, n: number) => {
 
 const fmtWeekLabel = (d: Date) => `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`;
 
-const parseHandoverDate = (raw?: string | null) => {
+const parseDateValue = (raw?: string | null) => {
   if (!raw) return null;
   const d = new Date(raw);
   return Number.isNaN(d.getTime()) ? null : d;
+};
+
+const parseHandoverDate = (raw?: string | null) => parseDateValue(raw);
+
+const parsePgiDate = (row: Record<string, any>) =>
+  parseDateValue(row?.pgiAt ?? row?.pgiDate ?? row?.issuedAt ?? row?.createdAt ?? null);
+
+const isWithinDays = (date: Date | null, days: number) => {
+  if (!date) return false;
+  const threshold = Date.now() - days * 24 * 60 * 60 * 1000;
+  return date.getTime() >= threshold;
 };
 
 const normalizeType = (value: unknown) => {
@@ -58,19 +70,6 @@ const normalizeType = (value: unknown) => {
   if (t.includes("stock")) return "Stock";
   if (t.includes("customer") || t.includes("retail")) return "Customer";
   return "Customer";
-};
-
-const getChassisValue = (chassisValue: unknown, row: Record<string, any>) => {
-  const nested = row?.chassis || row?.Chassis || row?.vehicle || row?.Vehicle || null;
-  const nestedVin =
-    nested?.vinNumber ||
-    nested?.VinNumber ||
-    nested?.vinnumber ||
-    nested?.VINNumber ||
-    nested?.vin ||
-    nested?.VIN;
-  const raw = chassisValue ?? row?.chassis ?? row?.vinNumber ?? row?.VINNumber ?? row?.vinnumber ?? nestedVin;
-  return toStr(raw).trim();
 };
 
 type DealerSnapshot = {
@@ -98,7 +97,7 @@ const computeStockTrend = (
   const receivedByWeek = starts.map((s, i) => {
     const e = nextStarts[i];
     return yardEntries.filter((x) => {
-      const d = parseHandoverDate(x.handoverAt);
+      const d = parseHandoverDate(x.receivedAt);
       return d && d >= s && d < e;
     }).length;
   });
@@ -161,7 +160,7 @@ const InternalSnowyPage = () => {
     return Object.keys(dealerConfigs || {})
       .map((slug) => {
         const config = dealerConfigs[slug] || {};
-        const normalizedSlug = slugifyDealerName(config.slug || slug);
+        const normalizedSlug = normalizeDealerSlug(config.slug || slug);
         const yard = yardstockAll[normalizedSlug] || {};
         const handover = handoverAll[normalizedSlug] || {};
 
@@ -182,10 +181,14 @@ const InternalSnowyPage = () => {
         const yardChassisSet = new Set(yardEntries.map((x) => x.chassis));
         const handoverChassisSet = new Set(handoverEntries.map((x) => x.chassis));
 
+        const pgiRangeDays = Number(config?.pgiDateRangeDays ?? config?.pgiRangeDays ?? 90);
         const waitingCount = pgiList.filter((row: any) => {
-          const targetSlug = slugifyDealerName(row?.dealer || row?.Dealer || "");
-          const ch = getChassisValue(row?.chassis, row).toUpperCase();
+          const targetSlug = normalizeDealerSlug(row?.dealer || row?.Dealer || "");
+          const ch = toStr(row?.chassis ?? row?.Chassis ?? row?.CHASSIS).toUpperCase().trim();
           if (targetSlug !== normalizedSlug || !ch) return false;
+          if (Number.isFinite(pgiRangeDays) && pgiRangeDays > 0) {
+            if (!isWithinDays(parsePgiDate(row), pgiRangeDays)) return false;
+          }
           return !yardChassisSet.has(ch) && !handoverChassisSet.has(ch);
         }).length;
 
@@ -229,13 +232,13 @@ const InternalSnowyPage = () => {
 
   const selfOwnedDealers = useMemo(() => {
     const selfOwnedNames = ["Frankston", "Geelong", "Launceston", "ST James", "Traralgon"];
-    const selfOwnedSlugs = new Set(selfOwnedNames.map((name) => slugifyDealerName(name)));
+    const selfOwnedSlugs = new Set(selfOwnedNames.map((name) => normalizeDealerSlug(name)));
     return visibleSnapshots.filter((dealer) => selfOwnedSlugs.has(dealer.slug));
   }, [visibleSnapshots]);
 
   const otherDealers = useMemo(() => {
     const selfOwnedNames = ["Frankston", "Geelong", "Launceston", "ST James", "Traralgon"];
-    const selfOwnedSlugs = new Set(selfOwnedNames.map((name) => slugifyDealerName(name)));
+    const selfOwnedSlugs = new Set(selfOwnedNames.map((name) => normalizeDealerSlug(name)));
     return visibleSnapshots.filter((dealer) => !selfOwnedSlugs.has(dealer.slug));
   }, [visibleSnapshots]);
 
