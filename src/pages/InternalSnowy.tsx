@@ -66,9 +66,12 @@ const isWithinDays = (date: Date | null, days: number) => {
 };
 
 const normalizeType = (value: unknown) => {
-  const t = toStr(value).toLowerCase();
+  const t = toStr(value).toLowerCase().trim();
+  if (!t) return "Customer";
   if (t.includes("stock")) return "Stock";
-  if (t.includes("customer") || t.includes("retail")) return "Customer";
+  if (t.includes("customer") || t.includes("retail")) {
+    return t.slice(-5) === "stock" ? "Stock" : "Customer";
+  }
   return "Customer";
 };
 
@@ -181,7 +184,7 @@ const InternalSnowyPage = () => {
         const yardChassisSet = new Set(yardEntries.map((x) => x.chassis));
         const handoverChassisSet = new Set(handoverEntries.map((x) => x.chassis));
 
-        const pgiRangeDays = Number(config?.pgiDateRangeDays ?? config?.pgiRangeDays ?? 90);
+        const pgiRangeDays = 180;
         const waitingCount = pgiList.filter((row: any) => {
           const targetSlug = normalizeDealerSlug(row?.dealer || row?.Dealer || "");
           const ch = toStr(row?.chassis ?? row?.Chassis ?? row?.CHASSIS).toUpperCase().trim();
