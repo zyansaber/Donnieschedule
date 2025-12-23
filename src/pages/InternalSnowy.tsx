@@ -279,7 +279,6 @@ const InternalSnowyPage = () => {
     const selfOwnedSlugs = new Set(selfOwnedNames.map((name) => normalizeDealerSlug(name)));
     return visibleSnapshots.filter((dealer) => !selfOwnedSlugs.has(dealer.slug));
   }, [visibleSnapshots]);
-@@ -270,72 +305,102 @@ const InternalSnowyPage = () => {
         </div>
 
         {selfOwnedDealers.length > 0 && (
@@ -389,28 +388,6 @@ const InternalSnowyPage = () => {
                             <span>Customer</span>
                           </TooltipTrigger>
                           <TooltipContent>{dealer.yardInventory.customerPct}%</TooltipContent>
-                        </Tooltip>
-                        <span className="font-semibold text-slate-800">{dealer.yardInventory.customer}</span>
-                      </div>
-                      <div className="mt-2 flex h-2 w-full overflow-hidden rounded-full bg-slate-100">
-                        <div className="h-full bg-blue-500" style={{ width: `${dealer.yardInventory.stockPct}%` }} />
-                        <div className="h-full bg-emerald-500" style={{ width: `${dealer.yardInventory.customerPct}%` }} />
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
-          {otherDealers.map((dealer) => (
-            <Card key={dealer.slug} className="relative overflow-hidden border-slate-200 shadow-sm">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-lg text-slate-800">{dealer.name}</CardTitle>
-                <p className="text-xs text-slate-500">{dealer.slug}</p>
-              </CardHeader>
                         </Tooltip>
                         <span className="font-semibold text-slate-800">{dealer.yardInventory.customer}</span>
                       </div>
