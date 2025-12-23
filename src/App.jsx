@@ -27,7 +27,7 @@ function App() {
     { id: 'allocation-summary', name: 'Allocation Summary', icon: 'M4 6h16M4 10h16M4 14h16M4 18h16' },
     { id: 'reallocation', name: 'Reallocation', icon: 'M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4' },
     { id: 'campervan-schedule', name: 'Campervan Schedule', icon: 'M3 7h18M3 12h18M3 17h18M5 5h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2z' },
-    { id: 'internal-snowy', name: 'Internal Snowy', icon: 'M12 8v8m4-4H8m4-6a9 9 0 100 18 9 9 0 000-18z' }
+    { id: 'internal-snowy', name: 'Yard Cards', icon: 'M12 8v8m4-4H8m4-6a9 9 0 100 18 9 9 0 000-18z' }
   ];
 
   useEffect(() => {
