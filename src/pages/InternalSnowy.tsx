@@ -7,6 +7,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Line, LineChart, ResponsiveContainer, Tooltip as RechartsTooltip, XAxis, YAxis } from "recharts";
 import { database, subscribeAllDealerConfigs, subscribeToPGIRecords } from "@/lib/firebase";
 import { off, onValue, ref } from "firebase/database";
+import DialogWrapper from "@/components/DialogWrapper";
 
 const yardRangeDefs = [
   { label: "0–30", min: 0, max: 30 },
@@ -96,9 +97,11 @@ type DealerSnapshot = {
   slug: string;
   name: string;
   waitingCount: number;
+  waitingDetails: { chassis: string }[];
   stockTrend: { week: string; level: number }[];
   yardRanges: { label: string; count: number }[];
   yardInventory: { stock: number; customer: number; total: number; stockPct: number; customerPct: number };
+  yardDetails: { chassis: string; daysInYard: number }[];
 };
 
 const computeStockTrend = (
@@ -147,6 +150,11 @@ const InternalSnowyPage = () => {
   const [yardstockAll, setYardstockAll] = useState<Record<string, any>>({});
   const [handoverAll, setHandoverAll] = useState<Record<string, any>>({});
   const [searchQuery, setSearchQuery] = useState("");
+  const [detailDialog, setDetailDialog] = useState<{
+    title: string;
+    type: "waiting" | "yard";
+    items: { chassis: string; daysInYard?: number }[];
+  } | null>(null);
 
   useEffect(() => {
     const unsub = subscribeAllDealerConfigs((data) => setDealerConfigs(data || {}));
@@ -205,7 +213,7 @@ const InternalSnowyPage = () => {
         const handoverChassisSet = new Set(handoverEntries.map((x) => x.chassis));
 
         const pgiRangeDays = 180;
-        const waitingCount = pgiList.filter((row: any) => {
+        const waitingDetails = pgiList.filter((row: any) => {
           const targetSlug = normalizeDealerSlug(row?.dealer || row?.Dealer || "");
           const ch = toStr(row?.chassis ?? row?.Chassis ?? row?.CHASSIS).toUpperCase().trim();
           if (targetSlug !== normalizedSlug || !ch) return false;
@@ -213,7 +221,9 @@ const InternalSnowyPage = () => {
             if (!isWithinDays(parsePgiDate(row), pgiRangeDays)) return false;
           }
           return !yardChassisSet.has(ch) && !handoverChassisSet.has(ch);
-        }).length;
+        }).map((row: any) => ({
+          chassis: toStr(row?.chassis ?? row?.Chassis ?? row?.CHASSIS).toUpperCase().trim(),
+        }));
 
         const yardRanges = yardRangeDefs.map(({ label, min, max }) => ({
           label,
@@ -236,9 +246,14 @@ const InternalSnowyPage = () => {
         return {
           slug: normalizedSlug,
           name: config.name || normalizedSlug,
-          waitingCount,
+          waitingCount: waitingDetails.length,
+          waitingDetails,
           yardRanges,
           yardInventory,
+          yardDetails: yardEntries.map((entry) => ({
+            chassis: entry.chassis,
+            daysInYard: entry.daysInYard,
+          })),
           stockTrend,
         };
       })
@@ -264,29 +279,7 @@ const InternalSnowyPage = () => {
     const selfOwnedSlugs = new Set(selfOwnedNames.map((name) => normalizeDealerSlug(name)));
     return visibleSnapshots.filter((dealer) => !selfOwnedSlugs.has(dealer.slug));
   }, [visibleSnapshots]);
-
-  return (
-    <TooltipProvider>
-      <div className="min-h-screen bg-slate-50 p-6">
-        <header className="mb-4">
-          <h1 className="text-2xl font-semibold text-slate-800">Internal Snowy Overview</h1>
-          <p className="text-sm text-slate-600">Dealer cards overview</p>
-        </header>
-
-        <div className="mb-6 flex flex-col gap-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="w-full lg:w-80">
-              <Input
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder="Search dealer name..."
-              />
-            </div>
-          </div>
-          <p className="text-xs text-slate-500">
-            Waiting for Receiving = PGI issued (On the Road), not yet received in yardstock, and not already
-            handover/dispatch.
-          </p>
+@@ -270,72 +305,102 @@ const InternalSnowyPage = () => {
         </div>
 
         {selfOwnedDealers.length > 0 && (
@@ -312,7 +305,22 @@ const InternalSnowyPage = () => {
                   <CardContent className="space-y-4 text-sm text-slate-700">
                     <div className="flex items-center justify-between rounded-lg bg-white p-3 shadow-inner">
                       <span className="text-slate-600">Waiting for Receiving</span>
-                      <span className="text-lg font-semibold text-blue-700">{dealer.waitingCount}</span>
+                      <div className="flex items-center gap-3">
+                        <span className="text-lg font-semibold text-blue-700">{dealer.waitingCount}</span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDetailDialog({
+                              title: `${dealer.name} — Waiting for Receiving`,
+                              type: "waiting",
+                              items: dealer.waitingDetails,
+                            })
+                          }
+                          className="rounded-md border border-blue-200 px-2 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50"
+                        >
+                          Details
+                        </button>
+                      </div>
                     </div>
 
                     <div>
@@ -333,7 +341,22 @@ const InternalSnowyPage = () => {
                     </div>
 
                     <div>
-                      <div className="mb-2 text-xs font-semibold text-slate-600">Days In Yard</div>
+                      <div className="mb-2 flex items-center justify-between text-xs font-semibold text-slate-600">
+                        <span>Days In Yard</span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDetailDialog({
+                              title: `${dealer.name} — Days In Yard`,
+                              type: "yard",
+                              items: dealer.yardDetails,
+                            })
+                          }
+                          className="rounded-md border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
+                        >
+                          Details
+                        </button>
+                      </div>
                       <div className="grid grid-cols-2 gap-2">
                         {dealer.yardRanges.map((range) => (
                           <div key={range.label} className="rounded-lg bg-white p-2 shadow-inner">
@@ -388,10 +411,47 @@ const InternalSnowyPage = () => {
                 <CardTitle className="text-lg text-slate-800">{dealer.name}</CardTitle>
                 <p className="text-xs text-slate-500">{dealer.slug}</p>
               </CardHeader>
+                        </Tooltip>
+                        <span className="font-semibold text-slate-800">{dealer.yardInventory.customer}</span>
+                      </div>
+                      <div className="mt-2 flex h-2 w-full overflow-hidden rounded-full bg-slate-100">
+                        <div className="h-full bg-blue-500" style={{ width: `${dealer.yardInventory.stockPct}%` }} />
+                        <div className="h-full bg-emerald-500" style={{ width: `${dealer.yardInventory.customerPct}%` }} />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
+          {otherDealers.map((dealer) => (
+            <Card key={dealer.slug} className="relative overflow-hidden border-slate-200 shadow-sm">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-lg text-slate-800">{dealer.name}</CardTitle>
+                <p className="text-xs text-slate-500">{dealer.slug}</p>
+              </CardHeader>
               <CardContent className="space-y-4 text-sm text-slate-700">
                 <div className="flex items-center justify-between rounded-lg bg-white p-3 shadow-inner">
                   <span className="text-slate-600">Waiting for Receiving</span>
-                  <span className="text-lg font-semibold text-blue-700">{dealer.waitingCount}</span>
+                  <div className="flex items-center gap-3">
+                    <span className="text-lg font-semibold text-blue-700">{dealer.waitingCount}</span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setDetailDialog({
+                          title: `${dealer.name} — Waiting for Receiving`,
+                          type: "waiting",
+                          items: dealer.waitingDetails,
+                        })
+                      }
+                      className="rounded-md border border-blue-200 px-2 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50"
+                    >
+                      Details
+                    </button>
+                  </div>
                 </div>
 
                 <div>
@@ -412,7 +472,22 @@ const InternalSnowyPage = () => {
                 </div>
 
                 <div>
-                  <div className="mb-2 text-xs font-semibold text-slate-600">Days In Yard</div>
+                  <div className="mb-2 flex items-center justify-between text-xs font-semibold text-slate-600">
+                    <span>Days In Yard</span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setDetailDialog({
+                          title: `${dealer.name} — Days In Yard`,
+                          type: "yard",
+                          items: dealer.yardDetails,
+                        })
+                      }
+                      className="rounded-md border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
+                    >
+                      Details
+                    </button>
+                  </div>
                   <div className="grid grid-cols-2 gap-2">
                     {dealer.yardRanges.map((range) => (
                       <div key={range.label} className="rounded-lg bg-white p-2 shadow-inner">
@@ -458,6 +533,28 @@ const InternalSnowyPage = () => {
           ))}
         </div>
       </div>
+      <DialogWrapper
+        isOpen={Boolean(detailDialog)}
+        onClose={() => setDetailDialog(null)}
+        title={detailDialog?.title ?? ""}
+      >
+        {!detailDialog?.items.length && <p className="text-sm text-slate-500">No records available.</p>}
+        {detailDialog?.items.length ? (
+          <div className="space-y-2">
+            {detailDialog.items.map((item) => (
+              <div
+                key={`${detailDialog.type}-${item.chassis}`}
+                className="flex items-center justify-between rounded-lg border border-slate-100 bg-white px-3 py-2 text-sm"
+              >
+                <span className="font-semibold text-slate-700">{item.chassis}</span>
+                {detailDialog.type === "yard" && (
+                  <span className="text-slate-500">{item.daysInYard ?? 0} days</span>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </DialogWrapper>
     </TooltipProvider>
   );
 };
