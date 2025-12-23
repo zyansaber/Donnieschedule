@@ -279,7 +279,25 @@ const InternalSnowyPage = () => {
     const selfOwnedSlugs = new Set(selfOwnedNames.map((name) => normalizeDealerSlug(name)));
     return visibleSnapshots.filter((dealer) => !selfOwnedSlugs.has(dealer.slug));
   }, [visibleSnapshots]);
-        </div>
+
+  return (
+    <TooltipProvider>
+      <div className="min-h-screen bg-slate-50 px-4 pb-16 pt-8 text-slate-900">
+        <div className="mx-auto w-full max-w-7xl">
+          <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h1 className="text-2xl font-semibold text-slate-900">Internal Snowy snapshot</h1>
+              <p className="text-sm text-slate-500">Latest yard, waiting, and handover insights.</p>
+            </div>
+            <div className="w-full sm:max-w-xs">
+              <Input
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Search dealers"
+                className="bg-white"
+              />
+            </div>
+          </div>
 
         {selfOwnedDealers.length > 0 && (
           <div className="mb-8 rounded-xl border-2 border-blue-200 bg-white p-4 shadow-sm">
