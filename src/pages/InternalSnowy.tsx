@@ -54,9 +54,25 @@ const parseDateValue = (raw?: string | null) => {
   return Number.isNaN(d.getTime()) ? null : d;
 };
 
+const parseDDMMYYYY = (input?: string | null) => {
+  if (!input) return null;
+  const s = String(input).trim();
+  const m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+  if (!m) return null;
+  const dd = Number.parseInt(m[1], 10);
+  const mm = Number.parseInt(m[2], 10);
+  let yy = Number.parseInt(m[3], 10);
+  if (yy < 100) yy += 2000;
+  const d = new Date(yy, mm - 1, dd);
+  d.setHours(0, 0, 0, 0);
+  if (d.getFullYear() !== yy || d.getMonth() !== mm - 1 || d.getDate() !== dd) return null;
+  return d;
+};
+
 const parseHandoverDate = (raw?: string | null) => parseDateValue(raw);
 
 const parsePgiDate = (row: Record<string, any>) =>
+  parseDDMMYYYY(row?.pgidate ?? row?.PGIDATE ?? row?.PGI_DATE ?? null) ??
   parseDateValue(row?.pgiAt ?? row?.pgiDate ?? row?.issuedAt ?? row?.createdAt ?? null);
 
 const isWithinDays = (date: Date | null, days: number) => {
@@ -65,9 +81,10 @@ const isWithinDays = (date: Date | null, days: number) => {
   return date.getTime() >= threshold;
 };
 
-const normalizeType = (value: unknown) => {
+const normalizeType = (value: unknown, customer?: unknown) => {
   const t = toStr(value).toLowerCase().trim();
-  if (!t) return "Customer";
+  const c = toStr(customer).trim();
+  if (!t) return /stock$/i.test(c) ? "Stock" : "Customer";
   if (t.includes("stock")) return "Stock";
   if (t.includes("customer") || t.includes("retail")) {
     return t.slice(-5) === "stock" ? "Stock" : "Customer";
@@ -169,12 +186,15 @@ const InternalSnowyPage = () => {
 
         const yardEntries = Object.entries(yard)
           .filter(([chassis]) => chassis !== "dealer-chassis")
-          .map(([chassis, rec]) => ({
-            chassis: toStr(chassis).toUpperCase(),
-            receivedAt: rec?.receivedAt ?? null,
-            type: normalizeType(rec?.type ?? rec?.Type),
-            daysInYard: daysSinceISO(rec?.receivedAt ?? null),
-          }));
+          .map(([chassis, rec]) => {
+            const customer = rec?.customer ?? rec?.Customer ?? null;
+            return {
+              chassis: toStr(chassis).toUpperCase(),
+              receivedAt: rec?.receivedAt ?? null,
+              type: normalizeType(rec?.type ?? rec?.Type, customer),
+              daysInYard: daysSinceISO(rec?.receivedAt ?? null),
+            };
+          });
 
         const handoverEntries = Object.entries(handover || {}).map(([chassis, rec]) => ({
           chassis: toStr(chassis).toUpperCase(),
