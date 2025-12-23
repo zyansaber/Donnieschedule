@@ -528,6 +528,7 @@ const InternalSnowyPage = () => {
           ))}
         </div>
       </div>
+    </div>
       <DialogWrapper
         isOpen={Boolean(detailDialog)}
         onClose={() => setDetailDialog(null)}
