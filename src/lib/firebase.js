@@ -18,6 +18,6 @@ const subscribeToPath = (path, callback) => {
 };
 
 const subscribeAllDealerConfigs = (callback) => subscribeToPath('dealerConfigs', callback);
-const subscribeToPGIRecords = (callback) => subscribeToPath('pgiRecords', callback);
+const subscribeToPGIRecords = (callback) => subscribeToPath('pgirecord', callback);
 
 export { database, subscribeAllDealerConfigs, subscribeToPGIRecords };
