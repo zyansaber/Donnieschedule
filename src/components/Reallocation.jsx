@@ -16,7 +16,8 @@ const Reallocation = ({ data }) => {
     currentVanInfo: null,
     selectedDealer: '',
     message: '',
-    historyInfo: null
+    historyInfo: null,
+    transportCompany: ''
   }]);
   const [allDealers, setAllDealers] = useState([]);
   const [reallocationRequests, setReallocationRequests] = useState([]);
@@ -271,13 +272,29 @@ const repetitionBadgeStyles = {
     setStats({ totalPending, totalDone, dealerStats });
   };
 
-  const handleChassisNumberChange = (rowId, chassis) => {
-    const newRows = reallocationRows.map(row => {
+  const fetchDispatchTransportCompany = async (chassis) => {
+    if (!chassis) return '';
+    try {
+      const dispatchRef = ref(database, `Dispatch/${chassis}`);
+      const snapshot = await get(dispatchRef);
+      if (!snapshot.exists()) return '';
+      const dispatchData = snapshot.val();
+      return (dispatchData?.TransportCompany || '').trim();
+    } catch (error) {
+      console.error('Error loading dispatch data:', error);
+      return '';
+    }
+  };
+
+  const handleChassisNumberChange = async (rowId, chassis) => {
+    const trimmedChassis = chassis.trim();
+    const transportCompany = await fetchDispatchTransportCompany(trimmedChassis);
+    setReallocationRows((prevRows) => prevRows.map(row => {
       if (row.id === rowId) {
-        if (chassis) {
+        if (trimmedChassis) {
           // Find van information from data
-          const vanInfo = data.find(item =>
-            item.Chassis && item.Chassis.toLowerCase() === chassis.toLowerCase()
+          const vanInfo = (data || []).find(item =>
+            item.Chassis && item.Chassis.toLowerCase() === trimmedChassis.toLowerCase()
           );
           
           if (vanInfo) {
@@ -289,7 +306,7 @@ const repetitionBadgeStyles = {
             }
 
             const historyMatches = reallocationRequests.filter(req =>
-              (req?.chassisNumber || '').toLowerCase() === chassis.toLowerCase()
+              (req?.chassisNumber || '').toLowerCase() === trimmedChassis.toLowerCase()
             );
             const historyInfo = historyMatches.length
               ? {
@@ -301,36 +318,38 @@ const repetitionBadgeStyles = {
 
             return {
               ...row,
-              chassisNumber: chassis,
+              chassisNumber: trimmedChassis,
               currentVanInfo: vanInfo,
               selectedDealer: '',
               message,
-              historyInfo
+              historyInfo,
+              transportCompany
             };
           } else {
             return {
               ...row,
-              chassisNumber: chassis,
+              chassisNumber: trimmedChassis,
               currentVanInfo: null,
               selectedDealer: '',
               message: 'Chassis number not found',
-              historyInfo: null
+              historyInfo: null,
+              transportCompany
             };
           }
         } else {
           return {
             ...row,
-            chassisNumber: chassis,
+            chassisNumber: trimmedChassis,
             currentVanInfo: null,
             selectedDealer: '',
             message: '',
-            historyInfo: null
+            historyInfo: null,
+            transportCompany: ''
           };
         }
       }
       return row;
-    });
-    setReallocationRows(newRows);
+    }));
   };
 
   const handleDealerChange = (rowId, dealer) => {
@@ -351,7 +370,8 @@ const repetitionBadgeStyles = {
       currentVanInfo: null,
       selectedDealer: '',
       message: '',
-      historyInfo: null
+      historyInfo: null,
+      transportCompany: ''
     }]);
   };
 
@@ -431,7 +451,8 @@ const repetitionBadgeStyles = {
         currentVanInfo: null,
         selectedDealer: '',
         message: '',
-        historyInfo: null
+        historyInfo: null,
+        transportCompany: ''
       }]);
 
       // Reload requests
@@ -497,6 +518,8 @@ const repetitionBadgeStyles = {
     const status = row.currentVanInfo['Regent Production'] || '';
     const signedPlansReceived = row.currentVanInfo['Signed Plans Received'] || '';
     
+    if (row.transportCompany) return false;
+
     // Can't submit if status is finished
     if (status.toLowerCase() === 'finished') return false;
     
@@ -507,6 +530,10 @@ const repetitionBadgeStyles = {
   };
 
   const getRowStatus = (row) => {
+    if (row.transportCompany) {
+      return 'This caravan already has a transport company assigned. Please contact the transporting manager to adjust freight.';
+    }
+
     if (!row.currentVanInfo) return '';
     
     const status = row.currentVanInfo['Regent Production'] || '';
@@ -638,7 +665,9 @@ const repetitionBadgeStyles = {
                   <input
                     type="text"
                     value={row.chassisNumber}
-                    onChange={(e) => handleChassisNumberChange(row.id, e.target.value.trim())}
+                    onChange={(e) => {
+                      void handleChassisNumberChange(row.id, e.target.value);
+                    }}
                     className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
                     placeholder="Enter chassis"
                   />
@@ -729,7 +758,9 @@ const repetitionBadgeStyles = {
 
               {getRowStatus(row) && (
                 <div className={`mt-2 text-xs ${
-                  getRowStatus(row).includes('Cannot') || getRowStatus(row).includes('dispatched')
+                  getRowStatus(row).includes('Cannot') ||
+                  getRowStatus(row).includes('dispatched') ||
+                  getRowStatus(row).includes('transport company')
                     ? 'text-red-600 font-medium'
                     : 'text-gray-500'
                 }`}>
