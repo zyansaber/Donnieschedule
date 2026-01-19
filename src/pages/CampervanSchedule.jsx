@@ -104,27 +104,8 @@ const columns = [
   },
   { key: 'vehicleOrderDate', label: 'Vehicle Order Date', type: 'date' },
   { key: 'vehicleEta', label: 'Vehicle ETA', type: 'date' },
-  {
-    key: 'latestEurPartsOrder',
-    label: 'Lastest EUR Parts Order (Forecast Production Date - 60)',
-    type: 'date',
-    readOnly: true,
-  },
-  { key: 'eurPartsOrderDate', label: 'EUR Parts Order Date', type: 'date' },
-  { key: 'eurPartsEta', label: 'EUR Parts ETA', type: 'date' },
-  {
-    key: 'latestLongtreePartsOrder',
-    label: 'Lastest Longtree Parts Order (Forecast Production Date - 90)',
-    type: 'date',
-    readOnly: true,
-  },
   { key: 'longtreePartsOrderDate', label: 'Longtree Parts Order Date', type: 'date' },
-  { key: 'longtreePartsEta', label: 'Longtree Parts ETA', type: 'date' },
   { key: 'signedOrderReceived', label: 'Signed Order Received', type: 'date' },
-  { key: 'vehiclePlannedEta', label: 'Vehicle Planned ETA', type: 'date' },
-  { key: 'productionPlannedStartDate', label: 'Production Planned Start Date', type: 'date' },
-  { key: 'productionPlannedEndDate', label: 'Production Planned End Date', type: 'date' },
-  { key: 'duration', label: 'Duration (days)', type: 'number', readOnly: true },
 ];
 
 const normalizeHeader = (value) => value.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -160,10 +141,7 @@ const CampervanSchedule = () => {
       latestVehicleOrder: addDays(forecastDate, -180),
       latestEurPartsOrder: addDays(forecastDate, -60),
       latestLongtreePartsOrder: addDays(forecastDate, -90),
-      duration: parseDuration(
-        normalizedDates.productionPlannedStartDate,
-        normalizedDates.productionPlannedEndDate,
-      ),
+      duration: parseDuration(row.productionPlannedStartDate, row.productionPlannedEndDate),
     };
   };
 
@@ -327,17 +305,8 @@ const CampervanSchedule = () => {
       '',
       '2024-08-19',
       '2024-09-01',
-      '',
-      '2024-12-17',
-      '2025-01-05',
-      '',
       '2024-11-17',
-      '2024-12-05',
       '2024-10-01',
-      '2025-02-10',
-      '2025-02-01',
-      '2025-02-14',
-      '',
     ];
 
     const escapeValue = (value) => {
