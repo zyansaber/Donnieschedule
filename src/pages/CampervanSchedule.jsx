@@ -1,4 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 import { get, ref, set } from 'firebase/database';
 import { database } from '../utils/firebase';
 
@@ -132,6 +141,7 @@ const CampervanSchedule = () => {
   const [scrollWidth, setScrollWidth] = useState(0);
   const topScrollRef = useRef(null);
   const tableScrollRef = useRef(null);
+  const [selectedDealer, setSelectedDealer] = useState('');
 
   const headerMap = useMemo(() => {
     const mapping = {};
@@ -393,6 +403,41 @@ const CampervanSchedule = () => {
     }
   }, [filteredRows.length]);
 
+  const dealerOptions = useMemo(() => {
+    const options = new Set();
+    rows.forEach((row) => {
+      const dealerName = String(row.dealer || '').trim();
+      if (dealerName) options.add(dealerName);
+    });
+    return Array.from(options).sort((a, b) => a.localeCompare(b));
+  }, [rows]);
+
+  useEffect(() => {
+    if (dealerOptions.length === 0) {
+      setSelectedDealer('');
+      return;
+    }
+    if (!selectedDealer || !dealerOptions.includes(selectedDealer)) {
+      setSelectedDealer(dealerOptions[0]);
+    }
+  }, [dealerOptions, selectedDealer]);
+
+  const dealerChartData = useMemo(() => {
+    if (!selectedDealer) return [];
+    const counts = rows.reduce((acc, row) => {
+      const dealerName = String(row.dealer || '').trim();
+      if (dealerName !== selectedDealer) return acc;
+      const dateKey = normalizeDateString(row.signedOrderReceived);
+      if (!dateKey) return acc;
+      acc[dateKey] = (acc[dateKey] || 0) + 1;
+      return acc;
+    }, {});
+
+    return Object.entries(counts)
+      .map(([date, count]) => ({ date, count }))
+      .sort((a, b) => new Date(a.date) - new Date(b.date));
+  }, [rows, selectedDealer]);
+
   return (
     <div className="space-y-6">
       <div className="bg-white shadow rounded-lg p-4">
@@ -443,6 +488,85 @@ const CampervanSchedule = () => {
             {statusMessage}
           </div>
         )}
+      </div>
+
+      <div className="bg-white shadow rounded-lg p-5">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-800">Signed Orders Trend</h3>
+            <p className="text-sm text-gray-500">
+              Signed Order Received counts by date for the selected dealer.
+            </p>
+          </div>
+          <div className="w-full sm:w-56">
+            <label className="block text-xs font-semibold text-gray-500 mb-1">Dealer</label>
+            <select
+              value={selectedDealer}
+              onChange={(event) => setSelectedDealer(event.target.value)}
+              className="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 shadow-sm focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+            >
+              {dealerOptions.length === 0 ? (
+                <option value="">No dealer data</option>
+              ) : (
+                dealerOptions.map((dealer) => (
+                  <option key={dealer} value={dealer}>
+                    {dealer}
+                  </option>
+                ))
+              )}
+            </select>
+          </div>
+        </div>
+        <div className="mt-4 rounded-xl border border-gray-100 bg-gradient-to-br from-indigo-50 via-white to-sky-50 p-4">
+          {dealerChartData.length === 0 ? (
+            <div className="text-sm text-gray-500">
+              No signed order data available for this dealer yet.
+            </div>
+          ) : (
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={dealerChartData} margin={{ top: 10, right: 20, left: 0, bottom: 5 }}>
+                  <defs>
+                    <linearGradient id="orderLine" x1="0" y1="0" x2="1" y2="0">
+                      <stop offset="0%" stopColor="#4f46e5" />
+                      <stop offset="100%" stopColor="#38bdf8" />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <XAxis
+                    dataKey="date"
+                    tick={{ fontSize: 12, fill: '#64748b' }}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <YAxis
+                    tick={{ fontSize: 12, fill: '#64748b' }}
+                    tickLine={false}
+                    axisLine={false}
+                    allowDecimals={false}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      borderRadius: '12px',
+                      borderColor: '#e2e8f0',
+                      boxShadow: '0 10px 30px rgba(15, 23, 42, 0.12)',
+                      fontSize: '12px',
+                    }}
+                    cursor={{ stroke: '#cbd5f5', strokeWidth: 1 }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="count"
+                    stroke="url(#orderLine)"
+                    strokeWidth={3}
+                    dot={{ r: 4, strokeWidth: 2, fill: '#fff', stroke: '#4f46e5' }}
+                    activeDot={{ r: 6 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="bg-white shadow rounded-lg overflow-hidden">
