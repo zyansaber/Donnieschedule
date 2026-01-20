@@ -350,6 +350,18 @@ const CampervanSchedule = () => {
       });
   }, [rows, searchTerm]);
 
+  const columnWidths = useMemo(() => {
+    return columns.reduce((acc, column) => {
+      const maxLength = rows.reduce((max, row) => {
+        const value = row?.[column.key];
+        const length = value == null ? 0 : String(value).length;
+        return Math.max(max, length);
+      }, 0);
+      acc[column.key] = Math.max(maxLength, 6);
+      return acc;
+    }, {});
+  }, [rows]);
+
   useEffect(() => {
     if (tableScrollRef.current) {
       setScrollWidth(tableScrollRef.current.scrollWidth);
@@ -428,7 +440,11 @@ const CampervanSchedule = () => {
             <tr>
               <th className="px-3 py-2 sticky left-0 bg-gray-100 z-10">Row #</th>
               {columns.map((column) => (
-                <th key={column.key} className="px-3 py-2 whitespace-nowrap">
+                <th
+                  key={column.key}
+                  className="px-3 py-2 whitespace-normal"
+                  style={{ width: `${columnWidths[column.key]}ch` }}
+                >
                   {column.label}
                 </th>
               ))}
@@ -442,13 +458,17 @@ const CampervanSchedule = () => {
                   {row.rowNumber}
                 </td>
                 {columns.map((column) => (
-                  <td key={column.key} className="px-3 py-2">
+                  <td
+                    key={column.key}
+                    className="px-3 py-2"
+                    style={{ width: `${columnWidths[column.key]}ch` }}
+                  >
                     <input
                       type={column.type}
                       value={row[column.key]}
                       onChange={(event) => updateRow(index, column.key, event.target.value)}
                       readOnly={column.readOnly}
-                      className={`w-40 rounded border px-2 py-1 text-xs ${
+                      className={`w-full rounded border px-2 py-1 text-xs ${
                         column.readOnly
                           ? 'bg-gray-100 text-gray-500 cursor-not-allowed'
                           : 'border-gray-300'
