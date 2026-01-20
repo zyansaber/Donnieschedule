@@ -15,9 +15,22 @@ const formatDate = (date) => {
 const parseDateValue = (value) => {
   if (!value) return null;
   if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+  if (typeof value === 'number') {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
 
   const stringValue = String(value).trim();
   if (!stringValue) return null;
+  if (/^\d+$/.test(stringValue)) {
+    const timestamp = Number(stringValue);
+    if (!Number.isNaN(timestamp)) {
+      const date = new Date(timestamp);
+      if (!Number.isNaN(date.getTime())) {
+        return date;
+      }
+    }
+  }
 
   if (/^\d{4}-\d{2}-\d{2}$/.test(stringValue)) {
     const date = new Date(`${stringValue}T00:00:00`);
@@ -471,6 +484,10 @@ const CampervanSchedule = () => {
                 </td>
                 {columns.map((column) => {
                   const isEmptyDate = column.type === 'date' && !row[column.key];
+                  const isVehicleOrderMissing =
+                    column.key === 'vehicle' &&
+                    String(row.chassisNumber || '').trim().length > 0 &&
+                    String(row.vehicleOrderDate || '').trim().length === 0;
                   return (
                     <td
                       key={column.key}
@@ -486,7 +503,11 @@ const CampervanSchedule = () => {
                           column.readOnly
                             ? 'bg-gray-100 text-gray-500 cursor-not-allowed'
                             : 'bg-white'
-                        } ${isEmptyDate ? 'text-transparent' : ''}`}
+                        } ${isEmptyDate ? 'text-transparent' : ''} ${
+                          isVehicleOrderMissing
+                            ? 'bg-red-50 text-red-700 ring-1 ring-red-200 shadow-inner transition-colors'
+                            : ''
+                        }`}
                       />
                     </td>
                   );
