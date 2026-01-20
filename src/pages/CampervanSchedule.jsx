@@ -406,7 +406,7 @@ const CampervanSchedule = () => {
               value={searchTerm}
               onChange={(event) => setSearchTerm(event.target.value)}
               placeholder="Search all rows..."
-              className="w-full md:max-w-md rounded-md border border-gray-300 px-3 py-2 text-sm"
+              className="w-full md:max-w-md rounded-md border-0 bg-gray-50 px-3 py-2 text-sm focus:outline-none focus:ring-0"
             />
           </div>
           <div className="text-xs text-gray-500">
@@ -468,10 +468,10 @@ const CampervanSchedule = () => {
                       value={row[column.key]}
                       onChange={(event) => updateRow(index, column.key, event.target.value)}
                       readOnly={column.readOnly}
-                      className={`w-full rounded border px-2 py-1 text-xs ${
+                      className={`w-full rounded border-0 px-2 py-1 text-xs focus:outline-none focus:ring-0 ${
                         column.readOnly
                           ? 'bg-gray-100 text-gray-500 cursor-not-allowed'
-                          : 'border-gray-300'
+                          : 'bg-white'
                       }`}
                     />
                   </td>
