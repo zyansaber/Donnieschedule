@@ -471,10 +471,6 @@ const CampervanSchedule = () => {
                 </td>
                 {columns.map((column) => {
                   const isEmptyDate = column.type === 'date' && !row[column.key];
-                  const isVehicleOrderMissing =
-                    column.key === 'vehicle' &&
-                    String(row.chassisNumber || '').trim().length > 0 &&
-                    String(row.vehicleOrderDate || '').trim().length === 0;
                   return (
                     <td
                       key={column.key}
@@ -490,11 +486,7 @@ const CampervanSchedule = () => {
                           column.readOnly
                             ? 'bg-gray-100 text-gray-500 cursor-not-allowed'
                             : 'bg-white'
-                        } ${isEmptyDate ? 'text-transparent' : ''} ${
-                          isVehicleOrderMissing
-                            ? 'bg-red-50 text-red-700 ring-1 ring-red-200 shadow-inner transition-colors'
-                            : ''
-                        }`}
+                        } ${isEmptyDate ? 'text-transparent' : ''}`}
                       />
                     </td>
                   );
