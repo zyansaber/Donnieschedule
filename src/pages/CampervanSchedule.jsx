@@ -359,22 +359,33 @@ const CampervanSchedule = () => {
   };
 
   const filteredRows = useMemo(() => {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const shouldHideRow = (row) => {
+      const forecastDate = parseDateValue(row.forecastProductionDate);
+      if (!forecastDate) return false;
+      const chassisEmpty = String(row.chassisNumber || '').trim().length === 0;
+      const dealerEmpty = String(row.dealer || '').trim().length === 0;
+      return forecastDate < todayStart && chassisEmpty && dealerEmpty;
+    };
+    const visibleRows = rows
+      .map((row, index) => ({ row, index }))
+      .filter(({ row }) => !shouldHideRow(row));
+
     if (!searchTerm.trim()) {
-      return rows.map((row, index) => ({ row, index }));
+      return visibleRows;
     }
     const term = searchTerm.toLowerCase();
-    return rows
-      .map((row, index) => ({ row, index }))
-      .filter(({ row }) => {
-        const rowText = [
-          row.rowNumber,
-          ...columns.map((column) => row[column.key]),
-        ]
-          .filter(Boolean)
-          .join(' ')
-          .toLowerCase();
-        return rowText.includes(term);
-      });
+    return visibleRows.filter(({ row }) => {
+      const rowText = [
+        row.rowNumber,
+        ...columns.map((column) => row[column.key]),
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return rowText.includes(term);
+    });
   }, [rows, searchTerm]);
 
   const columnWidths = useMemo(() => {
