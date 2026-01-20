@@ -98,7 +98,6 @@ const emptyRow = (rowNumber) => ({
   customer: '',
   latestVehicleOrder: '',
   vehicleOrderDate: '',
-  vehicleEta: '',
   latestEurPartsOrder: '',
   eurPartsOrderDate: '',
   eurPartsEta: '',
@@ -128,7 +127,6 @@ const columns = [
     readOnly: true,
   },
   { key: 'vehicleOrderDate', label: 'Vehicle Order Date', type: 'date' },
-  { key: 'vehicleEta', label: 'Vehicle ETA', type: 'date' },
   { key: 'longtreePartsOrderDate', label: 'Longtree Parts Order Date', type: 'date' },
   { key: 'signedOrderReceived', label: 'Signed Order Received', type: 'date' },
 ];
@@ -331,7 +329,6 @@ const CampervanSchedule = () => {
       'Sample Customer',
       '',
       '2024-08-19',
-      '2024-09-01',
       '2024-11-17',
       '2024-10-01',
     ];
