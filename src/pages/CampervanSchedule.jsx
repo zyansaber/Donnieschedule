@@ -469,25 +469,28 @@ const CampervanSchedule = () => {
                 <td className="px-3 py-2 sticky left-0 bg-white z-10 font-semibold text-gray-600">
                   {row.rowNumber}
                 </td>
-                {columns.map((column) => (
-                  <td
-                    key={column.key}
-                    className="px-3 py-2"
-                    style={{ width: columnWidths[column.key], minWidth: columnWidths[column.key] }}
-                  >
-                    <input
-                      type={column.type}
-                      value={row[column.key]}
-                      onChange={(event) => updateRow(index, column.key, event.target.value)}
-                      readOnly={column.readOnly}
-                      className={`w-full rounded border-0 px-2 py-1 text-xs focus:outline-none focus:ring-0 ${
-                        column.readOnly
-                          ? 'bg-gray-100 text-gray-500 cursor-not-allowed'
-                          : 'bg-white'
-                      }`}
-                    />
-                  </td>
-                ))}
+                {columns.map((column) => {
+                  const isEmptyDate = column.type === 'date' && !row[column.key];
+                  return (
+                    <td
+                      key={column.key}
+                      className="px-3 py-2"
+                      style={{ width: columnWidths[column.key], minWidth: columnWidths[column.key] }}
+                    >
+                      <input
+                        type={column.type}
+                        value={row[column.key]}
+                        onChange={(event) => updateRow(index, column.key, event.target.value)}
+                        readOnly={column.readOnly}
+                        className={`w-full rounded border-0 px-2 py-1 text-xs focus:outline-none focus:ring-0 ${
+                          column.readOnly
+                            ? 'bg-gray-100 text-gray-500 cursor-not-allowed'
+                            : 'bg-white'
+                        } ${isEmptyDate ? 'text-transparent' : ''}`}
+                      />
+                    </td>
+                  );
+                })}
                 <td className="px-3 py-2">
                   <button
                     type="button"
