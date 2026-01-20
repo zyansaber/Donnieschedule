@@ -513,10 +513,6 @@ const CampervanSchedule = () => {
             <span>SRV22.3</span>
             <span>{data.srv223}</span>
           </div>
-          <div className="flex items-center justify-between text-gray-500">
-            <span>Other Ford</span>
-            <span>{data.fordOther}</span>
-          </div>
         </div>
       </div>
     );
@@ -700,7 +696,6 @@ const CampervanSchedule = () => {
                     <Bar dataKey="srv221" name="Ford SRV22.1" stackId="orders" fill="#60a5fa" />
                     <Bar dataKey="srv222" name="Ford SRV22.2" stackId="orders" fill="#818cf8" />
                     <Bar dataKey="srv223" name="Ford SRV22.3" stackId="orders" fill="#a78bfa" />
-                    <Bar dataKey="fordOther" name="Other Ford" stackId="orders" fill="#c4b5fd" />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
