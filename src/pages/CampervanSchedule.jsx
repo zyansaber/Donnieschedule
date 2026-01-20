@@ -351,13 +351,25 @@ const CampervanSchedule = () => {
   }, [rows, searchTerm]);
 
   const columnWidths = useMemo(() => {
+    const fixedColumnWidths = {
+      regentProduction: 200,
+      chassisNumber: 140,
+      vinNumber: 160,
+      model: 120,
+      dealer: 120,
+      customer: 180,
+    };
     return columns.reduce((acc, column) => {
+      if (fixedColumnWidths[column.key]) {
+        acc[column.key] = `${fixedColumnWidths[column.key]}px`;
+        return acc;
+      }
       const maxLength = rows.reduce((max, row) => {
         const value = row?.[column.key];
         const length = value == null ? 0 : String(value).length;
         return Math.max(max, length);
       }, 0);
-      acc[column.key] = Math.max(maxLength, 6);
+      acc[column.key] = `${Math.max(maxLength, 6)}ch`;
       return acc;
     }, {});
   }, [rows]);
@@ -443,7 +455,7 @@ const CampervanSchedule = () => {
                 <th
                   key={column.key}
                   className="px-3 py-2 whitespace-normal"
-                  style={{ width: `${columnWidths[column.key]}ch` }}
+                  style={{ width: columnWidths[column.key], minWidth: columnWidths[column.key] }}
                 >
                   {column.label}
                 </th>
@@ -461,7 +473,7 @@ const CampervanSchedule = () => {
                   <td
                     key={column.key}
                     className="px-3 py-2"
-                    style={{ width: `${columnWidths[column.key]}ch` }}
+                    style={{ width: columnWidths[column.key], minWidth: columnWidths[column.key] }}
                   >
                     <input
                       type={column.type}
