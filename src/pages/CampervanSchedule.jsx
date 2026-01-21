@@ -28,24 +28,64 @@ const parseDateValue = (value) => {
   if (!value) return null;
   if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
   if (typeof value === 'number') {
-    const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? null : date;
+    if (Number.isNaN(value)) return null;
+    if (value > 100000000000) {
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+    if (value >= 19000101 && value <= 21001231) {
+      const year = Math.floor(value / 10000);
+      const month = Math.floor((value % 10000) / 100);
+      const day = value % 100;
+      const date = new Date(year, month - 1, day);
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+    if (value >= 30000 && value <= 80000) {
+      const excelEpoch = new Date(1899, 11, 30);
+      const date = new Date(excelEpoch.getTime() + value * DAY_MS);
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+    const fallbackDate = new Date(value);
+    return Number.isNaN(fallbackDate.getTime()) ? null : fallbackDate;
   }
 
   const stringValue = String(value).trim();
   if (!stringValue) return null;
-  if (/^\d+$/.test(stringValue)) {
-    const timestamp = Number(stringValue);
-    if (!Number.isNaN(timestamp)) {
-      const date = new Date(timestamp);
-      if (!Number.isNaN(date.getTime())) {
-        return date;
+  if (/^\d+(\.\d+)?$/.test(stringValue)) {
+    const timestamp = Number.parseFloat(stringValue);
+    if (Number.isFinite(timestamp)) {
+      const wholeNumber = Number.isInteger(timestamp) ? timestamp : Math.round(timestamp);
+      if (timestamp >= 19000101 && timestamp <= 21001231) {
+        const year = Math.floor(timestamp / 10000);
+        const month = Math.floor((timestamp % 10000) / 100);
+        const day = timestamp % 100;
+        const date = new Date(year, month - 1, day);
+        return Number.isNaN(date.getTime()) ? null : date;
       }
+      if (wholeNumber >= 30000 && wholeNumber <= 80000) {
+        const excelEpoch = new Date(1899, 11, 30);
+        const date = new Date(excelEpoch.getTime() + wholeNumber * DAY_MS);
+        return Number.isNaN(date.getTime()) ? null : date;
+      }
+      const date = new Date(timestamp);
+      return Number.isNaN(date.getTime()) ? null : date;
     }
   }
 
   if (/^\d{4}-\d{2}-\d{2}$/.test(stringValue)) {
     const date = new Date(`${stringValue}T00:00:00`);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  if (/^\d{2}-\d{2}-\d{4}$/.test(stringValue)) {
+    const [day, month, year] = stringValue.split('-').map((part) => parseInt(part, 10));
+    const date = new Date(year, month - 1, day);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  if (/^\d{2}\.\d{2}\.\d{4}$/.test(stringValue)) {
+    const [day, month, year] = stringValue.split('.').map((part) => parseInt(part, 10));
+    const date = new Date(year, month - 1, day);
     return Number.isNaN(date.getTime()) ? null : date;
   }
 
@@ -151,6 +191,8 @@ const CampervanSchedule = () => {
       mapping[normalizeHeader(column.label)] = column.key;
       mapping[normalizeHeader(column.key)] = column.key;
     });
+    mapping[normalizeHeader('Latest Vehicle Order (Forecast Production Date - 180)')] =
+      'latestVehicleOrder';
     return mapping;
   }, []);
 
@@ -297,17 +339,25 @@ const CampervanSchedule = () => {
       if (lines.length === 0) return;
 
       const headers = parseCsvLine(lines[0]);
+      if (headers.length > 0) {
+        headers[0] = headers[0].replace(/^\ufeff/, '');
+      }
       const headerKeys = headers.map((header) => headerMap[normalizeHeader(header)] || null);
 
-      const nextRows = lines.slice(1).map((line, index) => {
-        const values = parseCsvLine(line);
-        const row = emptyRow(index + 1);
-        values.forEach((value, colIndex) => {
-          const key = headerKeys[colIndex];
-          if (key) row[key] = value;
-        });
-        return recalcRow(row);
-      });
+      const nextRows = lines
+        .slice(1)
+        .map((line, index) => {
+          const values = parseCsvLine(line);
+          const row = emptyRow(index + 1);
+          values.forEach((value, colIndex) => {
+            const key = headerKeys[colIndex];
+            if (key) row[key] = value;
+          });
+          return recalcRow(row);
+        })
+        .filter((row) =>
+          columns.some((column) => String(row[column.key] || '').trim().length > 0),
+        );
 
       const fallbackRows = nextRows.length ? nextRows : [emptyRow(1)];
       setRows(fallbackRows);
