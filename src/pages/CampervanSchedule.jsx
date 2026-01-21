@@ -394,6 +394,10 @@ const CampervanSchedule = () => {
       model: 120,
       dealer: 120,
       customer: 180,
+      latestVehicleOrder: 110,
+      vehicleOrderDate: 110,
+      longtreePartsOrderDate: 110,
+      signedOrderReceived: 110,
     };
     return columns.reduce((acc, column) => {
       if (fixedColumnWidths[column.key]) {
