@@ -12,7 +12,6 @@ import {
   YAxis,
 } from 'recharts';
 import { get, ref, set } from 'firebase/database';
-import * as XLSX from 'xlsx';
 import { database } from '../utils/firebase';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -261,43 +260,60 @@ const CampervanSchedule = () => {
     });
   };
 
-  const handleExcelUpload = (event) => {
+  const parseCsvLine = (line) => {
+    const result = [];
+    let current = '';
+    let inQuotes = false;
+
+    for (let i = 0; i < line.length; i += 1) {
+      const char = line[i];
+      if (char === '"') {
+        if (inQuotes && line[i + 1] === '"') {
+          current += '"';
+          i += 1;
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if (char === ',' && !inQuotes) {
+        result.push(current.trim());
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+    result.push(current.trim());
+    return result;
+  };
+
+  const handleCsvUpload = (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
     const reader = new FileReader();
     reader.onload = (loadEvent) => {
-      const data = loadEvent.target?.result;
-      if (!data) return;
-      const workbook = XLSX.read(data, { type: 'array', cellDates: true });
-      const sheetName = workbook.SheetNames?.[0];
-      if (!sheetName) return;
-      const worksheet = workbook.Sheets[sheetName];
-      if (!worksheet) return;
+      const text = loadEvent.target?.result;
+      if (typeof text !== 'string') return;
+      const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0);
+      if (lines.length === 0) return;
 
-      const sheetRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
-      if (sheetRows.length === 0) return;
-
-      const headers = sheetRows[0].map((header) => String(header).trim());
+      const headers = parseCsvLine(lines[0]);
       const headerKeys = headers.map((header) => headerMap[normalizeHeader(header)] || null);
 
-      const nextRows = sheetRows
-        .slice(1)
-        .filter((row) => row.some((cell) => String(cell).trim().length > 0))
-        .map((values, index) => {
-          const row = emptyRow(index + 1);
-          values.forEach((value, colIndex) => {
-            const key = headerKeys[colIndex];
-            if (key) row[key] = value;
-          });
-          return recalcRow(row);
+      const nextRows = lines.slice(1).map((line, index) => {
+        const values = parseCsvLine(line);
+        const row = emptyRow(index + 1);
+        values.forEach((value, colIndex) => {
+          const key = headerKeys[colIndex];
+          if (key) row[key] = value;
         });
+        return recalcRow(row);
+      });
 
       const fallbackRows = nextRows.length ? nextRows : [emptyRow(1)];
       setRows(fallbackRows);
       fallbackRows.forEach((row) => scheduleRowSave(row));
     };
-    reader.readAsArrayBuffer(file);
+    reader.readAsText(file);
   };
 
   const handleTemplateDownload = () => {
@@ -317,17 +333,24 @@ const CampervanSchedule = () => {
       '01/10/2024',
     ];
 
-    const workbook = XLSX.utils.book_new();
-    const worksheet = XLSX.utils.aoa_to_sheet([headers, sampleRow]);
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Campervan Schedule');
-    const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
-    const blob = new Blob([excelBuffer], {
-      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    });
+    const escapeValue = (value) => {
+      if (value == null) return '';
+      const stringValue = String(value);
+      if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n')) {
+        return `"${stringValue.replace(/"/g, '""')}"`;
+      }
+      return stringValue;
+    };
+
+    const csvContent = [headers, sampleRow]
+      .map((row) => row.map(escapeValue).join(','))
+      .join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = 'campervan-schedule-template.xlsx';
+    link.download = 'campervan-schedule-template.csv';
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -540,16 +563,11 @@ const CampervanSchedule = () => {
               onClick={handleTemplateDownload}
               className="px-3 py-2 border border-gray-300 text-gray-700 text-sm rounded-md bg-white hover:bg-gray-50"
             >
-              Download Excel Template
+              Download Template
             </button>
             <label className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-600 bg-white cursor-pointer hover:bg-gray-50">
-              Upload Excel
-              <input
-                type="file"
-                accept=".xlsx,.xls"
-                className="hidden"
-                onChange={handleExcelUpload}
-              />
+              Upload CSV
+              <input type="file" accept=".csv" className="hidden" onChange={handleCsvUpload} />
             </label>
             <button
               type="button"
