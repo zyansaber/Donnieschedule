@@ -28,8 +28,25 @@ const parseDateValue = (value) => {
   if (!value) return null;
   if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
   if (typeof value === 'number') {
-    const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? null : date;
+    if (Number.isNaN(value)) return null;
+    if (value > 100000000000) {
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+    if (value >= 19000101 && value <= 21001231) {
+      const year = Math.floor(value / 10000);
+      const month = Math.floor((value % 10000) / 100);
+      const day = value % 100;
+      const date = new Date(year, month - 1, day);
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+    if (value >= 30000 && value <= 80000) {
+      const excelEpoch = new Date(1899, 11, 30);
+      const date = new Date(excelEpoch.getTime() + value * DAY_MS);
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+    const fallbackDate = new Date(value);
+    return Number.isNaN(fallbackDate.getTime()) ? null : fallbackDate;
   }
 
   const stringValue = String(value).trim();
@@ -37,15 +54,37 @@ const parseDateValue = (value) => {
   if (/^\d+$/.test(stringValue)) {
     const timestamp = Number(stringValue);
     if (!Number.isNaN(timestamp)) {
-      const date = new Date(timestamp);
-      if (!Number.isNaN(date.getTime())) {
-        return date;
+      if (timestamp >= 19000101 && timestamp <= 21001231) {
+        const year = Math.floor(timestamp / 10000);
+        const month = Math.floor((timestamp % 10000) / 100);
+        const day = timestamp % 100;
+        const date = new Date(year, month - 1, day);
+        return Number.isNaN(date.getTime()) ? null : date;
       }
+      if (timestamp >= 30000 && timestamp <= 80000) {
+        const excelEpoch = new Date(1899, 11, 30);
+        const date = new Date(excelEpoch.getTime() + timestamp * DAY_MS);
+        return Number.isNaN(date.getTime()) ? null : date;
+      }
+      const date = new Date(timestamp);
+      return Number.isNaN(date.getTime()) ? null : date;
     }
   }
 
   if (/^\d{4}-\d{2}-\d{2}$/.test(stringValue)) {
     const date = new Date(`${stringValue}T00:00:00`);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  if (/^\d{2}-\d{2}-\d{4}$/.test(stringValue)) {
+    const [day, month, year] = stringValue.split('-').map((part) => parseInt(part, 10));
+    const date = new Date(year, month - 1, day);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  if (/^\d{2}\.\d{2}\.\d{4}$/.test(stringValue)) {
+    const [day, month, year] = stringValue.split('.').map((part) => parseInt(part, 10));
+    const date = new Date(year, month - 1, day);
     return Number.isNaN(date.getTime()) ? null : date;
   }
 
