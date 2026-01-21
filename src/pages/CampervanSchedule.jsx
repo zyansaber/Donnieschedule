@@ -21,7 +21,7 @@ const formatDate = (date) => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  return `${day}/${month}/${year}`;
 };
 
 const parseDateValue = (value) => {
@@ -79,9 +79,9 @@ const normalizeDateString = (value) => {
 
 const parseDuration = (startValue, endValue) => {
   if (!startValue || !endValue) return '';
-  const start = new Date(startValue);
-  const end = new Date(endValue);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return '';
+  const start = parseDateValue(startValue);
+  const end = parseDateValue(endValue);
+  if (!start || !end) return '';
   const diff = Math.round((end - start) / DAY_MS);
   return diff >= 0 ? diff : '';
 };
@@ -319,7 +319,7 @@ const CampervanSchedule = () => {
   const handleTemplateDownload = () => {
     const headers = columns.map((column) => column.label);
     const sampleRow = [
-      '2025-02-15',
+      '15/02/2025',
       'Scheduled',
       'CHS-001',
       'VIN-001',
@@ -328,9 +328,9 @@ const CampervanSchedule = () => {
       'Sample Dealer',
       'Sample Customer',
       '',
-      '2024-08-19',
-      '2024-11-17',
-      '2024-10-01',
+      '19/08/2024',
+      '17/11/2024',
+      '01/10/2024',
     ];
 
     const escapeValue = (value) => {
@@ -387,6 +387,7 @@ const CampervanSchedule = () => {
 
   const columnWidths = useMemo(() => {
     const fixedColumnWidths = {
+      forecastProductionDate: 120,
       regentProduction: 200,
       chassisNumber: 140,
       vinNumber: 160,
@@ -447,7 +448,12 @@ const CampervanSchedule = () => {
 
     return Object.entries(counts)
       .map(([date, count]) => ({ date, count }))
-      .sort((a, b) => new Date(a.date) - new Date(b.date));
+      .sort((a, b) => {
+        const first = parseDateValue(a.date);
+        const second = parseDateValue(b.date);
+        if (!first || !second) return 0;
+        return first - second;
+      });
   }, [rows, selectedDealer]);
 
   const dealerOrderMix = useMemo(() => {
@@ -806,7 +812,8 @@ const CampervanSchedule = () => {
                   {row.rowNumber}
                 </td>
                 {columns.map((column) => {
-                  const isEmptyDate = column.type === 'date' && !row[column.key];
+                  const inputType = column.type === 'date' ? 'text' : column.type;
+                  const isEmptyDate = column.type === 'date' && !row[column.key] && inputType === 'date';
                   const isVehicleOrderMissing =
                     column.key === 'vehicle' &&
                     String(row.chassisNumber || '').trim().length > 0 &&
@@ -818,10 +825,11 @@ const CampervanSchedule = () => {
                       style={{ width: columnWidths[column.key], minWidth: columnWidths[column.key] }}
                     >
                       <input
-                        type={column.type}
+                        type={inputType}
                         value={row[column.key]}
                         onChange={(event) => updateRow(index, column.key, event.target.value)}
                         readOnly={column.readOnly}
+                        placeholder={column.type === 'date' ? 'DD/MM/YYYY' : undefined}
                         className={`w-full rounded border-0 px-2 py-1 text-xs focus:outline-none focus:ring-0 ${
                           column.readOnly
                             ? 'bg-gray-100 text-gray-500 cursor-not-allowed'
