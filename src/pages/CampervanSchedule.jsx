@@ -183,6 +183,8 @@ const CampervanSchedule = () => {
   const tableScrollRef = useRef(null);
   const [selectedDealer, setSelectedDealer] = useState('');
   const [showDealerTable, setShowDealerTable] = useState(false);
+  const [orderBreakdownType, setOrderBreakdownType] = useState('vehicle');
+  const [orderStockFilter, setOrderStockFilter] = useState('all');
 
   const headerMap = useMemo(() => {
     const mapping = {};
@@ -542,6 +544,70 @@ const CampervanSchedule = () => {
     return Object.values(summary).sort((a, b) => b.total - a.total);
   }, [rows]);
 
+  const orderBreakdownData = useMemo(() => {
+    const categories =
+      orderBreakdownType === 'vehicle'
+        ? ['LDV', 'Ford', 'Other']
+        : ['SRV19.1', 'SRV22.1', 'SRV22.2', 'SRV22.3', 'Other'];
+
+    const resolveCategory = (row) => {
+      if (orderBreakdownType === 'vehicle') {
+        const vehicleText = String(row.vehicle || '').trim().toLowerCase();
+        if (vehicleText.includes('ldv')) return 'LDV';
+        if (vehicleText.includes('ford')) return 'Ford';
+        return 'Other';
+      }
+      const modelText = String(row.model || '').trim().toUpperCase();
+      if (modelText.includes('SRV19.1')) return 'SRV19.1';
+      if (modelText.includes('SRV22.1')) return 'SRV22.1';
+      if (modelText.includes('SRV22.2')) return 'SRV22.2';
+      if (modelText.includes('SRV22.3')) return 'SRV22.3';
+      return 'Other';
+    };
+
+    const monthlyCounts = rows.reduce((acc, row) => {
+      const chassisText = String(row.chassisNumber || '').trim();
+      if (!chassisText) return acc;
+      const dateValue = parseDateValue(row.signedOrderReceived);
+      if (!dateValue) return acc;
+      const customerText = String(row.customer || '').trim().toLowerCase();
+      const isStock = customerText.includes('stock');
+      if (orderStockFilter === 'stock' && !isStock) return acc;
+      if (orderStockFilter === 'non-stock' && isStock) return acc;
+
+      const monthKey = `${dateValue.getFullYear()}-${String(dateValue.getMonth() + 1).padStart(2, '0')}`;
+      if (!acc[monthKey]) {
+        acc[monthKey] = categories.reduce(
+          (entry, category) => ({ ...entry, [category]: 0 }),
+          { month: monthKey },
+        );
+      }
+      const category = resolveCategory(row);
+      acc[monthKey][category] += 1;
+      return acc;
+    }, {});
+
+    return Object.values(monthlyCounts).sort((a, b) => {
+      const [yearA, monthA] = a.month.split('-').map((value) => Number.parseInt(value, 10));
+      const [yearB, monthB] = b.month.split('-').map((value) => Number.parseInt(value, 10));
+      return new Date(yearA, monthA - 1, 1) - new Date(yearB, monthB - 1, 1);
+    });
+  }, [rows, orderBreakdownType, orderStockFilter]);
+
+  const orderBreakdownCategories =
+    orderBreakdownType === 'vehicle'
+      ? ['LDV', 'Ford', 'Other']
+      : ['SRV19.1', 'SRV22.1', 'SRV22.2', 'SRV22.3', 'Other'];
+  const orderBreakdownColors = {
+    LDV: '#34d399',
+    Ford: '#60a5fa',
+    Other: '#94a3b8',
+    'SRV19.1': '#f472b6',
+    'SRV22.1': '#60a5fa',
+    'SRV22.2': '#818cf8',
+    'SRV22.3': '#a78bfa',
+  };
+
   const renderDealerTooltip = ({ active, payload }) => {
     if (!active || !payload || payload.length === 0) return null;
     const data = payload[0].payload;
@@ -715,6 +781,123 @@ const CampervanSchedule = () => {
                 </ResponsiveContainer>
               </div>
             )}
+          </div>
+
+          <div className="mt-6 border-t border-gray-100 pt-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-800">Monthly Order Mix</h3>
+                <p className="text-sm text-gray-500">
+                  Orders received each month, grouped by vehicle or model and filtered by stock status.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-3 text-xs font-semibold text-gray-500">
+                <div className="flex items-center gap-2 rounded-full bg-gray-100 px-2 py-1">
+                  <button
+                    type="button"
+                    onClick={() => setOrderBreakdownType('vehicle')}
+                    className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                      orderBreakdownType === 'vehicle'
+                        ? 'bg-white text-indigo-600 shadow-sm'
+                        : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    Vehicle
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOrderBreakdownType('model')}
+                    className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                      orderBreakdownType === 'model'
+                        ? 'bg-white text-indigo-600 shadow-sm'
+                        : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    Model
+                  </button>
+                </div>
+                <div className="flex items-center gap-2 rounded-full bg-gray-100 px-2 py-1">
+                  <button
+                    type="button"
+                    onClick={() => setOrderStockFilter('all')}
+                    className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                      orderStockFilter === 'all'
+                        ? 'bg-white text-indigo-600 shadow-sm'
+                        : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    All
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOrderStockFilter('stock')}
+                    className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                      orderStockFilter === 'stock'
+                        ? 'bg-white text-indigo-600 shadow-sm'
+                        : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    Stock
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOrderStockFilter('non-stock')}
+                    className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                      orderStockFilter === 'non-stock'
+                        ? 'bg-white text-indigo-600 shadow-sm'
+                        : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    Non-stock
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div className="mt-4 rounded-xl border border-gray-100 bg-gradient-to-br from-sky-50 via-white to-indigo-50 p-4">
+              {orderBreakdownData.length === 0 ? (
+                <div className="text-sm text-gray-500">No monthly order data available yet.</div>
+              ) : (
+                <div className="h-72">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={orderBreakdownData} margin={{ top: 10, right: 20, left: 0, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                      <XAxis
+                        dataKey="month"
+                        tick={{ fontSize: 12, fill: '#64748b' }}
+                        tickLine={false}
+                        axisLine={false}
+                      />
+                      <YAxis
+                        tick={{ fontSize: 12, fill: '#64748b' }}
+                        tickLine={false}
+                        axisLine={false}
+                        allowDecimals={false}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          borderRadius: '12px',
+                          borderColor: '#e2e8f0',
+                          boxShadow: '0 10px 30px rgba(15, 23, 42, 0.12)',
+                          fontSize: '12px',
+                        }}
+                        cursor={{ fill: '#dbeafe', opacity: 0.4 }}
+                      />
+                      <Legend wrapperStyle={{ fontSize: '12px' }} />
+                      {orderBreakdownCategories.map((category) => (
+                        <Bar
+                          key={category}
+                          dataKey={category}
+                          name={category}
+                          stackId="orders"
+                          fill={orderBreakdownColors[category] || '#94a3b8'}
+                          radius={[6, 6, 0, 0]}
+                        />
+                      ))}
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
