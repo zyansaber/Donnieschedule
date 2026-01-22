@@ -1217,7 +1217,6 @@ const CampervanSchedule = () => {
                   {column.label}
                 </th>
               ))}
-              <th className="px-3 py-2">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -1257,16 +1256,6 @@ const CampervanSchedule = () => {
                     </td>
                   );
                 })}
-                <td className="px-3 py-2">
-                  <button
-                    type="button"
-                    onClick={() => removeRow(index)}
-                    className="text-red-500 hover:text-red-700 text-xs"
-                    disabled={rows.length === 1}
-                  >
-                    Remove
-                  </button>
-                </td>
               </tr>
             ))}
           </tbody>
