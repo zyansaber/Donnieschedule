@@ -433,7 +433,7 @@ const CampervanSchedule = () => {
   const columnWidths = useMemo(() => {
     const fixedColumnWidths = {
       forecastProductionDate: 120,
-      regentProduction: 200,
+      regentProduction: 230,
       chassisNumber: 140,
       vinNumber: 160,
       model: 120,
