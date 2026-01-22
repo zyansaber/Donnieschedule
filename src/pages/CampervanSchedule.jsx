@@ -580,8 +580,8 @@ const CampervanSchedule = () => {
   const orderBreakdownData = useMemo(() => {
     const categories =
       orderBreakdownType === 'vehicle'
-        ? ['LDV', 'Ford', 'Other']
-        : ['SRV19.1', 'SRV22.1', 'SRV22.2', 'SRV22.3', 'Other'];
+        ? ['LDV', 'Ford']
+        : ['SRV19.1', 'SRV22.1', 'SRV22.2', 'SRV22.3'];
 
     const monthlyCounts = filteredOrderRows.reduce((acc, { row, dateValue }) => {
       const monthKey = `${dateValue.getFullYear()}-${String(dateValue.getMonth() + 1).padStart(2, '0')}`;
@@ -592,7 +592,9 @@ const CampervanSchedule = () => {
         );
       }
       const category = resolveOrderCategory(row);
-      acc[monthKey][category] += 1;
+      if (acc[monthKey][category] !== undefined) {
+        acc[monthKey][category] += 1;
+      }
       return acc;
     }, {});
 
@@ -606,36 +608,51 @@ const CampervanSchedule = () => {
   const orderBreakdownSummary = useMemo(() => {
     const categories =
       orderBreakdownType === 'vehicle'
-        ? ['LDV', 'Ford', 'Other']
-        : ['SRV19.1', 'SRV22.1', 'SRV22.2', 'SRV22.3', 'Other'];
+        ? ['LDV', 'Ford']
+        : ['SRV19.1', 'SRV22.1', 'SRV22.2', 'SRV22.3'];
     const summary = categories.reduce(
       (acc, category) => ({ ...acc, [category]: 0 }),
       {},
     );
+    const missingByVehicleType = {
+      ford: 0,
+      ldv: 0,
+      other: 0,
+    };
     let total = 0;
     let missingVehicleCount = 0;
     filteredOrderRows.forEach(({ row }) => {
       total += 1;
       const category = resolveOrderCategory(row);
-      summary[category] += 1;
+      if (summary[category] !== undefined) {
+        summary[category] += 1;
+      }
       const isVehicleMissing =
         String(row.chassisNumber || '').trim().length > 0 &&
         String(row.vehicleOrderDate || '').trim().length === 0;
       if (isVehicleMissing) {
         missingVehicleCount += 1;
+        const vehicleText = String(row.vehicle || '').trim().toLowerCase();
+        if (vehicleText.includes('ldv')) {
+          missingByVehicleType.ldv += 1;
+        } else if (vehicleText.includes('ford')) {
+          missingByVehicleType.ford += 1;
+        } else {
+          missingByVehicleType.other += 1;
+        }
       }
     });
     const data = categories.map((category) => ({
       name: category,
       value: summary[category],
     }));
-    return { data, total, missingVehicleCount };
+    return { data, total, missingVehicleCount, missingByVehicleType };
   }, [filteredOrderRows, orderBreakdownType]);
 
   const orderBreakdownCategories =
     orderBreakdownType === 'vehicle'
-      ? ['LDV', 'Ford', 'Other']
-      : ['SRV19.1', 'SRV22.1', 'SRV22.2', 'SRV22.3', 'Other'];
+      ? ['LDV', 'Ford']
+      : ['SRV19.1', 'SRV22.1', 'SRV22.2', 'SRV22.3'];
   const orderBreakdownColors = {
     LDV: '#34d399',
     Ford: '#60a5fa',
@@ -688,6 +705,12 @@ const CampervanSchedule = () => {
         </text>
       </g>
     );
+  };
+
+  const renderOrderShareLabel = ({ name, value, percent }) => {
+    const safeValue = Number.isFinite(value) ? value : 0;
+    const safePercent = Number.isFinite(percent) ? percent : 0;
+    return `${name}: ${safeValue} (${(safePercent * 100).toFixed(0)}%)`;
   };
 
   return (
@@ -1116,6 +1139,10 @@ const CampervanSchedule = () => {
                   <div className="mt-2 text-2xl font-semibold text-rose-600">
                     {orderBreakdownSummary.missingVehicleCount}
                   </div>
+                  <div className="mt-1 text-xs text-gray-500">
+                    Ford: {orderBreakdownSummary.missingByVehicleType.ford} · LDV:{' '}
+                    {orderBreakdownSummary.missingByVehicleType.ldv}
+                  </div>
                 </div>
               </div>
               <div className="h-56">
@@ -1142,6 +1169,8 @@ const CampervanSchedule = () => {
                         innerRadius={45}
                         outerRadius={80}
                         paddingAngle={2}
+                        labelLine={false}
+                        label={renderOrderShareLabel}
                       >
                         {orderBreakdownSummary.data.map((entry) => (
                           <Cell
