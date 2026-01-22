@@ -54,6 +54,7 @@ const parseDateValue = (value) => {
 
   const stringValue = String(value).trim();
   if (!stringValue) return null;
+  if (stringValue.toLowerCase() === 'dd/mm/yyyy') return null;
   if (/^\d+$/.test(stringValue)) {
     const timestamp = Number(stringValue);
     if (!Number.isNaN(timestamp)) {
@@ -1243,7 +1244,6 @@ const CampervanSchedule = () => {
                         value={row[column.key]}
                         onChange={(event) => updateRow(index, column.key, event.target.value)}
                         readOnly={column.readOnly}
-                        placeholder={column.type === 'date' ? 'DD/MM/YYYY' : undefined}
                         className={`w-full rounded border-0 px-2 py-1 text-xs focus:outline-none focus:ring-0 ${
                           column.readOnly
                             ? 'bg-gray-100 text-gray-500 cursor-not-allowed'
