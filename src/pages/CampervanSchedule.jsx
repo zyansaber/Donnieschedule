@@ -6,8 +6,6 @@ import {
   Line,
   LineChart,
   Legend,
-  Pie,
-  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -546,16 +544,19 @@ const CampervanSchedule = () => {
     return Object.values(summary).sort((a, b) => b.total - a.total);
   }, [rows]);
 
-  const resolveOrderCategory = useMemo(() => {
-    if (orderBreakdownType === 'vehicle') {
-      return (row) => {
+  const orderBreakdownData = useMemo(() => {
+    const categories =
+      orderBreakdownType === 'vehicle'
+        ? ['LDV', 'Ford', 'Other']
+        : ['SRV19.1', 'SRV22.1', 'SRV22.2', 'SRV22.3', 'Other'];
+
+    const resolveCategory = (row) => {
+      if (orderBreakdownType === 'vehicle') {
         const vehicleText = String(row.vehicle || '').trim().toLowerCase();
         if (vehicleText.includes('ldv')) return 'LDV';
         if (vehicleText.includes('ford')) return 'Ford';
         return 'Other';
-      };
-    }
-    return (row) => {
+      }
       const modelText = String(row.model || '').trim().toUpperCase();
       if (modelText.includes('SRV19.1')) return 'SRV19.1';
       if (modelText.includes('SRV22.1')) return 'SRV22.1';
@@ -563,13 +564,6 @@ const CampervanSchedule = () => {
       if (modelText.includes('SRV22.3')) return 'SRV22.3';
       return 'Other';
     };
-  }, [orderBreakdownType]);
-
-  const orderBreakdownData = useMemo(() => {
-    const categories =
-      orderBreakdownType === 'vehicle'
-        ? ['LDV', 'Ford', 'Other']
-        : ['SRV19.1', 'SRV22.1', 'SRV22.2', 'SRV22.3', 'Other'];
 
     const monthlyCounts = rows.reduce((acc, row) => {
       const chassisText = String(row.chassisNumber || '').trim();
@@ -588,7 +582,7 @@ const CampervanSchedule = () => {
           { month: monthKey },
         );
       }
-      const category = resolveOrderCategory(row);
+      const category = resolveCategory(row);
       acc[monthKey][category] += 1;
       return acc;
     }, {});
@@ -598,7 +592,7 @@ const CampervanSchedule = () => {
       const [yearB, monthB] = b.month.split('-').map((value) => Number.parseInt(value, 10));
       return new Date(yearA, monthA - 1, 1) - new Date(yearB, monthB - 1, 1);
     });
-  }, [orderBreakdownType, orderStockFilter, resolveOrderCategory, rows]);
+  }, [rows, orderBreakdownType, orderStockFilter]);
 
   const orderBreakdownCategories =
     orderBreakdownType === 'vehicle'
@@ -612,51 +606,6 @@ const CampervanSchedule = () => {
     'SRV22.1': '#60a5fa',
     'SRV22.2': '#818cf8',
     'SRV22.3': '#a78bfa',
-  };
-
-  const orderBreakdownTotals = useMemo(() => {
-    const initialTotals = orderBreakdownCategories.reduce(
-      (acc, category) => ({ ...acc, [category]: 0 }),
-      {},
-    );
-
-    return rows.reduce(
-      (acc, row) => {
-        const chassisText = String(row.chassisNumber || '').trim();
-        if (!chassisText) return acc;
-        const dateValue = parseDateValue(row.signedOrderReceived);
-        if (!dateValue) return acc;
-        const customerText = String(row.customer || '').trim().toLowerCase();
-        const isStock = customerText.includes('stock');
-        if (orderStockFilter === 'stock' && !isStock) return acc;
-        if (orderStockFilter === 'non-stock' && isStock) return acc;
-
-        const category = resolveOrderCategory(row);
-        acc.counts[category] = (acc.counts[category] || 0) + 1;
-        acc.total += 1;
-        if (chassisText && String(row.vehicleOrderDate || '').trim().length === 0) {
-          acc.missingVehicles += 1;
-        }
-        return acc;
-      },
-      { counts: initialTotals, total: 0, missingVehicles: 0 },
-    );
-  }, [orderBreakdownCategories, orderStockFilter, resolveOrderCategory, rows]);
-
-  const orderBreakdownPieData = useMemo(() => {
-    return orderBreakdownCategories.map((category) => ({
-      name: category,
-      value: orderBreakdownTotals.counts[category] || 0,
-      fill: orderBreakdownColors[category] || '#94a3b8',
-    }));
-  }, [orderBreakdownCategories, orderBreakdownColors, orderBreakdownTotals.counts]);
-
-  const orderBreakdownTotalCount = orderBreakdownTotals.total || 0;
-  const orderBreakdownMissingCount = orderBreakdownTotals.missingVehicles || 0;
-
-  const formatPercent = (value, total) => {
-    if (!total) return '0%';
-    return `${Math.round((value / total) * 100)}%`;
   };
 
   const renderDealerTooltip = ({ active, payload }) => {
@@ -904,120 +853,50 @@ const CampervanSchedule = () => {
                 </div>
               </div>
             </div>
-            <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-              <div className="rounded-xl border border-gray-100 bg-gradient-to-br from-sky-50 via-white to-indigo-50 p-4">
-                {orderBreakdownData.length === 0 ? (
-                  <div className="text-sm text-gray-500">No monthly order data available yet.</div>
-                ) : (
-                  <div className="h-72">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={orderBreakdownData} margin={{ top: 10, right: 20, left: 0, bottom: 5 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                        <XAxis
-                          dataKey="month"
-                          tick={{ fontSize: 12, fill: '#64748b' }}
-                          tickLine={false}
-                          axisLine={false}
+            <div className="mt-4 rounded-xl border border-gray-100 bg-gradient-to-br from-sky-50 via-white to-indigo-50 p-4">
+              {orderBreakdownData.length === 0 ? (
+                <div className="text-sm text-gray-500">No monthly order data available yet.</div>
+              ) : (
+                <div className="h-72">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={orderBreakdownData} margin={{ top: 10, right: 20, left: 0, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                      <XAxis
+                        dataKey="month"
+                        tick={{ fontSize: 12, fill: '#64748b' }}
+                        tickLine={false}
+                        axisLine={false}
+                      />
+                      <YAxis
+                        tick={{ fontSize: 12, fill: '#64748b' }}
+                        tickLine={false}
+                        axisLine={false}
+                        allowDecimals={false}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          borderRadius: '12px',
+                          borderColor: '#e2e8f0',
+                          boxShadow: '0 10px 30px rgba(15, 23, 42, 0.12)',
+                          fontSize: '12px',
+                        }}
+                        cursor={{ fill: '#dbeafe', opacity: 0.4 }}
+                      />
+                      <Legend wrapperStyle={{ fontSize: '12px' }} />
+                      {orderBreakdownCategories.map((category) => (
+                        <Bar
+                          key={category}
+                          dataKey={category}
+                          name={category}
+                          stackId="orders"
+                          fill={orderBreakdownColors[category] || '#94a3b8'}
+                          radius={[6, 6, 0, 0]}
                         />
-                        <YAxis
-                          tick={{ fontSize: 12, fill: '#64748b' }}
-                          tickLine={false}
-                          axisLine={false}
-                          allowDecimals={false}
-                        />
-                        <Tooltip
-                          contentStyle={{
-                            borderRadius: '12px',
-                            borderColor: '#e2e8f0',
-                            boxShadow: '0 10px 30px rgba(15, 23, 42, 0.12)',
-                            fontSize: '12px',
-                          }}
-                          cursor={{ fill: '#dbeafe', opacity: 0.4 }}
-                        />
-                        <Legend wrapperStyle={{ fontSize: '12px' }} />
-                        {orderBreakdownCategories.map((category) => (
-                          <Bar
-                            key={category}
-                            dataKey={category}
-                            name={category}
-                            stackId="orders"
-                            fill={orderBreakdownColors[category] || '#94a3b8'}
-                            radius={[6, 6, 0, 0]}
-                          />
-                        ))}
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                )}
-              </div>
-              <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h4 className="text-base font-semibold text-gray-800">Order Type Share</h4>
-                    <p className="text-xs text-gray-500">Counts and share of received orders.</p>
-                  </div>
+                      ))}
+                    </BarChart>
+                  </ResponsiveContainer>
                 </div>
-                <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
-                  <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
-                    <div className="text-[11px] uppercase tracking-wide text-gray-400">Total Orders</div>
-                    <div className="text-xl font-semibold text-gray-900">{orderBreakdownTotalCount}</div>
-                  </div>
-                  <div className="rounded-lg border border-red-100 bg-red-50 px-3 py-2">
-                    <div className="text-[11px] uppercase tracking-wide text-red-400">Missing Vehicles</div>
-                    <div className="text-xl font-semibold text-red-600">{orderBreakdownMissingCount}</div>
-                  </div>
-                </div>
-                <div className="mt-4 h-56">
-                  {orderBreakdownTotalCount === 0 ? (
-                    <div className="flex h-full items-center justify-center text-sm text-gray-500">
-                      No order mix data available.
-                    </div>
-                  ) : (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie
-                          data={orderBreakdownPieData}
-                          dataKey="value"
-                          nameKey="name"
-                          innerRadius={50}
-                          outerRadius={90}
-                          paddingAngle={3}
-                          label={({ name, value }) =>
-                            `${name} ${formatPercent(value, orderBreakdownTotalCount)}`
-                          }
-                          labelLine={false}
-                        >
-                          {orderBreakdownPieData.map((entry) => (
-                            <Cell key={entry.name} fill={entry.fill} />
-                          ))}
-                        </Pie>
-                        <Tooltip
-                          formatter={(value, name) => [
-                            `${value} (${formatPercent(Number(value), orderBreakdownTotalCount)})`,
-                            name,
-                          ]}
-                        />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  )}
-                </div>
-                <div className="mt-4 space-y-2 text-xs text-gray-600">
-                  {orderBreakdownPieData.map((entry) => (
-                    <div key={entry.name} className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className="h-2.5 w-2.5 rounded-full"
-                          style={{ backgroundColor: entry.fill }}
-                        />
-                        <span>{entry.name}</span>
-                      </div>
-                      <div className="font-semibold text-gray-700">
-                        {entry.value} · {formatPercent(entry.value, orderBreakdownTotalCount)}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              )}
             </div>
           </div>
         </div>
