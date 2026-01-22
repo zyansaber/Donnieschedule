@@ -6,6 +6,9 @@ import {
   Line,
   LineChart,
   Legend,
+  Pie,
+  PieChart,
+  Cell,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -544,28 +547,23 @@ const CampervanSchedule = () => {
     return Object.values(summary).sort((a, b) => b.total - a.total);
   }, [rows]);
 
-  const orderBreakdownData = useMemo(() => {
-    const categories =
-      orderBreakdownType === 'vehicle'
-        ? ['LDV', 'Ford', 'Other']
-        : ['SRV19.1', 'SRV22.1', 'SRV22.2', 'SRV22.3', 'Other'];
-
-    const resolveCategory = (row) => {
-      if (orderBreakdownType === 'vehicle') {
-        const vehicleText = String(row.vehicle || '').trim().toLowerCase();
-        if (vehicleText.includes('ldv')) return 'LDV';
-        if (vehicleText.includes('ford')) return 'Ford';
-        return 'Other';
-      }
-      const modelText = String(row.model || '').trim().toUpperCase();
-      if (modelText.includes('SRV19.1')) return 'SRV19.1';
-      if (modelText.includes('SRV22.1')) return 'SRV22.1';
-      if (modelText.includes('SRV22.2')) return 'SRV22.2';
-      if (modelText.includes('SRV22.3')) return 'SRV22.3';
+  const resolveOrderCategory = (row) => {
+    if (orderBreakdownType === 'vehicle') {
+      const vehicleText = String(row.vehicle || '').trim().toLowerCase();
+      if (vehicleText.includes('ldv')) return 'LDV';
+      if (vehicleText.includes('ford')) return 'Ford';
       return 'Other';
-    };
+    }
+    const modelText = String(row.model || '').trim().toUpperCase();
+    if (modelText.includes('SRV19.1')) return 'SRV19.1';
+    if (modelText.includes('SRV22.1')) return 'SRV22.1';
+    if (modelText.includes('SRV22.2')) return 'SRV22.2';
+    if (modelText.includes('SRV22.3')) return 'SRV22.3';
+    return 'Other';
+  };
 
-    const monthlyCounts = rows.reduce((acc, row) => {
+  const filteredOrderRows = useMemo(() => {
+    return rows.reduce((acc, row) => {
       const chassisText = String(row.chassisNumber || '').trim();
       if (!chassisText) return acc;
       const dateValue = parseDateValue(row.signedOrderReceived);
@@ -574,7 +572,18 @@ const CampervanSchedule = () => {
       const isStock = customerText.includes('stock');
       if (orderStockFilter === 'stock' && !isStock) return acc;
       if (orderStockFilter === 'non-stock' && isStock) return acc;
+      acc.push({ row, dateValue });
+      return acc;
+    }, []);
+  }, [rows, orderStockFilter]);
 
+  const orderBreakdownData = useMemo(() => {
+    const categories =
+      orderBreakdownType === 'vehicle'
+        ? ['LDV', 'Ford', 'Other']
+        : ['SRV19.1', 'SRV22.1', 'SRV22.2', 'SRV22.3', 'Other'];
+
+    const monthlyCounts = filteredOrderRows.reduce((acc, { row, dateValue }) => {
       const monthKey = `${dateValue.getFullYear()}-${String(dateValue.getMonth() + 1).padStart(2, '0')}`;
       if (!acc[monthKey]) {
         acc[monthKey] = categories.reduce(
@@ -582,7 +591,7 @@ const CampervanSchedule = () => {
           { month: monthKey },
         );
       }
-      const category = resolveCategory(row);
+      const category = resolveOrderCategory(row);
       acc[monthKey][category] += 1;
       return acc;
     }, {});
@@ -592,7 +601,36 @@ const CampervanSchedule = () => {
       const [yearB, monthB] = b.month.split('-').map((value) => Number.parseInt(value, 10));
       return new Date(yearA, monthA - 1, 1) - new Date(yearB, monthB - 1, 1);
     });
-  }, [rows, orderBreakdownType, orderStockFilter]);
+  }, [filteredOrderRows, orderBreakdownType]);
+
+  const orderBreakdownSummary = useMemo(() => {
+    const categories =
+      orderBreakdownType === 'vehicle'
+        ? ['LDV', 'Ford', 'Other']
+        : ['SRV19.1', 'SRV22.1', 'SRV22.2', 'SRV22.3', 'Other'];
+    const summary = categories.reduce(
+      (acc, category) => ({ ...acc, [category]: 0 }),
+      {},
+    );
+    let total = 0;
+    let missingVehicleCount = 0;
+    filteredOrderRows.forEach(({ row }) => {
+      total += 1;
+      const category = resolveOrderCategory(row);
+      summary[category] += 1;
+      const isVehicleMissing =
+        String(row.chassisNumber || '').trim().length > 0 &&
+        String(row.vehicleOrderDate || '').trim().length === 0;
+      if (isVehicleMissing) {
+        missingVehicleCount += 1;
+      }
+    });
+    const data = categories.map((category) => ({
+      name: category,
+      value: summary[category],
+    }));
+    return { data, total, missingVehicleCount };
+  }, [filteredOrderRows, orderBreakdownType]);
 
   const orderBreakdownCategories =
     orderBreakdownType === 'vehicle'
@@ -997,6 +1035,127 @@ const CampervanSchedule = () => {
               </table>
             </div>
           )}
+          <div className="mt-6 rounded-xl border border-gray-100 bg-gradient-to-br from-amber-50 via-white to-rose-50 p-4">
+            <div className="flex flex-col gap-4">
+              <div>
+                <h4 className="text-sm font-semibold text-gray-700">Order Type Share</h4>
+                <p className="text-xs text-gray-500">
+                  Pie chart view of received orders with stock filters.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold text-gray-500">
+                <div className="flex items-center gap-1 rounded-full bg-gray-100 px-2 py-1">
+                  <button
+                    type="button"
+                    onClick={() => setOrderBreakdownType('vehicle')}
+                    className={`rounded-full px-2 py-1 text-[11px] font-semibold transition ${
+                      orderBreakdownType === 'vehicle'
+                        ? 'bg-white text-indigo-600 shadow-sm'
+                        : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    Vehicle
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOrderBreakdownType('model')}
+                    className={`rounded-full px-2 py-1 text-[11px] font-semibold transition ${
+                      orderBreakdownType === 'model'
+                        ? 'bg-white text-indigo-600 shadow-sm'
+                        : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    Model
+                  </button>
+                </div>
+                <div className="flex items-center gap-1 rounded-full bg-gray-100 px-2 py-1">
+                  <button
+                    type="button"
+                    onClick={() => setOrderStockFilter('all')}
+                    className={`rounded-full px-2 py-1 text-[11px] font-semibold transition ${
+                      orderStockFilter === 'all'
+                        ? 'bg-white text-indigo-600 shadow-sm'
+                        : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    All
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOrderStockFilter('stock')}
+                    className={`rounded-full px-2 py-1 text-[11px] font-semibold transition ${
+                      orderStockFilter === 'stock'
+                        ? 'bg-white text-indigo-600 shadow-sm'
+                        : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    Stock
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOrderStockFilter('non-stock')}
+                    className={`rounded-full px-2 py-1 text-[11px] font-semibold transition ${
+                      orderStockFilter === 'non-stock'
+                        ? 'bg-white text-indigo-600 shadow-sm'
+                        : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    Non-stock
+                  </button>
+                </div>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-lg border border-gray-100 bg-white p-3">
+                  <div className="text-xs font-semibold text-gray-500">Total Received</div>
+                  <div className="mt-2 text-2xl font-semibold text-gray-800">
+                    {orderBreakdownSummary.total}
+                  </div>
+                </div>
+                <div className="rounded-lg border border-gray-100 bg-white p-3">
+                  <div className="text-xs font-semibold text-gray-500">Missing Vehicles</div>
+                  <div className="mt-2 text-2xl font-semibold text-rose-600">
+                    {orderBreakdownSummary.missingVehicleCount}
+                  </div>
+                </div>
+              </div>
+              <div className="h-56">
+                {orderBreakdownSummary.total === 0 ? (
+                  <div className="flex h-full items-center justify-center text-sm text-gray-500">
+                    No order share data available.
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Tooltip
+                        contentStyle={{
+                          borderRadius: '12px',
+                          borderColor: '#e2e8f0',
+                          boxShadow: '0 10px 30px rgba(15, 23, 42, 0.12)',
+                          fontSize: '12px',
+                        }}
+                      />
+                      <Legend wrapperStyle={{ fontSize: '12px' }} />
+                      <Pie
+                        data={orderBreakdownSummary.data}
+                        dataKey="value"
+                        nameKey="name"
+                        innerRadius={45}
+                        outerRadius={80}
+                        paddingAngle={2}
+                      >
+                        {orderBreakdownSummary.data.map((entry) => (
+                          <Cell
+                            key={entry.name}
+                            fill={orderBreakdownColors[entry.name] || '#94a3b8'}
+                          />
+                        ))}
+                      </Pie>
+                    </PieChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
