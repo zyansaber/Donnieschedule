@@ -909,7 +909,7 @@ const CampervanSchedule = () => {
                         : 'text-gray-500 hover:text-gray-700'
                     }`}
                   >
-                    Non-stock
+                    Customer
                   </button>
                 </div>
               </div>
@@ -1123,7 +1123,7 @@ const CampervanSchedule = () => {
                         : 'text-gray-500 hover:text-gray-700'
                     }`}
                   >
-                    Non-stock
+                    Customer
                   </button>
                 </div>
               </div>
