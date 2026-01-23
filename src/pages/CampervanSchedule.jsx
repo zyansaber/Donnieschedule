@@ -1181,7 +1181,7 @@ const CampervanSchedule = () => {
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="rounded-lg border border-gray-100 bg-white p-3">
-                  <div className="text-xs font-semibold text-gray-500">Total Received</div>
+                  <div className="text-xs font-semibold text-gray-500">Signed Order Received</div>
                   <div className="mt-2 text-2xl font-semibold text-gray-800">
                     {orderBreakdownSummary.total}
                   </div>
