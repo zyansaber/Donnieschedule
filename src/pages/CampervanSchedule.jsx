@@ -295,6 +295,55 @@ const CampervanSchedule = () => {
     setRows((prev) => [...prev, emptyRow(prev.length + 1)]);
   };
 
+  const handleExportExcel = () => {
+    const escapeXml = (value) =>
+      String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
+
+    const headerRow = ['Row #', ...columns.map((column) => column.label)];
+    const bodyRows = filteredRows.map(({ row }) => [
+      row.rowNumber,
+      ...columns.map((column) => row[column.key] ?? ''),
+    ]);
+
+    const worksheetRows = [headerRow, ...bodyRows]
+      .map(
+        (row) =>
+          `<Row>${row
+            .map((cell) => `<Cell><Data ss:Type="String">${escapeXml(cell)}</Data></Cell>`)
+            .join('')}</Row>`
+      )
+      .join('');
+
+    const workbook = `<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:html="http://www.w3.org/TR/REC-html40">
+ <Worksheet ss:Name="Campervan Schedule">
+  <Table>
+   ${worksheetRows}
+  </Table>
+ </Worksheet>
+</Workbook>`;
+
+    const blob = new Blob([workbook], { type: 'application/vnd.ms-excel' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'campervan-schedule.xls';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   const removeRow = (index) => {
     setRows((prev) => {
       const rowNumber = prev[index]?.rowNumber;
@@ -742,6 +791,13 @@ const CampervanSchedule = () => {
               className="px-3 py-2 bg-indigo-600 text-white text-sm rounded-md hover:bg-indigo-700"
             >
               Add Row
+            </button>
+            <button
+              type="button"
+              onClick={handleExportExcel}
+              className="px-3 py-2 bg-indigo-600 text-white text-sm rounded-md hover:bg-indigo-700"
+            >
+              Export Excel
             </button>
           </div>
         </div>
