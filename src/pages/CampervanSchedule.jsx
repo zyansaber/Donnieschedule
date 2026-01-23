@@ -452,12 +452,14 @@ const CampervanSchedule = () => {
   const filteredRows = useMemo(() => {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
+    const cutoffDate = new Date(todayStart);
+    cutoffDate.setMonth(cutoffDate.getMonth() + 3);
     const shouldHideRow = (row) => {
       const forecastDate = parseDateValue(row.forecastProductionDate);
       if (!forecastDate) return false;
       const chassisEmpty = String(row.chassisNumber || '').trim().length === 0;
       const dealerEmpty = String(row.dealer || '').trim().length === 0;
-      return forecastDate < todayStart && chassisEmpty && dealerEmpty;
+      return forecastDate < cutoffDate && chassisEmpty && dealerEmpty;
     };
     const visibleRows = rows
       .map((row, index) => ({ row, index }))
