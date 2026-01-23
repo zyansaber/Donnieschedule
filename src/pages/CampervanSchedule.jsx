@@ -787,13 +787,6 @@ const CampervanSchedule = () => {
             </label>
             <button
               type="button"
-              onClick={addRow}
-              className="px-3 py-2 bg-indigo-600 text-white text-sm rounded-md hover:bg-indigo-700"
-            >
-              Add Row
-            </button>
-            <button
-              type="button"
               onClick={handleExportExcel}
               className="px-3 py-2 bg-indigo-600 text-white text-sm rounded-md hover:bg-indigo-700"
             >
