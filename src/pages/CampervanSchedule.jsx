@@ -962,8 +962,8 @@ const CampervanSchedule = () => {
       if (!dragTarget || !scheduleChartRef.current) return;
       scheduleTouchedRef.current = true;
       const rect = scheduleChartRef.current.getBoundingClientRect();
-      const x = event.clientX - rect.left;
-      const y = event.clientY - rect.top;
+      const x = event.clientX - rect.left - (dragTarget.offsetX || 0);
+      const y = event.clientY - rect.top - (dragTarget.offsetY || 0);
       setProductionSchedulePoints((prev) => {
         const updated = prev.map((point) => {
           if (point.id !== dragTarget.id) return point;
@@ -980,7 +980,7 @@ const CampervanSchedule = () => {
         const minIndex = leftNeighbor ? scheduleIndexFromDate(leftNeighbor.date) : 0;
         const nextIndex = scheduleIndexFromX(x);
         const clampedIndex = Math.max(nextIndex, minIndex);
-        const newDate = scheduleDateFromIndex(clampedIndex);
+        const newDate = dragTarget.lockX ? dragTarget.lockedDate : scheduleDateFromIndex(clampedIndex);
         const newValue = scheduleValueFromY(y);
         updated[targetIndex] = { ...current, date: newDate, value: newValue };
         return updated;
@@ -999,12 +999,37 @@ const CampervanSchedule = () => {
     (event, pointId) => {
       if (deleteMode) return;
       if (event.button !== 0) return;
+      if (!scheduleChartRef.current) return;
       event.preventDefault();
-      draggingPointRef.current = { id: pointId };
+      const rect = scheduleChartRef.current.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+      const targetPoint = productionSchedulePoints.find((point) => point.id === pointId);
+      if (!targetPoint) return;
+      const pointIndex = scheduleIndexFromDate(targetPoint.date);
+      const pointX = scheduleXFromIndex(pointIndex);
+      const pointY = scheduleYFromValue(targetPoint.value);
+      const isFirstPoint = sortedSchedulePoints[0]?.id === pointId;
+      draggingPointRef.current = {
+        id: pointId,
+        offsetX: x - pointX,
+        offsetY: y - pointY,
+        lockX: isFirstPoint,
+        lockedDate: targetPoint.date,
+      };
       window.addEventListener('mousemove', handleScheduleMouseMove);
       window.addEventListener('mouseup', handleScheduleMouseUp);
     },
-    [deleteMode, handleScheduleMouseMove, handleScheduleMouseUp],
+    [
+      deleteMode,
+      handleScheduleMouseMove,
+      handleScheduleMouseUp,
+      productionSchedulePoints,
+      scheduleIndexFromDate,
+      scheduleXFromIndex,
+      scheduleYFromValue,
+      sortedSchedulePoints,
+    ],
   );
 
   const handlePointClick = useCallback(
@@ -1352,7 +1377,7 @@ const CampervanSchedule = () => {
                           <circle
                             cx={x}
                             cy={y}
-                            r={10}
+                            r={8}
                             fill={isHighlighted ? '#fca5a5' : '#ffffff'}
                             stroke={isHighlighted ? '#ef4444' : '#3b82f6'}
                             strokeWidth={2}
