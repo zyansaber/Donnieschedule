@@ -18,6 +18,8 @@ import { get, ref, set } from 'firebase/database';
 import { database } from '../utils/firebase';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const TIMELINE_START = new Date(2025, 6, 1);
+const TIMELINE_END = new Date(2026, 11, 1);
 
 const formatDate = (date) => {
   if (!date || Number.isNaN(date.getTime())) return '';
@@ -115,6 +117,26 @@ const addDays = (value, days) => {
   return formatDate(next);
 };
 
+const addMonths = (value, months) => {
+  const date = parseDateValue(value);
+  if (!date) return null;
+  const next = new Date(date.getFullYear(), date.getMonth() + months, 1);
+  return next;
+};
+
+const clampDate = (value, min, max) => {
+  if (!value) return min;
+  if (value < min) return min;
+  if (value > max) return max;
+  return value;
+};
+
+const formatMonthLabel = (value) => {
+  const date = parseDateValue(value);
+  if (!date) return '';
+  return date.toLocaleString('en-US', { month: 'short' });
+};
+
 const normalizeDateString = (value) => {
   const date = parseDateValue(value);
   return date ? formatDate(date) : '';
@@ -189,6 +211,13 @@ const CampervanSchedule = () => {
   const [showDealerTable, setShowDealerTable] = useState(false);
   const [orderBreakdownType, setOrderBreakdownType] = useState('vehicle');
   const [orderStockFilter, setOrderStockFilter] = useState('all');
+  const [buildControlPoints, setBuildControlPoints] = useState([]);
+  const [deleteMode, setDeleteMode] = useState(false);
+  const buildControlRef = useRef(null);
+  const buildControlSizeRef = useRef({ width: 0, height: 0 });
+  const [buildControlSize, setBuildControlSize] = useState({ width: 0, height: 0 });
+  const dragPointRef = useRef(null);
+  const initializedBuildControlRef = useRef(false);
 
   const headerMap = useMemo(() => {
     const mapping = {};
@@ -715,6 +744,78 @@ const CampervanSchedule = () => {
     'SRV22.3': '#a78bfa',
   };
 
+  const sortedBuildPoints = useMemo(() => {
+    return [...buildControlPoints].sort((a, b) => a.date - b.date);
+  }, [buildControlPoints]);
+
+  const buildControlLayout = useMemo(() => {
+    const { width, height } = buildControlSize;
+    if (!width || !height || sortedBuildPoints.length === 0) return null;
+    const margin = { top: 24, right: 24, bottom: 60, left: 48 };
+    const innerWidth = Math.max(width - margin.left - margin.right, 1);
+    const innerHeight = Math.max(height - margin.top - margin.bottom, 1);
+    const xForDate = (date) =>
+      margin.left +
+      ((date.getTime() - TIMELINE_START.getTime()) /
+        (TIMELINE_END.getTime() - TIMELINE_START.getTime())) *
+        innerWidth;
+    const yForValue = (value) =>
+      margin.top + (1 - (value - 0) / 5) * innerHeight;
+    const points = sortedBuildPoints.map((point) => ({
+      ...point,
+      x: xForDate(point.date),
+      y: yForValue(point.value),
+    }));
+    const firstPoint = points[0];
+    const endX = xForDate(TIMELINE_END);
+    let path = '';
+    if (points.length > 0) {
+      path = `M ${points[0].x} ${points[0].y}`;
+      for (let i = 1; i < points.length; i += 1) {
+        path += ` H ${points[i].x} V ${points[i].y}`;
+      }
+      path += ` H ${endX}`;
+    }
+    const monthLabels = timelineMonths
+      .filter((month) => month >= new Date(firstPoint.date.getFullYear(), firstPoint.date.getMonth(), 1))
+      .map((month) => ({
+        date: month,
+        x: xForDate(month),
+        label: formatMonthLabel(month),
+        year: month.getMonth() === 0 ? month.getFullYear() : null,
+      }));
+    const yTicks = Array.from({ length: 6 }, (_, index) => ({
+      value: index,
+      y: yForValue(index),
+    }));
+    return {
+      margin,
+      innerWidth,
+      innerHeight,
+      points,
+      path,
+      monthLabels,
+      yTicks,
+      startX: margin.left,
+      endX,
+      lockedSpanWidth: Math.max(firstPoint.x - margin.left, 0),
+    };
+  }, [buildControlSize, sortedBuildPoints, timelineMonths]);
+
+  const handlePointMouseDown = (point) => {
+    if (deleteMode || point.locked) return;
+    dragPointRef.current = { pointId: point.id };
+  };
+
+  const handlePointClick = (point) => {
+    if (!deleteMode || point.locked) return;
+    setBuildControlPoints((prev) => {
+      if (prev.length <= 1) return prev;
+      return prev.filter((entry) => entry.id !== point.id);
+    });
+    setDeleteMode(false);
+  };
+
   const renderDealerTooltip = ({ active, payload }) => {
     if (!active || !payload || payload.length === 0) return null;
     const data = payload[0].payload;
@@ -758,6 +859,132 @@ const CampervanSchedule = () => {
       </g>
     );
   };
+
+  const productionStartDate = useMemo(() => {
+    const matchIndex = rows.findIndex((row) =>
+      String(row.regentProduction || '').trim().toLowerCase().includes('production commenced regent'),
+    );
+    if (matchIndex === -1) {
+      return addMonths(TIMELINE_START, 1) || TIMELINE_START;
+    }
+    for (let i = matchIndex + 1; i < rows.length; i += 1) {
+      const status = String(rows[i].regentProduction || '').trim().toLowerCase();
+      if (status && !status.includes('production commenced regent')) {
+        const date = parseDateValue(rows[i].forecastProductionDate);
+        if (date) return date;
+      }
+    }
+    return addMonths(TIMELINE_START, 1) || TIMELINE_START;
+  }, [rows]);
+
+  const timelineMonths = useMemo(() => {
+    const months = [];
+    let cursor = new Date(TIMELINE_START.getFullYear(), TIMELINE_START.getMonth(), 1);
+    while (cursor <= TIMELINE_END) {
+      months.push(cursor);
+      cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
+    }
+    return months;
+  }, []);
+
+  const halfMonthTicks = useMemo(() => {
+    const ticks = [];
+    timelineMonths.forEach((monthStart) => {
+      const first = new Date(monthStart.getFullYear(), monthStart.getMonth(), 1);
+      const mid = new Date(monthStart.getFullYear(), monthStart.getMonth(), 15);
+      if (first >= TIMELINE_START && first <= TIMELINE_END) ticks.push(first);
+      if (mid >= TIMELINE_START && mid <= TIMELINE_END) ticks.push(mid);
+    });
+    return ticks;
+  }, [timelineMonths]);
+
+  useEffect(() => {
+    if (initializedBuildControlRef.current) return;
+    const firstPointDate = clampDate(productionStartDate, TIMELINE_START, TIMELINE_END);
+    const defaultSecondDate = clampDate(
+      addMonths(new Date(2026, 5, 1), 0) || TIMELINE_END,
+      firstPointDate,
+      TIMELINE_END,
+    );
+    setBuildControlPoints([
+      { id: 'initial', date: firstPointDate, value: 1, locked: true },
+      { id: 'june-target', date: defaultSecondDate, value: 2, locked: false },
+    ]);
+    initializedBuildControlRef.current = true;
+  }, [productionStartDate]);
+
+  useEffect(() => {
+    if (!buildControlRef.current) return;
+    const observer = new ResizeObserver((entries) => {
+      entries.forEach((entry) => {
+        const { width, height } = entry.contentRect;
+        buildControlSizeRef.current = { width, height };
+        setBuildControlSize({ width, height });
+      });
+    });
+    observer.observe(buildControlRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const handleMouseMove = (event) => {
+      if (!dragPointRef.current) return;
+      const { pointId } = dragPointRef.current;
+      const { width, height } = buildControlSizeRef.current;
+      if (!width || !height) return;
+      const bounds = buildControlRef.current?.getBoundingClientRect();
+      if (!bounds) return;
+      const margin = { top: 24, right: 24, bottom: 56, left: 48 };
+      const innerWidth = Math.max(width - margin.left - margin.right, 1);
+      const innerHeight = Math.max(height - margin.top - margin.bottom, 1);
+      const relativeX = Math.min(Math.max(event.clientX - bounds.left - margin.left, 0), innerWidth);
+      const relativeY = Math.min(Math.max(event.clientY - bounds.top - margin.top, 0), innerHeight);
+      const ratio = relativeX / innerWidth;
+      const rawTime = TIMELINE_START.getTime() + ratio * (TIMELINE_END.getTime() - TIMELINE_START.getTime());
+      const closestTick = halfMonthTicks.reduce((closest, tick) => {
+        const distance = Math.abs(tick.getTime() - rawTime);
+        if (!closest || distance < closest.distance) {
+          return { tick, distance };
+        }
+        return closest;
+      }, null);
+      const snappedDate = closestTick?.tick || TIMELINE_START;
+      const rawValue = 5 - (relativeY / innerHeight) * 5;
+      const snappedValue = Math.max(1, Math.min(5, Math.round(rawValue)));
+
+      setBuildControlPoints((prev) => {
+        const next = prev.map((point) => ({ ...point }));
+        const index = next.findIndex((point) => point.id === pointId);
+        if (index === -1) return prev;
+        const prevPoint = next[index - 1];
+        const nextPoint = next[index + 1];
+        let adjustedDate = snappedDate;
+        if (prevPoint && adjustedDate < prevPoint.date) {
+          adjustedDate = prevPoint.date;
+        }
+        if (nextPoint && adjustedDate > nextPoint.date) {
+          adjustedDate = nextPoint.date;
+        }
+        next[index] = {
+          ...next[index],
+          date: adjustedDate,
+          value: snappedValue,
+        };
+        return next;
+      });
+    };
+
+    const handleMouseUp = () => {
+      dragPointRef.current = null;
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [halfMonthTicks]);
 
   const renderOrderShareLabel = ({ name, value, percent }) => {
     const safeValue = Number.isFinite(value) ? value : 0;
@@ -1010,6 +1237,164 @@ const CampervanSchedule = () => {
                   </ResponsiveContainer>
                 </div>
               )}
+            </div>
+          </div>
+
+          <div className="mt-6 rounded-xl border border-gray-100 bg-white/80 p-5 shadow-sm">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-800">Weekly Build Control</h3>
+                <p className="text-sm text-gray-500">
+                  Drag points to plan weekly Regent production volume through Dec 2026.
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-500">
+                  Locked: Jul 2025 → First build (15 units)
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setDeleteMode((prev) => !prev)}
+                  className={`rounded-full px-4 py-2 text-xs font-semibold transition ${
+                    deleteMode
+                      ? 'bg-rose-100 text-rose-700'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  {deleteMode ? 'Select a point to delete' : 'Delete point'}
+                </button>
+              </div>
+            </div>
+            <div className="mt-5 rounded-2xl border border-gray-100 bg-gradient-to-br from-slate-50 via-white to-indigo-50 p-4">
+              <div ref={buildControlRef} className="relative h-72 w-full">
+                {buildControlLayout ? (
+                  <svg width="100%" height="100%" role="img">
+                    <defs>
+                      <linearGradient id="lockedSpan" x1="0" y1="0" x2="1" y2="0">
+                        <stop offset="0%" stopColor="#e2e8f0" />
+                        <stop offset="100%" stopColor="#f8fafc" />
+                      </linearGradient>
+                      <linearGradient id="buildLine" x1="0" y1="0" x2="1" y2="0">
+                        <stop offset="0%" stopColor="#6366f1" />
+                        <stop offset="100%" stopColor="#38bdf8" />
+                      </linearGradient>
+                    </defs>
+                    <rect
+                      x={buildControlLayout.startX}
+                      y={buildControlLayout.margin.top}
+                      width={buildControlLayout.lockedSpanWidth}
+                      height={buildControlLayout.innerHeight}
+                      fill="url(#lockedSpan)"
+                    />
+                    {buildControlLayout.lockedSpanWidth > 80 ? (
+                      <text
+                        x={buildControlLayout.startX + buildControlLayout.lockedSpanWidth / 2}
+                        y={buildControlLayout.margin.top + 18}
+                        textAnchor="middle"
+                        className="fill-gray-400 text-[10px] font-semibold"
+                      >
+                        15 built · locked
+                      </text>
+                    ) : null}
+                    {buildControlLayout.yTicks.map((tick) => (
+                      <g key={`y-${tick.value}`}>
+                        <line
+                          x1={buildControlLayout.startX}
+                          y1={tick.y}
+                          x2={buildControlLayout.endX}
+                          y2={tick.y}
+                          stroke="#e2e8f0"
+                          strokeDasharray="4 4"
+                        />
+                        <text
+                          x={buildControlLayout.startX - 12}
+                          y={tick.y + 4}
+                          textAnchor="end"
+                          className="fill-gray-400 text-[10px] font-semibold"
+                        >
+                          {tick.value}
+                        </text>
+                      </g>
+                    ))}
+                    {buildControlLayout.monthLabels.map((month) => (
+                      <g key={`m-${month.date.toISOString()}`}>
+                        <line
+                          x1={month.x}
+                          y1={buildControlLayout.margin.top}
+                          x2={month.x}
+                          y2={buildControlLayout.margin.top + buildControlLayout.innerHeight}
+                          stroke="#f1f5f9"
+                        />
+                        <text
+                          x={month.x}
+                          y={buildControlLayout.margin.top + buildControlLayout.innerHeight + 22}
+                          textAnchor="end"
+                          transform={`rotate(-35 ${month.x} ${
+                            buildControlLayout.margin.top + buildControlLayout.innerHeight + 22
+                          })`}
+                          className="fill-gray-500 text-[10px] font-semibold"
+                        >
+                          {month.label}
+                        </text>
+                        {month.year ? (
+                          <text
+                            x={month.x}
+                            y={buildControlLayout.margin.top + buildControlLayout.innerHeight + 38}
+                            textAnchor="end"
+                            transform={`rotate(-35 ${month.x} ${
+                              buildControlLayout.margin.top + buildControlLayout.innerHeight + 38
+                            })`}
+                            className="fill-gray-400 text-[9px]"
+                          >
+                            {month.year}
+                          </text>
+                        ) : null}
+                      </g>
+                    ))}
+                    <path d={buildControlLayout.path} fill="none" stroke="url(#buildLine)" strokeWidth="3" />
+                    {buildControlLayout.points.map((point) => (
+                      <g
+                        key={point.id}
+                        onMouseDown={() => handlePointMouseDown(point)}
+                        onClick={() => handlePointClick(point)}
+                        className={deleteMode ? 'cursor-pointer' : point.locked ? 'cursor-not-allowed' : 'cursor-grab'}
+                      >
+                        <circle
+                          cx={point.x}
+                          cy={point.y}
+                          r={deleteMode ? 8 : 6}
+                          fill={deleteMode ? '#fb7185' : point.locked ? '#94a3b8' : '#6366f1'}
+                          stroke={point.locked ? '#64748b' : '#ffffff'}
+                          strokeWidth="2"
+                        />
+                        <text
+                          x={point.x}
+                          y={point.y - 12}
+                          textAnchor="middle"
+                          className="fill-gray-500 text-[10px] font-semibold"
+                        >
+                          {point.value}/wk
+                        </text>
+                      </g>
+                    ))}
+                  </svg>
+                ) : (
+                  <div className="flex h-full items-center justify-center text-sm text-gray-500">
+                    Loading production control…
+                  </div>
+                )}
+              </div>
+              <div className="mt-4 flex flex-wrap gap-3 text-xs text-gray-500">
+                <div className="rounded-full bg-slate-100 px-3 py-1">
+                  Drag horizontally in half-month or full-month steps.
+                </div>
+                <div className="rounded-full bg-slate-100 px-3 py-1">
+                  Drag vertically in whole numbers (min 1, max 5).
+                </div>
+                <div className="rounded-full bg-slate-100 px-3 py-1">
+                  Points stay in order; right points cannot move left of left points.
+                </div>
+              </div>
             </div>
           </div>
         </div>
