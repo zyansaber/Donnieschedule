@@ -259,6 +259,7 @@ const CampervanSchedule = () => {
     const firstDate = parseDateValue(firstEligibleRow.forecastProductionDate);
     if (!firstDate) return 0;
     const firstMonth = new Date(firstDate.getFullYear(), firstDate.getMonth(), 1);
+    const halfStep = firstDate.getDate() > 15 ? 0.5 : 0;
     const index = scheduleMonths.findIndex(
       (month) =>
         month.getFullYear() === firstMonth.getFullYear() &&
@@ -268,7 +269,7 @@ const CampervanSchedule = () => {
       if (firstMonth < scheduleMonths[0]) return 0;
       return scheduleMonths.length - 1;
     }
-    return index;
+    return Math.min(index + halfStep, scheduleMonths.length - 1);
   }, [rows, scheduleMonths]);
 
   useEffect(() => {
@@ -283,8 +284,8 @@ const CampervanSchedule = () => {
     const resolvedSecondIndex = Math.min(
       scheduleMonths.length - 1,
       Math.max(
-        firstEditableMonthIndex + 1,
-        secondIndex === -1 ? firstEditableMonthIndex + 1 : secondIndex,
+        firstEditableMonthIndex + 0.5,
+        secondIndex === -1 ? firstEditableMonthIndex + 0.5 : secondIndex,
       ),
     );
     setSchedulePoints([
@@ -301,7 +302,7 @@ const CampervanSchedule = () => {
       if (prev.length === 0) return prev;
       const sorted = [...prev].sort((a, b) => a.monthIndex - b.monthIndex);
       const next = sorted[1];
-      const maxIndex = next ? next.monthIndex - 1 : scheduleMonths.length - 1;
+      const maxIndex = next ? next.monthIndex - 0.5 : scheduleMonths.length - 1;
       const newIndex = Math.min(Math.max(firstEditableMonthIndex, 0), maxIndex);
       if (sorted[0].monthIndex === newIndex) return prev;
       const updated = sorted.map((point, index) =>
@@ -828,17 +829,22 @@ const CampervanSchedule = () => {
 
   const scheduleChartMetrics = useMemo(() => {
     const height = 260;
-    const margin = { top: 20, right: 24, bottom: 44, left: 52 };
+    const margin = { top: 20, right: 24, bottom: 72, left: 52 };
     const width = Math.max(scheduleChartWidth || 600, 600);
     const plotWidth = Math.max(width - margin.left - margin.right, 0);
     const plotHeight = Math.max(height - margin.top - margin.bottom, 0);
     return { height, margin, width, plotWidth, plotHeight };
   }, [scheduleChartWidth]);
 
+  const scheduleMaxStepIndex = useMemo(() => {
+    if (scheduleMonths.length <= 1) return 0;
+    return (scheduleMonths.length - 1) * 2;
+  }, [scheduleMonths.length]);
+
   const getScheduleX = (monthIndex) => {
     const { margin, plotWidth } = scheduleChartMetrics;
-    if (scheduleMonths.length <= 1) return margin.left;
-    const ratio = monthIndex / (scheduleMonths.length - 1);
+    if (scheduleMonths.length <= 1 || scheduleMaxStepIndex === 0) return margin.left;
+    const ratio = monthIndex / scheduleMaxStepIndex;
     return margin.left + ratio * plotWidth;
   };
 
@@ -869,15 +875,24 @@ const CampervanSchedule = () => {
         y2: getScheduleY(next.value),
       });
     }
+    const lastPoint = sortedSchedulePoints[sortedSchedulePoints.length - 1];
+    const endIndex = scheduleMonths.length - 1;
+    segments.push({
+      x1: getScheduleX(lastPoint.monthIndex),
+      y1: getScheduleY(lastPoint.value),
+      x2: getScheduleX(endIndex),
+      y2: getScheduleY(lastPoint.value),
+    });
     return segments;
-  }, [sortedSchedulePoints, scheduleChartMetrics, scheduleMonths.length]);
+  }, [sortedSchedulePoints, scheduleChartMetrics, scheduleMonths.length, scheduleMaxStepIndex]);
 
   const snapScheduleMonthIndex = (x) => {
     const { margin, plotWidth } = scheduleChartMetrics;
-    if (plotWidth <= 0 || scheduleMonths.length === 0) return 0;
+    if (plotWidth <= 0 || scheduleMonths.length === 0 || scheduleMaxStepIndex === 0) return 0;
     const ratio = (x - margin.left) / plotWidth;
-    const rawIndex = Math.round(ratio * (scheduleMonths.length - 1));
-    return Math.min(Math.max(rawIndex, 0), scheduleMonths.length - 1);
+    const rawIndex = Math.round(ratio * scheduleMaxStepIndex);
+    const clampedIndex = Math.min(Math.max(rawIndex, 0), scheduleMaxStepIndex);
+    return clampedIndex / 2;
   };
 
   const snapScheduleValue = (y) => {
@@ -904,8 +919,8 @@ const CampervanSchedule = () => {
           if (index === -1) return prev;
           const previous = sorted[index - 1];
           const next = sorted[index + 1];
-          const minIndex = previous ? previous.monthIndex + 1 : firstEditableMonthIndex;
-          const maxIndex = next ? next.monthIndex - 1 : scheduleMonths.length - 1;
+          const minIndex = previous ? previous.monthIndex + 0.5 : firstEditableMonthIndex;
+          const maxIndex = next ? next.monthIndex - 0.5 : scheduleMonths.length - 1;
           const newMonthIndex = Math.min(Math.max(snapScheduleMonthIndex(x), minIndex), maxIndex);
           const newValue = snapScheduleValue(y);
           const updated = sorted.map((point) =>
@@ -936,8 +951,8 @@ const CampervanSchedule = () => {
           );
           const previous = insertIndex > 0 ? sorted[insertIndex - 1] : null;
           const next = insertIndex === -1 ? null : sorted[insertIndex];
-          const minIndex = previous ? previous.monthIndex + 1 : firstEditableMonthIndex;
-          const maxIndex = next ? next.monthIndex - 1 : scheduleMonths.length - 1;
+          const minIndex = previous ? previous.monthIndex + 0.5 : firstEditableMonthIndex;
+          const maxIndex = next ? next.monthIndex - 0.5 : scheduleMonths.length - 1;
           if (minIndex > maxIndex) return prev;
           const clampedIndex = Math.min(
             Math.max(pendingLinePoint.monthIndex, minIndex),
@@ -1274,8 +1289,8 @@ const CampervanSchedule = () => {
                 <div>
                   <h4 className="text-sm font-semibold text-gray-700">Production Ramp Control</h4>
                   <p className="text-xs text-gray-500">
-                    Drag points to adjust the monthly step plan (1-5 vans/week). Drag the line to add a
-                    new step.
+                    Drag points to adjust the step plan (1-5 vans/week). Horizontal moves snap to half
+                    months, vertical moves snap to whole numbers. Drag the line to add a new step.
                   </p>
                 </div>
                 <button
@@ -1358,7 +1373,6 @@ const CampervanSchedule = () => {
                     );
                   })}
                   {scheduleMonths.map((month, index) => {
-                    const isMajor = index % 2 === 0;
                     const x = getScheduleX(index);
                     return (
                       <g key={month.toISOString()}>
@@ -1367,19 +1381,20 @@ const CampervanSchedule = () => {
                           y1={scheduleChartMetrics.margin.top}
                           x2={x}
                           y2={scheduleChartMetrics.margin.top + scheduleChartMetrics.plotHeight}
-                          stroke={isMajor ? '#e2e8f0' : '#f1f5f9'}
+                          stroke="#e2e8f0"
                         />
-                        {isMajor && (
-                          <text
-                            x={x}
-                            y={scheduleChartMetrics.margin.top + scheduleChartMetrics.plotHeight + 24}
-                            textAnchor="middle"
-                            fontSize={11}
-                            fill="#64748b"
-                          >
-                            {formatMonthLabel(month)}
-                          </text>
-                        )}
+                        <text
+                          x={x}
+                          y={scheduleChartMetrics.margin.top + scheduleChartMetrics.plotHeight + 36}
+                          textAnchor="end"
+                          fontSize={11}
+                          fill="#64748b"
+                          transform={`rotate(-35 ${x} ${
+                            scheduleChartMetrics.margin.top + scheduleChartMetrics.plotHeight + 36
+                          })`}
+                        >
+                          {formatMonthLabel(month)}
+                        </text>
                       </g>
                     );
                   })}
@@ -1453,6 +1468,7 @@ const CampervanSchedule = () => {
                             setSchedulePoints((prev) =>
                               prev.filter((entry) => entry.id !== point.id),
                             );
+                            setDeleteMode(false);
                             return;
                           }
                           setDraggingPointId(point.id);
