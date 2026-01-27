@@ -234,11 +234,10 @@ const CampervanSchedule = () => {
   }, []);
 
   const firstProductionPointDate = useMemo(() => {
-    const lastIndex = rows.reduce(
-      (acc, row, index) =>
-        row.regentProduction === 'Production Commenced Regent' ? index : acc,
-      -1,
-    );
+    const lastIndex = rows.reduce((acc, row, index) => {
+      const productionText = String(row.regentProduction || '').trim().toLowerCase();
+      return productionText.includes('production commenced regent') ? index : acc;
+    }, -1);
     if (lastIndex === -1 || !rows[lastIndex + 1]) return SCHEDULE_START;
     const nextDate = parseDateValue(rows[lastIndex + 1].forecastProductionDate);
     return nextDate || SCHEDULE_START;
