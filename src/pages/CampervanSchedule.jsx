@@ -1295,13 +1295,13 @@ const CampervanSchedule = () => {
                 </button>
               </div>
 
-              <div className="mt-4 h-80 rounded-2xl border border-gray-200 bg-gradient-to-br from-white via-slate-50 to-sky-50">
+              <div className="mt-4 h-80 rounded-[28px] border border-slate-100 bg-slate-50 shadow-inner">
                 <div ref={scheduleChartRef} className="h-full w-full">
                   <svg width="100%" height="100%">
                     <defs>
                       <linearGradient id="lockedRegion" x1="0" y1="0" x2="1" y2="0">
-                        <stop offset="0%" stopColor="#cbd5f5" stopOpacity="0.5" />
-                        <stop offset="100%" stopColor="#e2e8f0" stopOpacity="0.7" />
+                        <stop offset="0%" stopColor="#e5e7eb" stopOpacity="0.85" />
+                        <stop offset="100%" stopColor="#f1f5f9" stopOpacity="0.95" />
                       </linearGradient>
                     </defs>
                     <rect
@@ -1313,14 +1313,14 @@ const CampervanSchedule = () => {
                         0,
                       )}
                       fill="url(#lockedRegion)"
-                      rx="12"
+                      rx="20"
                     />
                     <line
                       x1={schedulePadding.left}
                       y1={schedulePadding.top}
                       x2={schedulePadding.left}
                       y2={Math.max(scheduleChartSize.height - schedulePadding.bottom, 0)}
-                      stroke="#e2e8f0"
+                      stroke="#e5e7eb"
                     />
                     {Array.from({ length: 6 }).map((_, index) => {
                       const yValue = 5 - index;
@@ -1332,8 +1332,8 @@ const CampervanSchedule = () => {
                             y1={y}
                             x2={Math.max(scheduleChartSize.width - schedulePadding.right, 0)}
                             y2={y}
-                            stroke="#e2e8f0"
-                            strokeDasharray="4 4"
+                            stroke="#e5e7eb"
+                            strokeDasharray="3 6"
                           />
                           <text x={schedulePadding.left - 12} y={y + 4} textAnchor="end" fontSize="11" fill="#94a3b8">
                             {yValue}
@@ -1341,7 +1341,7 @@ const CampervanSchedule = () => {
                         </g>
                       );
                     })}
-                    <path d={scheduleLinePath} fill="none" stroke="#4f46e5" strokeWidth="3" />
+                    <path d={scheduleLinePath} fill="none" stroke="#3b82f6" strokeWidth="3" />
                     {sortedSchedulePoints.map((point) => {
                       const pointIndex = scheduleIndexFromDate(point.date);
                       const x = scheduleXFromIndex(pointIndex);
@@ -1354,12 +1354,11 @@ const CampervanSchedule = () => {
                             cy={y}
                             r={10}
                             fill={isHighlighted ? '#fca5a5' : '#ffffff'}
-                            stroke={isHighlighted ? '#ef4444' : '#4f46e5'}
+                            stroke={isHighlighted ? '#ef4444' : '#3b82f6'}
                             strokeWidth={2}
                             onClick={() => handlePointClick(point.id)}
                             style={{ cursor: deleteMode ? 'pointer' : 'grab' }}
                           />
-                          <circle cx={x} cy={y} r={4} fill="#4f46e5" />
                         </g>
                       );
                     })}
@@ -1380,14 +1379,24 @@ const CampervanSchedule = () => {
                         </g>
                       );
                     })}
-                    <text
-                      x={schedulePadding.left + 6}
-                      y={schedulePadding.top + 16}
-                      fontSize="11"
-                      fill="#94a3b8"
-                    >
-                      Built (15 units) · locked
-                    </text>
+                    <g>
+                      <rect
+                        x={schedulePadding.left + 6}
+                        y={schedulePadding.top + 6}
+                        width="170"
+                        height="24"
+                        rx="12"
+                        fill="#e5e7eb"
+                      />
+                      <text
+                        x={schedulePadding.left + 16}
+                        y={schedulePadding.top + 22}
+                        fontSize="11"
+                        fill="#94a3b8"
+                      >
+                        15 vehicles built - locked
+                      </text>
+                    </g>
                   </svg>
                 </div>
               </div>
