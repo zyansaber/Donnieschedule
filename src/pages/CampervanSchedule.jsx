@@ -129,38 +129,6 @@ const parseDuration = (startValue, endValue) => {
   return diff >= 0 ? diff : '';
 };
 
-const START_MONTH_DATE = new Date(2025, 6, 1);
-const END_MONTH_DATE = new Date(2026, 11, 1);
-const MAX_PRODUCTION_RATE = 5;
-
-const monthDiff = (start, end) => {
-  return (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth());
-};
-
-const getMonthIndexFromDate = (date) => {
-  if (!date) return null;
-  return monthDiff(START_MONTH_DATE, new Date(date.getFullYear(), date.getMonth(), 1));
-};
-
-const getDateFromMonthIndex = (monthIndex) => {
-  if (monthIndex == null) return null;
-  return new Date(START_MONTH_DATE.getFullYear(), START_MONTH_DATE.getMonth() + monthIndex, 1);
-};
-
-const buildMonthSeries = () => {
-  const totalMonths = monthDiff(START_MONTH_DATE, END_MONTH_DATE) + 1;
-  return Array.from({ length: totalMonths }, (_, index) => {
-    const date = getDateFromMonthIndex(index);
-    return {
-      index,
-      date,
-      label: date
-        ? date.toLocaleString('en-AU', { month: 'short', year: '2-digit' })
-        : '',
-    };
-  });
-};
-
 const emptyRow = (rowNumber) => ({
   rowNumber,
   forecastProductionDate: '',
@@ -213,7 +181,6 @@ const CampervanSchedule = () => {
   const [rows, setRows] = useState([emptyRow(1)]);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusMessage, setStatusMessage] = useState('');
-  const [scheduleMessage, setScheduleMessage] = useState('');
   const saveTimersRef = useRef({});
   const [scrollWidth, setScrollWidth] = useState(0);
   const topScrollRef = useRef(null);
@@ -222,13 +189,6 @@ const CampervanSchedule = () => {
   const [showDealerTable, setShowDealerTable] = useState(false);
   const [orderBreakdownType, setOrderBreakdownType] = useState('vehicle');
   const [orderStockFilter, setOrderStockFilter] = useState('all');
-  const [productionPoints, setProductionPoints] = useState([]);
-  const [pointsInitialized, setPointsInitialized] = useState(false);
-  const [deleteMode, setDeleteMode] = useState(false);
-  const chartRef = useRef(null);
-  const dragStateRef = useRef(null);
-  const pointIdRef = useRef(1);
-  const monthSeries = useMemo(() => buildMonthSeries(), []);
 
   const headerMap = useMemo(() => {
     const mapping = {};
@@ -253,123 +213,6 @@ const CampervanSchedule = () => {
       latestLongtreePartsOrder: addDays(forecastDate, -90),
       duration: parseDuration(row.productionPlannedStartDate, row.productionPlannedEndDate),
     };
-  };
-
-  const buildPoint = (monthIndex, value) => {
-    const clampedValue = Math.min(Math.max(value, 1), MAX_PRODUCTION_RATE);
-    return {
-      id: `point-${pointIdRef.current += 1}`,
-      monthIndex,
-      value: clampedValue,
-    };
-  };
-
-  const normalizePoints = (points) => {
-    return [...points]
-      .filter((point) => point && Number.isFinite(point.monthIndex))
-      .sort((a, b) => a.monthIndex - b.monthIndex);
-  };
-
-  const getFirstProductionMonthIndex = (inputRows) => {
-    const firstOpenRow = inputRows.find((row) => {
-      const regentStatus = String(row.regentProduction || '').trim().toLowerCase();
-      return regentStatus !== 'production commenced regent';
-    });
-    const firstDate = parseDateValue(firstOpenRow?.forecastProductionDate);
-    const firstIndex = getMonthIndexFromDate(firstDate ?? START_MONTH_DATE);
-    return Math.max(0, Math.min(firstIndex ?? 0, monthSeries.length - 1));
-  };
-
-  const buildInitialPoints = (inputRows) => {
-    const firstIndex = getFirstProductionMonthIndex(inputRows);
-    const june2026Index = getMonthIndexFromDate(new Date(2026, 5, 1));
-    const secondIndex = Math.min(
-      monthSeries.length - 1,
-      Math.max(firstIndex + 1, june2026Index ?? firstIndex + 1)
-    );
-    return normalizePoints([buildPoint(firstIndex, 1), buildPoint(secondIndex, 2)]);
-  };
-
-  const buildScheduleSlots = (points) => {
-    const sortedPoints = normalizePoints(points);
-    if (sortedPoints.length === 0) return [];
-    const scheduleStart = getDateFromMonthIndex(sortedPoints[0].monthIndex);
-    if (!scheduleStart) return [];
-    const scheduleEnd = new Date(END_MONTH_DATE.getFullYear(), END_MONTH_DATE.getMonth() + 1, 0);
-    const slots = [];
-    let pointIndex = 0;
-    let activeValue = sortedPoints[0].value;
-    for (
-      let date = new Date(scheduleStart.getTime());
-      date <= scheduleEnd;
-      date = new Date(date.getTime() + DAY_MS * 7)
-    ) {
-      const currentMonthIndex = getMonthIndexFromDate(date);
-      while (
-        pointIndex + 1 < sortedPoints.length &&
-        sortedPoints[pointIndex + 1].monthIndex <= currentMonthIndex
-      ) {
-        pointIndex += 1;
-        activeValue = sortedPoints[pointIndex].value;
-      }
-      const slotsForWeek = Math.max(0, Math.round(activeValue));
-      for (let i = 0; i < slotsForWeek; i += 1) {
-        slots.push(new Date(date.getTime()));
-      }
-    }
-    return slots;
-  };
-
-  const applyProductionSchedule = (inputRows, points) => {
-    const sortedPoints = normalizePoints(points);
-    if (sortedPoints.length === 0) {
-      return { rows: inputRows, message: '' };
-    }
-    const firstMonthIndex = sortedPoints[0].monthIndex;
-    const fixedRows = [];
-    const remainingRows = [];
-    inputRows.forEach((row) => {
-      const rowDate = parseDateValue(row.forecastProductionDate);
-      const rowMonthIndex = rowDate ? getMonthIndexFromDate(rowDate) : null;
-      if (rowMonthIndex != null && rowMonthIndex <= firstMonthIndex) {
-        fixedRows.push(row);
-      } else {
-        remainingRows.push(row);
-      }
-    });
-
-    const slots = buildScheduleSlots(sortedPoints);
-    const maxRowNumber = inputRows.reduce((max, row) => Math.max(max, row.rowNumber || 0), 0);
-    const scheduledRows = [...fixedRows];
-    const totalSlots = slots.length;
-    for (let i = 0; i < totalSlots; i += 1) {
-      const slotDate = slots[i];
-      const row = remainingRows[i];
-      if (row) {
-        scheduledRows.push(
-          recalcRow({
-            ...row,
-            forecastProductionDate: formatDate(slotDate),
-          })
-        );
-      } else {
-        const placeholderIndex = i - remainingRows.length;
-        scheduledRows.push(
-          recalcRow({
-            ...emptyRow(maxRowNumber + placeholderIndex + 1),
-            forecastProductionDate: formatDate(slotDate),
-          })
-        );
-      }
-    }
-
-    let message = '';
-    if (remainingRows.length > totalSlots) {
-      const missingCount = remainingRows.length - totalSlots;
-      message = `Slot不足，仍有 ${missingCount} 个 row 未能排入生产计划。`;
-      scheduledRows.push(...remainingRows.slice(totalSlots));
-    }
-    return { rows: scheduledRows, message };
   };
 
   useEffect(() => {
@@ -403,197 +246,6 @@ const CampervanSchedule = () => {
 
     loadRows();
   }, []);
-
-  useEffect(() => {
-    if (pointsInitialized || rows.length === 0) return;
-    setProductionPoints(buildInitialPoints(rows));
-    setPointsInitialized(true);
-  }, [pointsInitialized, rows]);
-
-  useEffect(() => {
-    if (productionPoints.length === 0) return;
-    const { rows: scheduledRows, message } = applyProductionSchedule(rows, productionPoints);
-    const currentSignature = rows
-      .map((row) => `${row.rowNumber}-${row.forecastProductionDate}`)
-      .join('|');
-    const nextSignature = scheduledRows
-      .map((row) => `${row.rowNumber}-${row.forecastProductionDate}`)
-      .join('|');
-    if (currentSignature !== nextSignature) {
-      setRows(scheduledRows);
-    }
-    setScheduleMessage(message);
-  }, [productionPoints, rows]);
-
-  const chartPadding = {
-    left: 44,
-    right: 20,
-    top: 24,
-    bottom: 36,
-  };
-  const chartViewBox = {
-    width: 800,
-    height: 240,
-  };
-
-  const clampMonthIndex = (index) => {
-    return Math.max(0, Math.min(index, monthSeries.length - 1));
-  };
-
-  const clampProductionValue = (value) => {
-    return Math.max(1, Math.min(Math.round(value), MAX_PRODUCTION_RATE));
-  };
-
-  const getPointFromEvent = (event) => {
-    const rect = chartRef.current?.getBoundingClientRect();
-    if (!rect) return null;
-    const x = ((event.clientX - rect.left) / rect.width) * chartViewBox.width;
-    const y = ((event.clientY - rect.top) / rect.height) * chartViewBox.height;
-    const usableWidth = Math.max(
-      1,
-      chartViewBox.width - chartPadding.left - chartPadding.right
-    );
-    const usableHeight = Math.max(
-      1,
-      chartViewBox.height - chartPadding.top - chartPadding.bottom
-    );
-    const xRatio = (x - chartPadding.left) / usableWidth;
-    const yRatio = (y - chartPadding.top) / usableHeight;
-    const monthIndex = clampMonthIndex(Math.round(xRatio * (monthSeries.length - 1)));
-    const value = clampProductionValue(MAX_PRODUCTION_RATE - yRatio * MAX_PRODUCTION_RATE);
-    return { monthIndex, value };
-  };
-
-  const updatePointPosition = (pointId, nextMonthIndex, nextValue) => {
-    setProductionPoints((prev) => {
-      const sorted = normalizePoints(prev);
-      const currentIndex = sorted.findIndex((point) => point.id === pointId);
-      if (currentIndex === -1) return prev;
-      const left = sorted[currentIndex - 1];
-      const right = sorted[currentIndex + 1];
-      const minMonth = left ? left.monthIndex + 1 : 0;
-      const maxMonth = right ? right.monthIndex - 1 : monthSeries.length - 1;
-      const constrainedMonth = Math.max(minMonth, Math.min(nextMonthIndex, maxMonth));
-      const constrainedValue = clampProductionValue(nextValue);
-      const updated = sorted.map((point) =>
-        point.id === pointId
-          ? { ...point, monthIndex: constrainedMonth, value: constrainedValue }
-          : point
-      );
-      return normalizePoints(updated);
-    });
-  };
-
-  const addPointAtPosition = (monthIndex, value) => {
-    setProductionPoints((prev) => {
-      const sorted = normalizePoints(prev);
-      if (sorted.some((point) => point.monthIndex === monthIndex)) {
-        return prev;
-      }
-      const insertIndex = sorted.findIndex((point) => point.monthIndex > monthIndex);
-      const left = insertIndex === -1 ? sorted[sorted.length - 1] : sorted[insertIndex - 1];
-      const right = insertIndex === -1 ? null : sorted[insertIndex];
-      const minMonth = left ? left.monthIndex + 1 : 0;
-      const maxMonth = right ? right.monthIndex - 1 : monthSeries.length - 1;
-      if (monthIndex < minMonth || monthIndex > maxMonth) {
-        return prev;
-      }
-      const nextPoint = buildPoint(monthIndex, value);
-      const nextPoints = [...sorted];
-      if (insertIndex === -1) {
-        nextPoints.push(nextPoint);
-      } else {
-        nextPoints.splice(insertIndex, 0, nextPoint);
-      }
-      return normalizePoints(nextPoints);
-    });
-  };
-
-  const handlePointMouseDown = (event, point) => {
-    event.stopPropagation();
-    if (deleteMode) {
-      setProductionPoints((prev) => {
-        const sorted = normalizePoints(prev);
-        if (sorted.length <= 1) return prev;
-        const isFirstPoint = sorted[0]?.id === point.id;
-        if (isFirstPoint) return prev;
-        return sorted.filter((item) => item.id !== point.id);
-      });
-      return;
-    }
-    dragStateRef.current = { type: 'point', id: point.id };
-  };
-
-  const handleLineMouseDown = (event) => {
-    if (deleteMode) return;
-    event.stopPropagation();
-    dragStateRef.current = { type: 'line', last: null };
-  };
-
-  const handleChartMouseMove = (event) => {
-    if (!dragStateRef.current) return;
-    const position = getPointFromEvent(event);
-    if (!position) return;
-    if (dragStateRef.current.type === 'point') {
-      updatePointPosition(dragStateRef.current.id, position.monthIndex, position.value);
-      return;
-    }
-    if (dragStateRef.current.type === 'line') {
-      dragStateRef.current.last = position;
-    }
-  };
-
-  const handleChartMouseUp = (event) => {
-    if (!dragStateRef.current) return;
-    const dragState = dragStateRef.current;
-    dragStateRef.current = null;
-    if (dragState.type === 'line') {
-      const position = dragState.last ?? getPointFromEvent(event);
-      if (position) {
-        addPointAtPosition(position.monthIndex, position.value);
-      }
-    }
-  };
-
-  const handleChartMouseLeave = () => {
-    dragStateRef.current = null;
-  };
-
-  const sortedProductionPoints = useMemo(
-    () => normalizePoints(productionPoints),
-    [productionPoints]
-  );
-
-  const getXForMonth = (monthIndex) => {
-    const usableWidth = chartViewBox.width - chartPadding.left - chartPadding.right;
-    if (monthSeries.length <= 1) return chartPadding.left;
-    return chartPadding.left + (monthIndex / (monthSeries.length - 1)) * usableWidth;
-  };
-
-  const getYForValue = (value) => {
-    const usableHeight = chartViewBox.height - chartPadding.top - chartPadding.bottom;
-    const clampedValue = Math.max(0, Math.min(value, MAX_PRODUCTION_RATE));
-    return chartPadding.top + (1 - clampedValue / MAX_PRODUCTION_RATE) * usableHeight;
-  };
-
-  const productionStepPath = useMemo(() => {
-    if (sortedProductionPoints.length === 0) return '';
-    const segments = [];
-    sortedProductionPoints.forEach((point, index) => {
-      const x = getXForMonth(point.monthIndex);
-      const y = getYForValue(point.value);
-      if (index === 0) {
-        segments.push(`M ${x} ${y}`);
-      } else {
-        const prev = sortedProductionPoints[index - 1];
-        const prevX = getXForMonth(point.monthIndex);
-        const prevY = getYForValue(prev.value);
-        segments.push(`L ${prevX} ${prevY}`);
-        segments.push(`L ${x} ${y}`);
-      }
-    });
-    return segments.join(' ');
-  }, [sortedProductionPoints, getXForMonth, getYForValue]);
 
   const handleTopScroll = () => {
     if (topScrollRef.current && tableScrollRef.current) {
@@ -798,7 +450,6 @@ const CampervanSchedule = () => {
   };
 
   const filteredRows = useMemo(() => {
-    const scheduleStartMonthIndex = sortedProductionPoints[0]?.monthIndex ?? null;
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
     const cutoffDate = new Date(todayStart);
@@ -806,14 +457,6 @@ const CampervanSchedule = () => {
     const shouldHideRow = (row) => {
       const forecastDate = parseDateValue(row.forecastProductionDate);
       if (!forecastDate) return false;
-      const rowMonthIndex = getMonthIndexFromDate(forecastDate);
-      if (
-        scheduleStartMonthIndex != null &&
-        rowMonthIndex != null &&
-        rowMonthIndex <= scheduleStartMonthIndex
-      ) {
-        return false;
-      }
       const chassisEmpty = String(row.chassisNumber || '').trim().length === 0;
       const dealerEmpty = String(row.dealer || '').trim().length === 0;
       return forecastDate < cutoffDate && chassisEmpty && dealerEmpty;
@@ -836,7 +479,7 @@ const CampervanSchedule = () => {
         .toLowerCase();
       return rowText.includes(term);
     });
-  }, [rows, searchTerm, sortedProductionPoints]);
+  }, [rows, searchTerm]);
 
   const columnWidths = useMemo(() => {
     const fixedColumnWidths = {
@@ -1367,126 +1010,6 @@ const CampervanSchedule = () => {
                   </ResponsiveContainer>
                 </div>
               )}
-            </div>
-            <div className="mt-6 rounded-xl border border-gray-100 bg-white p-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h4 className="text-sm font-semibold text-gray-700">Production Ordering Control</h4>
-                  <p className="text-xs text-gray-500">
-                    Drag points to adjust monthly build rates (1–5 per week). Drag the line to add
-                    a new point.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setDeleteMode((prev) => !prev)}
-                  className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold transition ${
-                    deleteMode
-                      ? 'bg-rose-100 text-rose-600'
-                      : 'bg-gray-100 text-gray-600 hover:text-gray-800'
-                  }`}
-                >
-                  {deleteMode ? 'Cancel Delete' : 'Delete Point'}
-                </button>
-              </div>
-              {scheduleMessage && (
-                <div className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                  {scheduleMessage}
-                </div>
-              )}
-              <div className="mt-4 rounded-xl border border-gray-100 bg-slate-50 p-3">
-                <svg
-                  ref={chartRef}
-                  viewBox={`0 0 ${chartViewBox.width} ${chartViewBox.height}`}
-                  className="h-60 w-full"
-                  onMouseMove={handleChartMouseMove}
-                  onMouseUp={handleChartMouseUp}
-                  onMouseLeave={handleChartMouseLeave}
-                >
-                  <rect
-                    x={chartPadding.left}
-                    y={chartPadding.top}
-                    width={chartViewBox.width - chartPadding.left - chartPadding.right}
-                    height={chartViewBox.height - chartPadding.top - chartPadding.bottom}
-                    fill="#f8fafc"
-                    rx="10"
-                  />
-                  {sortedProductionPoints[0] && (
-                    <rect
-                      x={chartPadding.left}
-                      y={chartPadding.top}
-                      width={getXForMonth(sortedProductionPoints[0].monthIndex) - chartPadding.left}
-                      height={chartViewBox.height - chartPadding.top - chartPadding.bottom}
-                      fill="#e2e8f0"
-                      opacity="0.7"
-                      rx="10"
-                    />
-                  )}
-                  {Array.from({ length: MAX_PRODUCTION_RATE + 1 }, (_, value) => (
-                    <g key={`grid-${value}`}>
-                      <line
-                        x1={chartPadding.left}
-                        y1={getYForValue(value)}
-                        x2={chartViewBox.width - chartPadding.right}
-                        y2={getYForValue(value)}
-                        stroke="#e2e8f0"
-                        strokeDasharray="4 4"
-                      />
-                      <text
-                        x={chartPadding.left - 12}
-                        y={getYForValue(value) + 4}
-                        fontSize="10"
-                        fill="#94a3b8"
-                        textAnchor="end"
-                      >
-                        {value}
-                      </text>
-                    </g>
-                  ))}
-                  {monthSeries.map((month) => {
-                    if (month.index % 2 !== 0) return null;
-                    return (
-                      <text
-                        key={month.index}
-                        x={getXForMonth(month.index)}
-                        y={chartViewBox.height - 12}
-                        fontSize="10"
-                        fill="#94a3b8"
-                        textAnchor="middle"
-                      >
-                        {month.label}
-                      </text>
-                    );
-                  })}
-                  <path
-                    d={productionStepPath}
-                    fill="none"
-                    stroke="#4f46e5"
-                    strokeWidth="3"
-                    strokeLinejoin="round"
-                    strokeLinecap="round"
-                    onMouseDown={handleLineMouseDown}
-                    className={deleteMode ? 'cursor-not-allowed' : 'cursor-pointer'}
-                  />
-                  {sortedProductionPoints.map((point) => (
-                    <circle
-                      key={point.id}
-                      cx={getXForMonth(point.monthIndex)}
-                      cy={getYForValue(point.value)}
-                      r={8}
-                      fill={deleteMode ? '#fca5a5' : '#ffffff'}
-                      stroke={deleteMode ? '#dc2626' : '#4338ca'}
-                      strokeWidth={2}
-                      onMouseDown={(event) => handlePointMouseDown(event, point)}
-                      className={deleteMode ? 'cursor-pointer' : 'cursor-grab'}
-                    />
-                  ))}
-                </svg>
-                <div className="mt-2 flex items-center justify-between text-[11px] text-gray-500">
-                  <span>Locked range: Jul 2025 → first point</span>
-                  <span>Range ends Dec 2026 · Min rate 1/week</span>
-                </div>
-              </div>
             </div>
           </div>
         </div>
