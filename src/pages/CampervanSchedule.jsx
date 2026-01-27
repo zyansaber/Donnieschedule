@@ -195,6 +195,10 @@ const CampervanSchedule = () => {
   const [scheduleChartSize, setScheduleChartSize] = useState({ width: 0, height: 0 });
   const [productionSchedulePoints, setProductionSchedulePoints] = useState([]);
   const [deleteMode, setDeleteMode] = useState(false);
+  const [addPointMode, setAddPointMode] = useState(false);
+  const [newPointIndex, setNewPointIndex] = useState('');
+  const [newPointValue, setNewPointValue] = useState('1');
+  const [addPointError, setAddPointError] = useState('');
   const draggingPointRef = useRef(null);
   const initializedScheduleRef = useRef(false);
   const scheduleTouchedRef = useRef(false);
@@ -956,6 +960,28 @@ const CampervanSchedule = () => {
     return path;
   }, [sortedSchedulePoints, scheduleEndDate, scheduleIndexFromDate, scheduleXFromIndex, scheduleYFromValue]);
 
+  const scheduleIndexOptions = useMemo(() => {
+    if (sortedSchedulePoints.length === 0) return [];
+    const startIndex = Math.max(firstPointIndex, 0);
+    return Array.from({ length: scheduleStepCount - startIndex + 1 }, (_, offset) => {
+      const index = startIndex + offset;
+      const date = scheduleDateFromIndex(index);
+      const isHalf = date.getDate() === 15;
+      const label = `${date.toLocaleString('en-US', { month: 'short' })} ${date.getFullYear()} (${
+        isHalf ? '15th' : '1st'
+      })`;
+      return { value: String(index), label };
+    });
+  }, [firstPointIndex, scheduleDateFromIndex, scheduleStepCount, sortedSchedulePoints.length]);
+
+  useEffect(() => {
+    if (!addPointMode) return;
+    const defaultIndex = scheduleIndexOptions[0]?.value ?? '';
+    setNewPointIndex(defaultIndex);
+    setNewPointValue('1');
+    setAddPointError('');
+  }, [addPointMode, scheduleIndexOptions]);
+
   const handleScheduleMouseMove = useCallback(
     (event) => {
       const dragTarget = draggingPointRef.current;
@@ -1044,6 +1070,35 @@ const CampervanSchedule = () => {
     },
     [deleteMode],
   );
+
+  const handleAddPoint = useCallback(() => {
+    const indexValue = Number(newPointIndex);
+    const value = Number(newPointValue);
+    if (!Number.isFinite(indexValue) || !Number.isFinite(value)) {
+      setAddPointError('Please select both a date and a weekly build rate.');
+      return;
+    }
+    let hasDuplicate = false;
+    scheduleTouchedRef.current = true;
+    setProductionSchedulePoints((prev) => {
+      if (prev.some((point) => scheduleIndexFromDate(point.date) === indexValue)) {
+        hasDuplicate = true;
+        return prev;
+      }
+      const newPoint = {
+        id: `point-${Date.now()}`,
+        date: scheduleDateFromIndex(indexValue),
+        value,
+      };
+      return [...prev, newPoint];
+    });
+    if (hasDuplicate) {
+      setAddPointError('A point already exists at that date.');
+      return;
+    }
+    setAddPointError('');
+    setAddPointMode(false);
+  }, [newPointIndex, newPointValue, scheduleDateFromIndex, scheduleIndexFromDate]);
 
   useEffect(() => {
     return () => {
@@ -1307,18 +1362,79 @@ const CampervanSchedule = () => {
                     Drag points to adjust the weekly build rate. The grey region shows months already locked in.
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setDeleteMode((current) => !current)}
-                  className={`inline-flex items-center justify-center rounded-full px-4 py-2 text-xs font-semibold transition ${
-                    deleteMode
-                      ? 'bg-rose-100 text-rose-700'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                  }`}
-                >
-                  {deleteMode ? 'Select a point to delete' : 'Delete a point'}
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAddPointMode((current) => !current);
+                      setDeleteMode(false);
+                    }}
+                    className={`inline-flex items-center justify-center rounded-full px-4 py-2 text-xs font-semibold transition ${
+                      addPointMode
+                        ? 'bg-indigo-100 text-indigo-700'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    {addPointMode ? 'Cancel add point' : 'Add a point'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDeleteMode((current) => !current);
+                      setAddPointMode(false);
+                    }}
+                    className={`inline-flex items-center justify-center rounded-full px-4 py-2 text-xs font-semibold transition ${
+                      deleteMode
+                        ? 'bg-rose-100 text-rose-700'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    {deleteMode ? 'Select a point to delete' : 'Delete a point'}
+                  </button>
+                </div>
               </div>
+              {addPointMode && (
+                <div className="mt-4 rounded-2xl border border-indigo-100 bg-indigo-50/60 p-4">
+                  <div className="flex flex-wrap items-end gap-3">
+                    <label className="flex flex-col gap-1 text-xs font-semibold text-indigo-700">
+                      Date (half/full month)
+                      <select
+                        value={newPointIndex}
+                        onChange={(event) => setNewPointIndex(event.target.value)}
+                        className="min-w-[180px] rounded-lg border border-indigo-100 bg-white px-3 py-2 text-sm text-gray-700"
+                      >
+                        {scheduleIndexOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="flex flex-col gap-1 text-xs font-semibold text-indigo-700">
+                      Builds / week
+                      <select
+                        value={newPointValue}
+                        onChange={(event) => setNewPointValue(event.target.value)}
+                        className="min-w-[120px] rounded-lg border border-indigo-100 bg-white px-3 py-2 text-sm text-gray-700"
+                      >
+                        {[1, 2, 3, 4, 5].map((value) => (
+                          <option key={value} value={value}>
+                            {value}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleAddPoint}
+                      className="inline-flex items-center justify-center rounded-full bg-indigo-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-indigo-700"
+                    >
+                      Confirm add
+                    </button>
+                  </div>
+                  {addPointError && <p className="mt-2 text-xs text-rose-600">{addPointError}</p>}
+                </div>
+              )}
 
               <div className="mt-4 h-80 rounded-[28px] border border-slate-100 bg-slate-50 shadow-inner">
                 <div ref={scheduleChartRef} className="h-full w-full">
