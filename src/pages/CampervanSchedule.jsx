@@ -177,6 +177,35 @@ const columns = [
 const normalizeHeader = (value) => value.toLowerCase().replace(/[^a-z0-9]/g, '');
 const dateKeys = columns.filter((column) => column.type === 'date').map((column) => column.key);
 
+const SCHEDULE_START = new Date(2025, 6, 1);
+const SCHEDULE_END = new Date(2026, 11, 31);
+const CHART_VIEWBOX = { width: 900, height: 360 };
+const CHART_MARGIN = { top: 24, right: 28, bottom: 64, left: 56 };
+
+const addMonths = (date, months) => new Date(date.getFullYear(), date.getMonth() + months, 1);
+const monthsBetween = (start, end) =>
+  (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth()) + 1;
+const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+const monthKey = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+
+const dateToHalfStep = (date, startDate, maxHalfStep) => {
+  if (!date) return 0;
+  const monthDiff =
+    (date.getFullYear() - startDate.getFullYear()) * 12 + (date.getMonth() - startDate.getMonth());
+  const halfOffset = date.getDate() > 15 ? 1 : 0;
+  return clamp(monthDiff * 2 + halfOffset, 0, maxHalfStep);
+};
+
+const halfStepToDate = (halfStep, startDate) => {
+  const monthOffset = Math.floor(halfStep / 2);
+  const isMid = halfStep % 2 === 1;
+  const baseDate = addMonths(startDate, monthOffset);
+  return new Date(baseDate.getFullYear(), baseDate.getMonth(), isMid ? 16 : 1);
+};
+
+const formatMonthLabel = (date, includeYear) =>
+  `${date.toLocaleString('en-US', { month: 'short' })}${includeYear ? ` ${date.getFullYear()}` : ''}`;
+
 const CampervanSchedule = () => {
   const [rows, setRows] = useState([emptyRow(1)]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -189,6 +218,11 @@ const CampervanSchedule = () => {
   const [showDealerTable, setShowDealerTable] = useState(false);
   const [orderBreakdownType, setOrderBreakdownType] = useState('vehicle');
   const [orderStockFilter, setOrderStockFilter] = useState('all');
+  const [productionPoints, setProductionPoints] = useState([]);
+  const [deleteModeActive, setDeleteModeActive] = useState(false);
+  const [draggingPoint, setDraggingPoint] = useState(null);
+  const productionPointsInitialized = useRef(false);
+  const productionChartRef = useRef(null);
 
   const headerMap = useMemo(() => {
     const mapping = {};
@@ -198,6 +232,17 @@ const CampervanSchedule = () => {
     });
     return mapping;
   }, []);
+
+  const firstProductionPointDate = useMemo(() => {
+    const lastIndex = rows.reduce(
+      (acc, row, index) =>
+        row.regentProduction === 'Production Commenced Regent' ? index : acc,
+      -1,
+    );
+    if (lastIndex === -1 || !rows[lastIndex + 1]) return SCHEDULE_START;
+    const nextDate = parseDateValue(rows[lastIndex + 1].forecastProductionDate);
+    return nextDate || SCHEDULE_START;
+  }, [rows]);
 
   const recalcRow = (row) => {
     const normalizedDates = dateKeys.reduce((acc, key) => {
@@ -715,6 +760,133 @@ const CampervanSchedule = () => {
     'SRV22.3': '#a78bfa',
   };
 
+  const totalMonths = useMemo(() => monthsBetween(SCHEDULE_START, SCHEDULE_END), []);
+  const maxHalfStep = useMemo(() => totalMonths * 2 - 1, [totalMonths]);
+  const firstPointHalfStep = useMemo(
+    () => dateToHalfStep(firstProductionPointDate, SCHEDULE_START, maxHalfStep),
+    [firstProductionPointDate, maxHalfStep],
+  );
+  const firstPointMonthStart = useMemo(
+    () => new Date(firstProductionPointDate.getFullYear(), firstProductionPointDate.getMonth(), 1),
+    [firstProductionPointDate],
+  );
+
+  const monthStarts = useMemo(
+    () => Array.from({ length: totalMonths }, (_, index) => addMonths(SCHEDULE_START, index)),
+    [totalMonths],
+  );
+
+  useEffect(() => {
+    if (productionPointsInitialized.current && productionPoints.length) return;
+    const juneAnchor = new Date(2026, 5, 1);
+    let secondHalfStep = dateToHalfStep(juneAnchor, SCHEDULE_START, maxHalfStep);
+    if (secondHalfStep <= firstPointHalfStep) {
+      secondHalfStep = clamp(firstPointHalfStep + 2, 0, maxHalfStep);
+    }
+    setProductionPoints([
+      { id: 'base', halfStep: firstPointHalfStep, value: 1 },
+      { id: 'june', halfStep: secondHalfStep, value: 2 },
+    ]);
+    productionPointsInitialized.current = true;
+  }, [firstPointHalfStep, maxHalfStep, productionPoints.length]);
+
+  const chartLayout = useMemo(() => {
+    const width = CHART_VIEWBOX.width;
+    const height = CHART_VIEWBOX.height;
+    const plotWidth = width - CHART_MARGIN.left - CHART_MARGIN.right;
+    const plotHeight = height - CHART_MARGIN.top - CHART_MARGIN.bottom;
+    return { width, height, plotWidth, plotHeight };
+  }, []);
+
+  const sortedProductionPoints = useMemo(
+    () => [...productionPoints].sort((a, b) => a.halfStep - b.halfStep),
+    [productionPoints],
+  );
+
+  const productionPath = useMemo(() => {
+    if (!sortedProductionPoints.length) return '';
+    const { plotWidth, plotHeight } = chartLayout;
+    const toX = (halfStep) =>
+      CHART_MARGIN.left + (halfStep / maxHalfStep) * plotWidth;
+    const toY = (value) =>
+      CHART_MARGIN.top + plotHeight - (value / 5) * plotHeight;
+
+    const pointsWithEnd = [
+      ...sortedProductionPoints,
+      {
+        id: 'end',
+        halfStep: maxHalfStep,
+        value: sortedProductionPoints[sortedProductionPoints.length - 1].value,
+      },
+    ];
+
+    let path = '';
+    pointsWithEnd.forEach((point, index) => {
+      const x = toX(point.halfStep);
+      const y = toY(point.value);
+      if (index === 0) {
+        path = `M ${x} ${y}`;
+        return;
+      }
+      const prev = pointsWithEnd[index - 1];
+      const prevX = toX(prev.halfStep);
+      const prevY = toY(prev.value);
+      path += ` L ${x} ${prevY} L ${x} ${y}`;
+    });
+    return path;
+  }, [sortedProductionPoints, chartLayout, maxHalfStep]);
+
+  const handlePointPointerDown = (index) => (event) => {
+    if (deleteModeActive) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setDraggingPoint({ index, pointerId: event.pointerId });
+  };
+
+  const handleChartPointerMove = (event) => {
+    if (!draggingPoint || !productionChartRef.current) return;
+    const rect = productionChartRef.current.getBoundingClientRect();
+    const x = ((event.clientX - rect.left) / rect.width) * chartLayout.width;
+    const y = ((event.clientY - rect.top) / rect.height) * chartLayout.height;
+    const { plotWidth, plotHeight } = chartLayout;
+    const clampedX = clamp(x - CHART_MARGIN.left, 0, plotWidth);
+    const clampedY = clamp(y - CHART_MARGIN.top, 0, plotHeight);
+    const rawHalfStep = Math.round((clampedX / plotWidth) * maxHalfStep);
+    const rawValue = Math.round(((plotHeight - clampedY) / plotHeight) * 5);
+    const nextValue = clamp(rawValue, 1, 5);
+
+    setProductionPoints((prev) => {
+      if (!prev[draggingPoint.index]) return prev;
+      const next = [...prev];
+      const sorted = [...prev].sort((a, b) => a.halfStep - b.halfStep);
+      const active = sorted[draggingPoint.index];
+      const activeIndex = prev.findIndex((item) => item.id === active.id);
+
+      let nextHalfStep = rawHalfStep;
+      if (draggingPoint.index > 0) {
+        nextHalfStep = Math.max(nextHalfStep, sorted[draggingPoint.index - 1].halfStep);
+      }
+      if (draggingPoint.index < sorted.length - 1) {
+        nextHalfStep = Math.min(nextHalfStep, sorted[draggingPoint.index + 1].halfStep);
+      }
+      nextHalfStep = clamp(nextHalfStep, 0, maxHalfStep);
+      next[activeIndex] = { ...next[activeIndex], halfStep: nextHalfStep, value: nextValue };
+      return next;
+    });
+  };
+
+  const handleChartPointerUp = () => {
+    if (draggingPoint) {
+      setDraggingPoint(null);
+    }
+  };
+
+  const handlePointClick = (pointId) => {
+    if (!deleteModeActive) return;
+    setProductionPoints((prev) => prev.filter((point) => point.id !== pointId));
+    setDeleteModeActive(false);
+  };
+
   const renderDealerTooltip = ({ active, payload }) => {
     if (!active || !payload || payload.length === 0) return null;
     const data = payload[0].payload;
@@ -1010,6 +1182,169 @@ const CampervanSchedule = () => {
                   </ResponsiveContainer>
                 </div>
               )}
+            </div>
+          </div>
+
+          <div className="mt-6 border-t border-gray-100 pt-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-800">Weekly Production Control</h3>
+                <p className="text-sm text-gray-500">
+                  Drag points to shape the step schedule. Greyed months are already locked in.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setDeleteModeActive((prev) => !prev)}
+                  className={`rounded-full px-4 py-2 text-xs font-semibold transition ${
+                    deleteModeActive
+                      ? 'bg-rose-100 text-rose-600'
+                      : 'bg-gray-100 text-gray-600 hover:text-gray-800'
+                  }`}
+                >
+                  {deleteModeActive ? 'Click a point to delete' : 'Delete a point'}
+                </button>
+                <div className="rounded-full bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-600">
+                  Drag by half-months · Values 1-5 per week
+                </div>
+              </div>
+            </div>
+            <div className="mt-4 rounded-xl border border-gray-100 bg-gradient-to-br from-slate-50 via-white to-indigo-50 p-4">
+              <div className="h-[360px] w-full">
+                <svg
+                  ref={productionChartRef}
+                  viewBox={`0 0 ${chartLayout.width} ${chartLayout.height}`}
+                  className="h-full w-full"
+                  onPointerMove={handleChartPointerMove}
+                  onPointerUp={handleChartPointerUp}
+                  onPointerLeave={handleChartPointerUp}
+                >
+                  <defs>
+                    <linearGradient id="productionLine" x1="0" y1="0" x2="1" y2="0">
+                      <stop offset="0%" stopColor="#6366f1" />
+                      <stop offset="100%" stopColor="#38bdf8" />
+                    </linearGradient>
+                  </defs>
+                  <rect
+                    x={CHART_MARGIN.left}
+                    y={CHART_MARGIN.top}
+                    width={chartLayout.plotWidth}
+                    height={chartLayout.plotHeight}
+                    fill="#f8fafc"
+                    rx="16"
+                  />
+                  <rect
+                    x={CHART_MARGIN.left}
+                    y={CHART_MARGIN.top}
+                    width={
+                      (firstPointHalfStep / maxHalfStep) * chartLayout.plotWidth
+                    }
+                    height={chartLayout.plotHeight}
+                    fill="#e5e7eb"
+                    opacity="0.7"
+                    rx="16"
+                  />
+                  {[0, 1, 2, 3, 4, 5].map((tick) => {
+                    const y =
+                      CHART_MARGIN.top +
+                      chartLayout.plotHeight -
+                      (tick / 5) * chartLayout.plotHeight;
+                    return (
+                      <g key={`y-${tick}`}>
+                        <line
+                          x1={CHART_MARGIN.left}
+                          x2={CHART_MARGIN.left + chartLayout.plotWidth}
+                          y1={y}
+                          y2={y}
+                          stroke="#e2e8f0"
+                          strokeDasharray={tick === 0 ? '0' : '4 4'}
+                        />
+                        <text
+                          x={CHART_MARGIN.left - 12}
+                          y={y + 4}
+                          textAnchor="end"
+                          fontSize="12"
+                          fill="#64748b"
+                        >
+                          {tick}
+                        </text>
+                      </g>
+                    );
+                  })}
+                  {monthStarts
+                    .filter((month) => month >= firstPointMonthStart)
+                    .map((month) => {
+                      const halfStep = dateToHalfStep(month, SCHEDULE_START, maxHalfStep);
+                      const x =
+                        CHART_MARGIN.left +
+                        (halfStep / maxHalfStep) * chartLayout.plotWidth;
+                      const includeYear =
+                        month.getMonth() === 0 || monthKey(month) === monthKey(firstPointMonthStart);
+                      return (
+                        <text
+                          key={monthKey(month)}
+                          x={x}
+                          y={CHART_MARGIN.top + chartLayout.plotHeight + 34}
+                          fontSize="11"
+                          fill="#64748b"
+                          transform={`rotate(-35 ${x} ${CHART_MARGIN.top + chartLayout.plotHeight + 34})`}
+                          textAnchor="end"
+                        >
+                          {formatMonthLabel(month, includeYear)}
+                        </text>
+                      );
+                    })}
+                  <text
+                    x={CHART_MARGIN.left + 16}
+                    y={CHART_MARGIN.top + 28}
+                    fontSize="12"
+                    fill="#94a3b8"
+                  >
+                    15 vehicles built · locked
+                  </text>
+                  <path
+                    d={productionPath}
+                    fill="none"
+                    stroke="url(#productionLine)"
+                    strokeWidth="4"
+                    strokeLinejoin="round"
+                  />
+                  {sortedProductionPoints.map((point, index) => {
+                    const x =
+                      CHART_MARGIN.left +
+                      (point.halfStep / maxHalfStep) * chartLayout.plotWidth;
+                    const y =
+                      CHART_MARGIN.top +
+                      chartLayout.plotHeight -
+                      (point.value / 5) * chartLayout.plotHeight;
+                    return (
+                      <g key={point.id}>
+                        <circle
+                          cx={x}
+                          cy={y}
+                          r={8}
+                          fill={deleteModeActive ? '#fee2e2' : '#ffffff'}
+                          stroke={deleteModeActive ? '#f43f5e' : '#4f46e5'}
+                          strokeWidth={3}
+                          onPointerDown={handlePointPointerDown(index)}
+                          onClick={() => handlePointClick(point.id)}
+                          style={{ cursor: deleteModeActive ? 'pointer' : 'grab' }}
+                        />
+                        <text
+                          x={x}
+                          y={y - 14}
+                          fontSize="11"
+                          textAnchor="middle"
+                          fill="#475569"
+                        >
+                          {point.value}
+                        </text>
+                      </g>
+                    );
+                  })}
+                </svg>
+              </div>
             </div>
           </div>
         </div>
