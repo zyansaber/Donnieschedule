@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CartesianGrid,
   Bar,
@@ -115,6 +115,8 @@ const addDays = (value, days) => {
   return formatDate(next);
 };
 
+const addMonths = (date, months) => new Date(date.getFullYear(), date.getMonth() + months, 1);
+
 const normalizeDateString = (value) => {
   const date = parseDateValue(value);
   return date ? formatDate(date) : '';
@@ -189,6 +191,13 @@ const CampervanSchedule = () => {
   const [showDealerTable, setShowDealerTable] = useState(false);
   const [orderBreakdownType, setOrderBreakdownType] = useState('vehicle');
   const [orderStockFilter, setOrderStockFilter] = useState('all');
+  const scheduleChartRef = useRef(null);
+  const [scheduleChartSize, setScheduleChartSize] = useState({ width: 0, height: 0 });
+  const [productionSchedulePoints, setProductionSchedulePoints] = useState([]);
+  const [deleteMode, setDeleteMode] = useState(false);
+  const draggingPointRef = useRef(null);
+  const initializedScheduleRef = useRef(false);
+  const scheduleTouchedRef = useRef(false);
 
   const headerMap = useMemo(() => {
     const mapping = {};
@@ -198,6 +207,22 @@ const CampervanSchedule = () => {
     });
     return mapping;
   }, []);
+
+  const scheduleStartDate = useMemo(() => new Date(2025, 6, 1), []);
+  const scheduleEndDate = useMemo(() => new Date(2026, 11, 1), []);
+
+  const firstSchedulePointDate = useMemo(() => {
+    if (rows.length === 0) return scheduleStartDate;
+    const lastIndex = [...rows].reverse().findIndex((row) =>
+      String(row.regentProduction || '').includes('Production Commenced Regent'),
+    );
+    if (lastIndex === -1) return scheduleStartDate;
+    const targetIndex = rows.length - 1 - lastIndex + 1;
+    const candidate = rows[targetIndex];
+    if (!candidate) return scheduleStartDate;
+    const parsed = parseDateValue(candidate.forecastProductionDate);
+    return parsed || scheduleStartDate;
+  }, [rows, scheduleStartDate]);
 
   const recalcRow = (row) => {
     const normalizedDates = dateKeys.reduce((acc, key) => {
@@ -214,6 +239,34 @@ const CampervanSchedule = () => {
       duration: parseDuration(row.productionPlannedStartDate, row.productionPlannedEndDate),
     };
   };
+
+  useEffect(() => {
+    if (!scheduleChartRef.current) return;
+    const element = scheduleChartRef.current;
+    const observer = new ResizeObserver((entries) => {
+      entries.forEach((entry) => {
+        const { width, height } = entry.contentRect;
+        setScheduleChartSize({ width, height });
+      });
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (productionSchedulePoints.length > 0) return;
+    if (initializedScheduleRef.current) return;
+    const firstDate =
+      firstSchedulePointDate instanceof Date
+        ? firstSchedulePointDate
+        : scheduleStartDate;
+    const secondDate = new Date(2026, 5, 1);
+    setProductionSchedulePoints([
+      { id: 'point-1', date: firstDate, value: 1 },
+      { id: 'point-2', date: secondDate, value: 2 },
+    ]);
+    initializedScheduleRef.current = true;
+  }, [firstSchedulePointDate, productionSchedulePoints.length, scheduleStartDate]);
 
   useEffect(() => {
     const loadRows = async () => {
@@ -765,6 +818,215 @@ const CampervanSchedule = () => {
     return `${name}: ${safeValue} (${(safePercent * 100).toFixed(0)}%)`;
   };
 
+  const scheduleMonthSpan = useMemo(() => {
+    const diff =
+      (scheduleEndDate.getFullYear() - scheduleStartDate.getFullYear()) * 12 +
+      (scheduleEndDate.getMonth() - scheduleStartDate.getMonth());
+    return diff;
+  }, [scheduleEndDate, scheduleStartDate]);
+
+  const scheduleStepCount = useMemo(() => scheduleMonthSpan * 2, [scheduleMonthSpan]);
+  const schedulePadding = { left: 56, right: 24, top: 24, bottom: 56 };
+
+  const scheduleIndexFromDate = useCallback(
+    (date) => {
+      if (!date) return 0;
+      const diff =
+        (date.getFullYear() - scheduleStartDate.getFullYear()) * 12 +
+        (date.getMonth() - scheduleStartDate.getMonth());
+      const half = date.getDate() >= 16 ? 1 : 0;
+      return Math.min(Math.max(diff * 2 + half, 0), scheduleStepCount);
+    },
+    [scheduleStartDate, scheduleStepCount],
+  );
+
+  const scheduleDateFromIndex = useCallback(
+    (index) => {
+      const clamped = Math.min(Math.max(index, 0), scheduleStepCount);
+      const wholeMonths = Math.floor(clamped / 2);
+      const isHalf = clamped % 2 === 1;
+      const baseDate = addMonths(scheduleStartDate, wholeMonths);
+      return new Date(baseDate.getFullYear(), baseDate.getMonth(), isHalf ? 15 : 1);
+    },
+    [scheduleStartDate, scheduleStepCount],
+  );
+
+  useEffect(() => {
+    if (scheduleTouchedRef.current) return;
+    setProductionSchedulePoints((prev) => {
+      if (prev.length === 0) return prev;
+      const targetIndex = prev.findIndex((point) => point.id === 'point-1');
+      if (targetIndex === -1) return prev;
+      const currentPoint = prev[targetIndex];
+      if (scheduleIndexFromDate(currentPoint.date) === scheduleIndexFromDate(firstSchedulePointDate)) {
+        return prev;
+      }
+      const updated = [...prev];
+      updated[targetIndex] = { ...currentPoint, date: firstSchedulePointDate };
+      return updated;
+    });
+  }, [firstSchedulePointDate, scheduleIndexFromDate]);
+
+  const scheduleXFromIndex = useCallback(
+    (index) => {
+      if (scheduleChartSize.width === 0) return schedulePadding.left;
+      const innerWidth = Math.max(scheduleChartSize.width - schedulePadding.left - schedulePadding.right, 1);
+      return schedulePadding.left + (index / scheduleStepCount) * innerWidth;
+    },
+    [scheduleChartSize.width, scheduleStepCount],
+  );
+
+  const scheduleYFromValue = useCallback(
+    (value) => {
+      if (scheduleChartSize.height === 0) return schedulePadding.top;
+      const innerHeight = Math.max(scheduleChartSize.height - schedulePadding.top - schedulePadding.bottom, 1);
+      const clamped = Math.min(Math.max(value, 0), 5);
+      return schedulePadding.top + ((5 - clamped) / 5) * innerHeight;
+    },
+    [scheduleChartSize.height],
+  );
+
+  const scheduleValueFromY = useCallback(
+    (y) => {
+      const innerHeight = Math.max(scheduleChartSize.height - schedulePadding.top - schedulePadding.bottom, 1);
+      const ratio = (y - schedulePadding.top) / innerHeight;
+      const value = Math.round(5 - ratio * 5);
+      return Math.min(Math.max(value, 1), 5);
+    },
+    [scheduleChartSize.height],
+  );
+
+  const scheduleIndexFromX = useCallback(
+    (x) => {
+      const innerWidth = Math.max(scheduleChartSize.width - schedulePadding.left - schedulePadding.right, 1);
+      const ratio = (x - schedulePadding.left) / innerWidth;
+      const rawIndex = ratio * scheduleStepCount;
+      const snappedIndex = Math.round(rawIndex * 2) / 2;
+      return Math.min(Math.max(snappedIndex, 0), scheduleStepCount);
+    },
+    [scheduleChartSize.width, scheduleStepCount],
+  );
+
+  const sortedSchedulePoints = useMemo(
+    () =>
+      [...productionSchedulePoints].sort(
+        (a, b) => scheduleIndexFromDate(a.date) - scheduleIndexFromDate(b.date),
+      ),
+    [productionSchedulePoints, scheduleIndexFromDate],
+  );
+
+  const firstPointIndex =
+    sortedSchedulePoints.length > 0 ? scheduleIndexFromDate(sortedSchedulePoints[0].date) : 0;
+
+  const scheduleMonthLabels = useMemo(() => {
+    const labels = [];
+    const startMonthIndex = Math.floor(firstPointIndex / 2);
+    for (let monthOffset = startMonthIndex; monthOffset <= scheduleMonthSpan; monthOffset += 1) {
+      const date = addMonths(scheduleStartDate, monthOffset);
+      const showYear = monthOffset === startMonthIndex || date.getMonth() === 0;
+      const label = `${date.toLocaleString('en-US', { month: 'short' })}${showYear ? ` ${date.getFullYear()}` : ''}`;
+      labels.push({ monthOffset, label, date });
+    }
+    return labels;
+  }, [firstPointIndex, scheduleMonthSpan, scheduleStartDate]);
+
+  const scheduleLinePath = useMemo(() => {
+    if (sortedSchedulePoints.length === 0) return '';
+    const pointsWithEnd = [...sortedSchedulePoints];
+    const lastPoint = pointsWithEnd[pointsWithEnd.length - 1];
+    const endDate = scheduleEndDate;
+    if (scheduleIndexFromDate(endDate) > scheduleIndexFromDate(lastPoint.date)) {
+      pointsWithEnd.push({ ...lastPoint, id: 'end', date: endDate });
+    }
+    let path = '';
+    pointsWithEnd.forEach((point, index) => {
+      const pointIndex = scheduleIndexFromDate(point.date);
+      const x = scheduleXFromIndex(pointIndex);
+      const y = scheduleYFromValue(point.value);
+      if (index === 0) {
+        path = `M ${x} ${y}`;
+      } else {
+        const prevPoint = pointsWithEnd[index - 1];
+        const prevIndex = scheduleIndexFromDate(prevPoint.date);
+        const prevX = scheduleXFromIndex(prevIndex);
+        const prevY = scheduleYFromValue(prevPoint.value);
+        path += ` L ${x} ${prevY} L ${x} ${y}`;
+      }
+    });
+    return path;
+  }, [sortedSchedulePoints, scheduleEndDate, scheduleIndexFromDate, scheduleXFromIndex, scheduleYFromValue]);
+
+  const handleScheduleMouseMove = useCallback(
+    (event) => {
+      const dragTarget = draggingPointRef.current;
+      if (!dragTarget || !scheduleChartRef.current) return;
+      scheduleTouchedRef.current = true;
+      const rect = scheduleChartRef.current.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+      setProductionSchedulePoints((prev) => {
+        const updated = prev.map((point) => {
+          if (point.id !== dragTarget.id) return point;
+          return { ...point };
+        });
+        const targetIndex = updated.findIndex((point) => point.id === dragTarget.id);
+        if (targetIndex === -1) return prev;
+        const sorted = [...updated].sort(
+          (a, b) => scheduleIndexFromDate(a.date) - scheduleIndexFromDate(b.date),
+        );
+        const current = updated[targetIndex];
+        const sortedIndex = sorted.findIndex((point) => point.id === current.id);
+        const leftNeighbor = sortedIndex > 0 ? sorted[sortedIndex - 1] : null;
+        const minIndex = leftNeighbor ? scheduleIndexFromDate(leftNeighbor.date) : 0;
+        const nextIndex = scheduleIndexFromX(x);
+        const clampedIndex = Math.max(nextIndex, minIndex);
+        const newDate = scheduleDateFromIndex(clampedIndex);
+        const newValue = scheduleValueFromY(y);
+        updated[targetIndex] = { ...current, date: newDate, value: newValue };
+        return updated;
+      });
+    },
+    [scheduleDateFromIndex, scheduleIndexFromDate, scheduleIndexFromX, scheduleValueFromY],
+  );
+
+  const handleScheduleMouseUp = useCallback(() => {
+    draggingPointRef.current = null;
+    window.removeEventListener('mousemove', handleScheduleMouseMove);
+    window.removeEventListener('mouseup', handleScheduleMouseUp);
+  }, [handleScheduleMouseMove]);
+
+  const handlePointMouseDown = useCallback(
+    (event, pointId) => {
+      if (deleteMode) return;
+      if (event.button !== 0) return;
+      event.preventDefault();
+      draggingPointRef.current = { id: pointId };
+      window.addEventListener('mousemove', handleScheduleMouseMove);
+      window.addEventListener('mouseup', handleScheduleMouseUp);
+    },
+    [deleteMode, handleScheduleMouseMove, handleScheduleMouseUp],
+  );
+
+  const handlePointClick = useCallback(
+    (pointId) => {
+      if (!deleteMode) return;
+      scheduleTouchedRef.current = true;
+      setProductionSchedulePoints((prev) => {
+        if (prev.length <= 1) return prev;
+        return prev.filter((point) => point.id !== pointId);
+      });
+      setDeleteMode(false);
+    },
+    [deleteMode],
+  );
+
+  useEffect(() => {
+    return () => {
+      window.removeEventListener('mousemove', handleScheduleMouseMove);
+      window.removeEventListener('mouseup', handleScheduleMouseUp);
+    };
+  }, [handleScheduleMouseMove, handleScheduleMouseUp]);
+
   return (
     <div className="space-y-6">
       <div className="bg-white shadow rounded-lg p-4">
@@ -1010,6 +1272,135 @@ const CampervanSchedule = () => {
                   </ResponsiveContainer>
                 </div>
               )}
+            </div>
+
+            <div className="mt-6 rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h4 className="text-base font-semibold text-gray-800">Production Pace Control</h4>
+                  <p className="text-sm text-gray-500">
+                    Drag points to adjust the weekly build rate. The grey region shows months already locked in.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDeleteMode((current) => !current)}
+                  className={`inline-flex items-center justify-center rounded-full px-4 py-2 text-xs font-semibold transition ${
+                    deleteMode
+                      ? 'bg-rose-100 text-rose-700'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  {deleteMode ? 'Select a point to delete' : 'Delete a point'}
+                </button>
+              </div>
+
+              <div className="mt-4 h-80 rounded-2xl border border-gray-200 bg-gradient-to-br from-white via-slate-50 to-sky-50">
+                <div ref={scheduleChartRef} className="h-full w-full">
+                  <svg width="100%" height="100%">
+                    <defs>
+                      <linearGradient id="lockedRegion" x1="0" y1="0" x2="1" y2="0">
+                        <stop offset="0%" stopColor="#cbd5f5" stopOpacity="0.5" />
+                        <stop offset="100%" stopColor="#e2e8f0" stopOpacity="0.7" />
+                      </linearGradient>
+                    </defs>
+                    <rect
+                      x={scheduleXFromIndex(0)}
+                      y={schedulePadding.top}
+                      width={Math.max(scheduleXFromIndex(firstPointIndex) - scheduleXFromIndex(0), 0)}
+                      height={Math.max(
+                        scheduleChartSize.height - schedulePadding.top - schedulePadding.bottom,
+                        0,
+                      )}
+                      fill="url(#lockedRegion)"
+                      rx="12"
+                    />
+                    <line
+                      x1={schedulePadding.left}
+                      y1={schedulePadding.top}
+                      x2={schedulePadding.left}
+                      y2={Math.max(scheduleChartSize.height - schedulePadding.bottom, 0)}
+                      stroke="#e2e8f0"
+                    />
+                    {Array.from({ length: 6 }).map((_, index) => {
+                      const yValue = 5 - index;
+                      const y = scheduleYFromValue(yValue);
+                      return (
+                        <g key={`y-${yValue}`}>
+                          <line
+                            x1={schedulePadding.left}
+                            y1={y}
+                            x2={Math.max(scheduleChartSize.width - schedulePadding.right, 0)}
+                            y2={y}
+                            stroke="#e2e8f0"
+                            strokeDasharray="4 4"
+                          />
+                          <text x={schedulePadding.left - 12} y={y + 4} textAnchor="end" fontSize="11" fill="#94a3b8">
+                            {yValue}
+                          </text>
+                        </g>
+                      );
+                    })}
+                    <path d={scheduleLinePath} fill="none" stroke="#4f46e5" strokeWidth="3" />
+                    {sortedSchedulePoints.map((point) => {
+                      const pointIndex = scheduleIndexFromDate(point.date);
+                      const x = scheduleXFromIndex(pointIndex);
+                      const y = scheduleYFromValue(point.value);
+                      const isHighlighted = deleteMode;
+                      return (
+                        <g key={point.id} onMouseDown={(event) => handlePointMouseDown(event, point.id)}>
+                          <circle
+                            cx={x}
+                            cy={y}
+                            r={10}
+                            fill={isHighlighted ? '#fca5a5' : '#ffffff'}
+                            stroke={isHighlighted ? '#ef4444' : '#4f46e5'}
+                            strokeWidth={2}
+                            onClick={() => handlePointClick(point.id)}
+                            style={{ cursor: deleteMode ? 'pointer' : 'grab' }}
+                          />
+                          <circle cx={x} cy={y} r={4} fill="#4f46e5" />
+                        </g>
+                      );
+                    })}
+                    {scheduleMonthLabels.map((label) => {
+                      const x = scheduleXFromIndex(label.monthOffset * 2);
+                      const y = Math.max(scheduleChartSize.height - schedulePadding.bottom + 18, 0);
+                      return (
+                        <g key={`label-${label.monthOffset}`} transform={`translate(${x}, ${y})`}>
+                          <text
+                            textAnchor="end"
+                            fill="#64748b"
+                            fontSize="11"
+                            transform="rotate(-35)"
+                            dy={12}
+                          >
+                            {label.label}
+                          </text>
+                        </g>
+                      );
+                    })}
+                    <text
+                      x={schedulePadding.left + 6}
+                      y={schedulePadding.top + 16}
+                      fontSize="11"
+                      fill="#94a3b8"
+                    >
+                      Built (15 units) · locked
+                    </text>
+                  </svg>
+                </div>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-4 text-xs text-gray-500">
+                <div className="flex items-center gap-2">
+                  <span className="inline-block h-2 w-2 rounded-full bg-indigo-500" />
+                  Drag points to adjust pace (snap to half-month, min 1 build/week).
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="inline-block h-2 w-2 rounded-full bg-rose-400" />
+                  Delete mode highlights points for removal.
+                </div>
+              </div>
             </div>
           </div>
         </div>
