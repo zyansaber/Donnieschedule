@@ -834,7 +834,7 @@ const CampervanSchedule = () => {
       const diff =
         (date.getFullYear() - scheduleStartDate.getFullYear()) * 12 +
         (date.getMonth() - scheduleStartDate.getMonth());
-      const half = date.getDate() >= 16 ? 1 : 0;
+      const half = date.getDate() >= 15 ? 1 : 0;
       return Math.min(Math.max(diff * 2 + half, 0), scheduleStepCount);
     },
     [scheduleStartDate, scheduleStepCount],
@@ -1377,7 +1377,7 @@ const CampervanSchedule = () => {
                           <circle
                             cx={x}
                             cy={y}
-                            r={8}
+                            r={4}
                             fill={isHighlighted ? '#fca5a5' : '#ffffff'}
                             stroke={isHighlighted ? '#ef4444' : '#3b82f6'}
                             strokeWidth={2}
