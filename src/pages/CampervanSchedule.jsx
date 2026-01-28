@@ -622,6 +622,11 @@ const CampervanSchedule = () => {
     [rows],
   );
 
+  const signedOrderReceivedCount = useMemo(
+    () => rows.filter((row) => parseDateValue(row.signedOrderReceived)).length,
+    [rows],
+  );
+
   const dealerOrderMix = useMemo(() => {
     const summary = rows.reduce((acc, row) => {
       const dealerName = String(row.dealer || '').trim();
@@ -988,6 +993,45 @@ const CampervanSchedule = () => {
       return total + weeks * delta;
     }, 0);
   }, [lastForecastProductionDate, sortedSchedulePoints]);
+
+  const leadTimeSummary = useMemo(() => {
+    const targetUnits = signedOrderReceivedCount - completedRegentCount;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (sortedSchedulePoints.length === 0 || targetUnits <= 0) {
+      return { targetUnits, leadTimeWeeks: 0, leadTimeDate: today };
+    }
+
+    let remaining = targetUnits;
+    for (let index = 0; index < sortedSchedulePoints.length; index += 1) {
+      const point = sortedSchedulePoints[index];
+      const rate = Number(point.value);
+      if (!Number.isFinite(rate) || rate <= 0) continue;
+      const start = point.date;
+      const nextPoint = sortedSchedulePoints[index + 1];
+      if (nextPoint) {
+        const durationWeeks = Math.max(0, (nextPoint.date - start) / DAY_MS / 7);
+        const capacity = durationWeeks * rate;
+        if (remaining <= capacity) {
+          const weeksNeeded = remaining / rate;
+          const leadTimeDate = new Date(start.getTime() + weeksNeeded * 7 * DAY_MS);
+          const leadTimeWeeks = Math.max(0, (leadTimeDate - today) / DAY_MS / 7);
+          return { targetUnits, leadTimeWeeks, leadTimeDate };
+        }
+        remaining -= capacity;
+      } else {
+        const weeksNeeded = remaining / rate;
+        const leadTimeDate = new Date(start.getTime() + weeksNeeded * 7 * DAY_MS);
+        const leadTimeWeeks = Math.max(0, (leadTimeDate - today) / DAY_MS / 7);
+        return { targetUnits, leadTimeWeeks, leadTimeDate };
+      }
+    }
+
+    return { targetUnits, leadTimeWeeks: 0, leadTimeDate: today };
+  }, [completedRegentCount, signedOrderReceivedCount, sortedSchedulePoints]);
+
+  const totalSlots = completedRegentCount + scheduleDeltaTotal;
+  const availableSlots = totalSlots - signedOrderReceivedCount;
 
   const scheduleIndexOptions = useMemo(() => {
     if (sortedSchedulePoints.length === 0) return [];
@@ -1420,6 +1464,26 @@ const CampervanSchedule = () => {
                   >
                     {deleteMode ? 'Select a point to delete' : 'Delete a point'}
                   </button>
+                </div>
+              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                <div className="rounded-lg border border-gray-100 bg-white p-3 shadow-sm">
+                  <div className="text-[11px] font-semibold text-gray-500">Lead Time (weeks)</div>
+                  <div className="mt-2 text-2xl font-semibold text-gray-800">
+                    {leadTimeSummary.leadTimeWeeks.toFixed(1)}
+                  </div>
+                </div>
+                <div className="rounded-lg border border-gray-100 bg-white p-3 shadow-sm">
+                  <div className="text-[11px] font-semibold text-gray-500">Total Slots</div>
+                  <div className="mt-2 text-2xl font-semibold text-gray-800">
+                    {totalSlots.toLocaleString('en-US')}
+                  </div>
+                </div>
+                <div className="rounded-lg border border-gray-100 bg-white p-3 shadow-sm">
+                  <div className="text-[11px] font-semibold text-gray-500">Available Slots</div>
+                  <div className="mt-2 text-2xl font-semibold text-gray-800">
+                    {availableSlots.toLocaleString('en-US')}
+                  </div>
                 </div>
               </div>
               {addPointMode && (
