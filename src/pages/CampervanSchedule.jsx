@@ -613,6 +613,15 @@ const CampervanSchedule = () => {
       });
   }, [rows, selectedDealer]);
 
+  const completedRegentCount = useMemo(
+    () =>
+      rows.filter((row) => {
+        const status = String(row.regentProduction || '').trim().toLowerCase();
+        return status === 'finished' || status === 'ready for dispatch';
+      }).length,
+    [rows],
+  );
+
   const dealerOrderMix = useMemo(() => {
     const summary = rows.reduce((acc, row) => {
       const dealerName = String(row.dealer || '').trim();
@@ -1535,7 +1544,7 @@ const CampervanSchedule = () => {
                         fontSize="11"
                         fill="#94a3b8"
                       >
-                        15 vehicles built - locked
+                        {completedRegentCount} vehicles built - locked
                       </text>
                     </g>
                   </svg>
