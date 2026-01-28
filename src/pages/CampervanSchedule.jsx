@@ -999,7 +999,13 @@ const CampervanSchedule = () => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     if (sortedSchedulePoints.length === 0 || targetUnits <= 0) {
-      return { targetUnits, leadTimeWeeks: 0, leadTimeDate: today };
+      return {
+        targetUnits,
+        leadTimeWeeks: 0,
+        leadTimeDays: 0,
+        leadTimeMonths: 0,
+        leadTimeDate: today,
+      };
     }
 
     let remaining = targetUnits;
@@ -1016,18 +1022,22 @@ const CampervanSchedule = () => {
           const weeksNeeded = remaining / rate;
           const leadTimeDate = new Date(start.getTime() + weeksNeeded * 7 * DAY_MS);
           const leadTimeWeeks = Math.max(0, (leadTimeDate - today) / DAY_MS / 7);
-          return { targetUnits, leadTimeWeeks, leadTimeDate };
+          const leadTimeDays = Math.max(0, (leadTimeDate - today) / DAY_MS);
+          const leadTimeMonths = Math.max(0, leadTimeDays / 30.4);
+          return { targetUnits, leadTimeWeeks, leadTimeDays, leadTimeMonths, leadTimeDate };
         }
         remaining -= capacity;
       } else {
         const weeksNeeded = remaining / rate;
         const leadTimeDate = new Date(start.getTime() + weeksNeeded * 7 * DAY_MS);
         const leadTimeWeeks = Math.max(0, (leadTimeDate - today) / DAY_MS / 7);
-        return { targetUnits, leadTimeWeeks, leadTimeDate };
+        const leadTimeDays = Math.max(0, (leadTimeDate - today) / DAY_MS);
+        const leadTimeMonths = Math.max(0, leadTimeDays / 30.4);
+        return { targetUnits, leadTimeWeeks, leadTimeDays, leadTimeMonths, leadTimeDate };
       }
     }
 
-    return { targetUnits, leadTimeWeeks: 0, leadTimeDate: today };
+    return { targetUnits, leadTimeWeeks: 0, leadTimeDays: 0, leadTimeMonths: 0, leadTimeDate: today };
   }, [completedRegentCount, signedOrderReceivedCount, sortedSchedulePoints]);
 
   const totalSlots = completedRegentCount + scheduleDeltaTotal;
@@ -1468,9 +1478,9 @@ const CampervanSchedule = () => {
               </div>
               <div className="mt-4 grid gap-3 sm:grid-cols-3">
                 <div className="rounded-lg border border-gray-100 bg-white p-3 shadow-sm">
-                  <div className="text-[11px] font-semibold text-gray-500">Lead Time (weeks)</div>
+                  <div className="text-[11px] font-semibold text-gray-500">Lead Time (days / months)</div>
                   <div className="mt-2 text-2xl font-semibold text-gray-800">
-                    {leadTimeSummary.leadTimeWeeks.toFixed(1)}
+                    {leadTimeSummary.leadTimeDays.toFixed(0)} / {leadTimeSummary.leadTimeMonths.toFixed(1)}
                   </div>
                 </div>
                 <div className="rounded-lg border border-gray-100 bg-white p-3 shadow-sm">
