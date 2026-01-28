@@ -969,6 +969,26 @@ const CampervanSchedule = () => {
     return path;
   }, [sortedSchedulePoints, scheduleEndDate, scheduleIndexFromDate, scheduleXFromIndex, scheduleYFromValue]);
 
+  const lastForecastProductionDate = useMemo(() => {
+    for (let index = rows.length - 1; index >= 0; index -= 1) {
+      const candidate = rows[index];
+      const parsed = parseDateValue(candidate?.forecastProductionDate);
+      if (parsed) return parsed;
+    }
+    return null;
+  }, [rows]);
+
+  const scheduleDeltaTotal = useMemo(() => {
+    if (!lastForecastProductionDate || sortedSchedulePoints.length === 0) return 0;
+    return sortedSchedulePoints.reduce((total, point, index) => {
+      const prevPoint = sortedSchedulePoints[index - 1] ?? null;
+      const diffDays = (lastForecastProductionDate - point.date) / DAY_MS;
+      const weeks = Math.max(0, Math.ceil(diffDays / 7));
+      const delta = prevPoint ? point.value - prevPoint.value : point.value;
+      return total + weeks * delta;
+    }, 0);
+  }, [lastForecastProductionDate, sortedSchedulePoints]);
+
   const scheduleIndexOptions = useMemo(() => {
     if (sortedSchedulePoints.length === 0) return [];
     const startIndex = Math.max(firstPointIndex, 0);
@@ -1545,6 +1565,24 @@ const CampervanSchedule = () => {
                         fill="#94a3b8"
                       >
                         {completedRegentCount} vehicles built - locked
+                      </text>
+                    </g>
+                    <g>
+                      <rect
+                        x={scheduleXFromIndex(firstPointIndex) + 6}
+                        y={schedulePadding.top + 6}
+                        width="170"
+                        height="24"
+                        rx="12"
+                        fill="#dbeafe"
+                      />
+                      <text
+                        x={scheduleXFromIndex(firstPointIndex) + 16}
+                        y={schedulePadding.top + 22}
+                        fontSize="11"
+                        fill="#2563eb"
+                      >
+                        {scheduleDeltaTotal.toLocaleString('en-US')} pace delta
                       </text>
                     </g>
                   </svg>
