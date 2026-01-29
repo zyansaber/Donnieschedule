@@ -999,6 +999,32 @@ const CampervanSchedule = () => {
     }, 0);
   }, [lastForecastProductionDate, sortedSchedulePoints]);
 
+  const paceControlDates = useMemo(() => {
+    const d1 = new Date(2026, 4, 15);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const d2 = new Date(today.getFullYear(), today.getMonth() + 6, today.getDate());
+    return { d1, d2 };
+  }, []);
+
+  const paceControlTotals = useMemo(() => {
+    const computeTotal = (targetDate) => {
+      return sortedSchedulePoints.reduce((total, point, index) => {
+        if (!point.date || point.date >= targetDate) return total;
+        const prevPoint = sortedSchedulePoints[index - 1] ?? null;
+        const diffDays = (targetDate - point.date) / DAY_MS;
+        const weeks = Math.max(0, Math.ceil(diffDays / 7));
+        const delta = prevPoint ? point.value - prevPoint.value : point.value;
+        return total + weeks * delta;
+      }, 0);
+    };
+
+    return {
+      p1: computeTotal(paceControlDates.d1),
+      p2: computeTotal(paceControlDates.d2),
+    };
+  }, [paceControlDates.d1, paceControlDates.d2, sortedSchedulePoints]);
+
   const leadTimeSummary = useMemo(() => {
     const targetUnits = signedOrderReceivedCount - completedRegentCount;
     const today = new Date();
@@ -1047,6 +1073,11 @@ const CampervanSchedule = () => {
 
   const totalSlots = completedRegentCount + scheduleDeltaTotal;
   const availableSlots = totalSlots - signedOrderReceivedCount;
+  const p1Limit = 19;
+  const p2Limit = 38;
+  const p1Exceeded = paceControlTotals.p1 > p1Limit;
+  const p2Exceeded = paceControlTotals.p2 > p2Limit;
+  const paceControlWarning = p1Exceeded || p2Exceeded;
 
   const scheduleIndexOptions = useMemo(() => {
     if (sortedSchedulePoints.length === 0) return [];
@@ -1509,6 +1540,49 @@ const CampervanSchedule = () => {
                     {availableSlots.toLocaleString('en-US')}
                   </div>
                 </div>
+              </div>
+              <div className="mt-4 rounded-xl border border-gray-100 bg-slate-50 p-4 shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-700">Pace Control Limits</h4>
+                    <p className="text-xs text-gray-500">
+                      D1 固定为 {formatDate(paceControlDates.d1)}，D2 为今天日期 + 6 个月。
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-gray-500">
+                    <span className="rounded-full bg-gray-200 px-2 py-1">P1 ≤ {p1Limit}</span>
+                    <span className="rounded-full bg-gray-200 px-2 py-1">P2 ≤ {p2Limit}</span>
+                  </div>
+                </div>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <div
+                    className={`rounded-lg border px-3 py-2 text-sm shadow-sm ${
+                      p1Exceeded ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-gray-100 bg-white text-gray-700'
+                    }`}
+                  >
+                    <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">P1</div>
+                    <div className="mt-1 text-lg font-semibold">
+                      {paceControlTotals.p1.toFixed(0)} / {p1Limit}
+                    </div>
+                    <div className="text-xs text-gray-500">基于 D1：{formatDate(paceControlDates.d1)}</div>
+                  </div>
+                  <div
+                    className={`rounded-lg border px-3 py-2 text-sm shadow-sm ${
+                      p2Exceeded ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-gray-100 bg-white text-gray-700'
+                    }`}
+                  >
+                    <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">P2</div>
+                    <div className="mt-1 text-lg font-semibold">
+                      {paceControlTotals.p2.toFixed(0)} / {p2Limit}
+                    </div>
+                    <div className="text-xs text-gray-500">基于 D2：{formatDate(paceControlDates.d2)}</div>
+                  </div>
+                </div>
+                {paceControlWarning && (
+                  <div className="mt-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">
+                    Vehicle数量不足
+                  </div>
+                )}
               </div>
               {addPointMode && (
                 <div className="mt-4 rounded-2xl border border-indigo-100 bg-indigo-50/60 p-4">
