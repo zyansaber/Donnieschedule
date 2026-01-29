@@ -869,6 +869,11 @@ const CampervanSchedule = () => {
     [scheduleStartDate, scheduleStepCount],
   );
 
+  const formatSchedulePointDate = useCallback((date) => {
+    const label = date.getDate() === 15 ? '15th' : '1st';
+    return `${date.toLocaleString('en-US', { month: 'short' })} ${date.getFullYear()} (${label})`;
+  }, []);
+
   useEffect(() => {
     if (scheduleTouchedRef.current) return;
     setProductionSchedulePoints((prev) => {
@@ -1600,6 +1605,14 @@ const CampervanSchedule = () => {
                       const x = scheduleXFromIndex(pointIndex);
                       const y = scheduleYFromValue(point.value);
                       const isHighlighted = deleteMode;
+                      const pointLabel = `${formatSchedulePointDate(point.date)} · ${point.value}/wk`;
+                      const labelWidth = Math.max(88, pointLabel.length * 5.6 + 16);
+                      const maxLabelX = Math.max(
+                        schedulePadding.left,
+                        scheduleChartSize.width - schedulePadding.right - labelWidth,
+                      );
+                      const labelX = Math.min(x + 10, maxLabelX);
+                      const labelY = y - 10;
                       return (
                         <g key={point.id} onMouseDown={(event) => handlePointMouseDown(event, point.id)}>
                           <circle
@@ -1612,6 +1625,12 @@ const CampervanSchedule = () => {
                             onClick={() => handlePointClick(point.id)}
                             style={{ cursor: deleteMode ? 'pointer' : 'grab' }}
                           />
+                          <g transform={`translate(${labelX}, ${labelY})`} pointerEvents="none">
+                            <rect x={0} y={-12} rx={8} width={labelWidth} height={18} fill="#ffffff" opacity="0.9" />
+                            <text x={8} y={1} fontSize="10" fill="#475569">
+                              {pointLabel}
+                            </text>
+                          </g>
                         </g>
                       );
                     })}
