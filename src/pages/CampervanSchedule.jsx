@@ -1721,16 +1721,6 @@ const CampervanSchedule = () => {
                   </svg>
                 </div>
               </div>
-              <div className="mt-3 flex flex-wrap gap-4 text-xs text-gray-500">
-                <div className="flex items-center gap-2">
-                  <span className="inline-block h-2 w-2 rounded-full bg-indigo-500" />
-                  Drag points to adjust pace (snap to half-month, min 1 build/week).
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="inline-block h-2 w-2 rounded-full bg-rose-400" />
-                  Delete mode highlights points for removal.
-                </div>
-              </div>
               <div className="mt-4 rounded-xl border border-gray-100 bg-slate-50 p-4 shadow-sm">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
