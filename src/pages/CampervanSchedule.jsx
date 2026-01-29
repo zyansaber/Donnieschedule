@@ -30,6 +30,11 @@ const formatDate = (date) => {
 const parseDateValue = (value) => {
   if (!value) return null;
   if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+  const buildDate = (year, month, day) => {
+    if ([year, month, day].some((part) => Number.isNaN(part))) return null;
+    const candidate = new Date(year, month - 1, day);
+    return Number.isNaN(candidate.getTime()) ? null : candidate;
+  };
   if (typeof value === 'number') {
     if (Number.isNaN(value)) return null;
     if (value > 100000000000) {
@@ -75,32 +80,40 @@ const parseDateValue = (value) => {
     }
   }
 
-  if (/^\d{4}-\d{2}-\d{2}$/.test(stringValue)) {
-    const date = new Date(`${stringValue}T00:00:00`);
-    return Number.isNaN(date.getTime()) ? null : date;
+  if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(stringValue)) {
+    const [year, month, day] = stringValue.split('-').map((part) => parseInt(part, 10));
+    return buildDate(year, month, day);
   }
 
-  if (/^\d{2}-\d{2}-\d{4}$/.test(stringValue)) {
-    const [day, month, year] = stringValue.split('-').map((part) => parseInt(part, 10));
-    const date = new Date(year, month - 1, day);
-    return Number.isNaN(date.getTime()) ? null : date;
+  if (/^\d{1,2}-\d{1,2}-\d{4}$/.test(stringValue)) {
+    const [first, second, year] = stringValue.split('-').map((part) => parseInt(part, 10));
+    const useMonthFirst = second > 12 && first <= 12;
+    const day = useMonthFirst ? second : first;
+    const month = useMonthFirst ? first : second;
+    return buildDate(year, month, day);
   }
 
-  if (/^\d{2}\.\d{2}\.\d{4}$/.test(stringValue)) {
+  if (/^\d{1,2}\.\d{1,2}\.\d{4}$/.test(stringValue)) {
     const [day, month, year] = stringValue.split('.').map((part) => parseInt(part, 10));
-    const date = new Date(year, month - 1, day);
-    return Number.isNaN(date.getTime()) ? null : date;
+    return buildDate(year, month, day);
+  }
+
+  if (/^\d{4}\/\d{1,2}\/\d{1,2}$/.test(stringValue)) {
+    const [year, month, day] = stringValue.split('/').map((part) => parseInt(part, 10));
+    return buildDate(year, month, day);
   }
 
   const slashParts = stringValue.split('/');
   if (slashParts.length === 3) {
     const [first, second, third] = slashParts.map((part) => parseInt(part, 10));
     if (!Number.isNaN(first) && !Number.isNaN(second) && !Number.isNaN(third)) {
-      const day = first;
-      const month = second;
-      const year = third;
-      const date = new Date(year, month - 1, day);
-      return Number.isNaN(date.getTime()) ? null : date;
+      if (String(slashParts[0]).length === 4) {
+        return buildDate(first, second, third);
+      }
+      const useMonthFirst = second > 12 && first <= 12;
+      const day = useMonthFirst ? second : first;
+      const month = useMonthFirst ? first : second;
+      return buildDate(third, month, day);
     }
   }
 
