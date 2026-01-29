@@ -1478,19 +1478,28 @@ const CampervanSchedule = () => {
               </div>
               <div className="mt-4 grid gap-3 sm:grid-cols-3">
                 <div className="rounded-lg border border-gray-100 bg-white p-3 shadow-sm">
-                  <div className="text-[11px] font-semibold text-gray-500">Lead Time (days / months)</div>
+                  <div className="flex items-center gap-2 text-[11px] font-semibold text-gray-500">
+                    <span className="inline-block h-[10px] w-[10px] rounded-full bg-indigo-500" />
+                    Lead Time (days / months)
+                  </div>
                   <div className="mt-2 text-2xl font-semibold text-gray-800">
                     {leadTimeSummary.leadTimeDays.toFixed(0)} / {leadTimeSummary.leadTimeMonths.toFixed(1)}
                   </div>
                 </div>
                 <div className="rounded-lg border border-gray-100 bg-white p-3 shadow-sm">
-                  <div className="text-[11px] font-semibold text-gray-500">Total Slots</div>
+                  <div className="flex items-center gap-2 text-[11px] font-semibold text-gray-500">
+                    <span className="inline-block h-[10px] w-[10px] rounded-full bg-sky-500" />
+                    Total Slots
+                  </div>
                   <div className="mt-2 text-2xl font-semibold text-gray-800">
                     {totalSlots.toLocaleString('en-US')}
                   </div>
                 </div>
                 <div className="rounded-lg border border-gray-100 bg-white p-3 shadow-sm">
-                  <div className="text-[11px] font-semibold text-gray-500">Available Slots</div>
+                  <div className="flex items-center gap-2 text-[11px] font-semibold text-gray-500">
+                    <span className="inline-block h-[10px] w-[10px] rounded-full bg-emerald-500" />
+                    Available Slots
+                  </div>
                   <div className="mt-2 text-2xl font-semibold text-gray-800">
                     {availableSlots.toLocaleString('en-US')}
                   </div>
@@ -1656,7 +1665,7 @@ const CampervanSchedule = () => {
                         fontSize="11"
                         fill="#2563eb"
                       >
-                        {scheduleDeltaTotal.toLocaleString('en-US')} pace delta
+                        {scheduleDeltaTotal.toLocaleString('en-US')} future slots
                       </text>
                     </g>
                   </svg>
