@@ -1478,28 +1478,19 @@ const CampervanSchedule = () => {
               </div>
               <div className="mt-4 grid gap-3 sm:grid-cols-3">
                 <div className="rounded-lg border border-gray-100 bg-white p-3 shadow-sm">
-                  <div className="flex items-center gap-2 text-[11px] font-semibold text-gray-500">
-                    <span className="h-2.5 w-2.5 rounded-full bg-indigo-500" />
-                    <span>Lead Time (days / months)</span>
-                  </div>
+                  <div className="text-[11px] font-semibold text-gray-500">Lead Time (days / months)</div>
                   <div className="mt-2 text-2xl font-semibold text-gray-800">
                     {leadTimeSummary.leadTimeDays.toFixed(0)} / {leadTimeSummary.leadTimeMonths.toFixed(1)}
                   </div>
                 </div>
                 <div className="rounded-lg border border-gray-100 bg-white p-3 shadow-sm">
-                  <div className="flex items-center gap-2 text-[11px] font-semibold text-gray-500">
-                    <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
-                    <span>Total Slots</span>
-                  </div>
+                  <div className="text-[11px] font-semibold text-gray-500">Total Slots</div>
                   <div className="mt-2 text-2xl font-semibold text-gray-800">
                     {totalSlots.toLocaleString('en-US')}
                   </div>
                 </div>
                 <div className="rounded-lg border border-gray-100 bg-white p-3 shadow-sm">
-                  <div className="flex items-center gap-2 text-[11px] font-semibold text-gray-500">
-                    <span className="h-2.5 w-2.5 rounded-full bg-sky-500" />
-                    <span>Available Slots</span>
-                  </div>
+                  <div className="text-[11px] font-semibold text-gray-500">Available Slots</div>
                   <div className="mt-2 text-2xl font-semibold text-gray-800">
                     {availableSlots.toLocaleString('en-US')}
                   </div>
@@ -1556,10 +1547,6 @@ const CampervanSchedule = () => {
                         <stop offset="0%" stopColor="#e5e7eb" stopOpacity="0.85" />
                         <stop offset="100%" stopColor="#f1f5f9" stopOpacity="0.95" />
                       </linearGradient>
-                      <linearGradient id="scheduleLineGradient" x1="0" y1="0" x2="1" y2="0">
-                        <stop offset="0%" stopColor="#3b82f6" />
-                        <stop offset="100%" stopColor="#60a5fa" />
-                      </linearGradient>
                     </defs>
                     <rect
                       x={scheduleXFromIndex(0)}
@@ -1598,7 +1585,7 @@ const CampervanSchedule = () => {
                         </g>
                       );
                     })}
-                    <path d={scheduleLinePath} fill="none" stroke="url(#scheduleLineGradient)" strokeWidth="3" />
+                    <path d={scheduleLinePath} fill="none" stroke="#3b82f6" strokeWidth="3" />
                     {sortedSchedulePoints.map((point) => {
                       const pointIndex = scheduleIndexFromDate(point.date);
                       const x = scheduleXFromIndex(pointIndex);
@@ -1609,7 +1596,7 @@ const CampervanSchedule = () => {
                           <circle
                             cx={x}
                             cy={y}
-                            r={5.2}
+                            r={4}
                             fill={isHighlighted ? '#fca5a5' : '#ffffff'}
                             stroke={isHighlighted ? '#ef4444' : '#3b82f6'}
                             strokeWidth={2}
@@ -1669,7 +1656,7 @@ const CampervanSchedule = () => {
                         fontSize="11"
                         fill="#2563eb"
                       >
-                        {scheduleDeltaTotal.toLocaleString('en-US')} future slots
+                        {scheduleDeltaTotal.toLocaleString('en-US')} pace delta
                       </text>
                     </g>
                   </svg>
