@@ -2037,6 +2037,9 @@ const CampervanSchedule = () => {
                     column.key === 'vehicle' &&
                     String(row.chassisNumber || '').trim().length > 0 &&
                     String(row.vehicleOrderDate || '').trim().length === 0;
+                  const customerText = String(row.customer || '').trim().toLowerCase();
+                  const isCustomerNonStock =
+                    column.key === 'customer' && customerText && !customerText.includes('stock');
                   return (
                     <td
                       key={column.key}
@@ -2055,6 +2058,10 @@ const CampervanSchedule = () => {
                         } ${isEmptyDate ? 'text-transparent' : ''} ${
                           isVehicleOrderMissing
                             ? 'bg-red-50 text-red-700 ring-1 ring-red-200 shadow-inner transition-colors'
+                            : ''
+                        } ${
+                          isCustomerNonStock
+                            ? 'bg-gradient-to-r from-amber-100 to-amber-50 text-amber-900 ring-1 ring-amber-200 shadow-sm'
                             : ''
                         }`}
                       />
