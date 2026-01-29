@@ -999,6 +999,49 @@ const CampervanSchedule = () => {
     }, 0);
   }, [lastForecastProductionDate, sortedSchedulePoints]);
 
+  const futureSlotCutoffDate = useMemo(() => new Date(2026, 4, 15, 23, 59, 59, 999), []);
+  const sixMonthCutoffDate = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const future = new Date(today.getFullYear(), today.getMonth() + 6, today.getDate());
+    future.setHours(23, 59, 59, 999);
+    return future;
+  }, []);
+
+  const computeFutureSlotsUntil = useCallback(
+    (targetDate) => {
+      if (!lastForecastProductionDate || sortedSchedulePoints.length === 0) return 0;
+      const startDate = new Date(lastForecastProductionDate);
+      startDate.setHours(0, 0, 0, 0);
+      if (targetDate <= startDate) return 0;
+      return sortedSchedulePoints.reduce((total, point, index) => {
+        const rate = Number(point.value);
+        if (!Number.isFinite(rate) || rate <= 0) return total;
+        const nextPoint = sortedSchedulePoints[index + 1];
+        const segmentStart = point.date.getTime();
+        const segmentEnd = (nextPoint?.date ?? scheduleEndDate).getTime();
+        const overlapStart = Math.max(segmentStart, startDate.getTime());
+        const overlapEnd = Math.min(segmentEnd, targetDate.getTime());
+        if (overlapEnd <= overlapStart) return total;
+        const diffDays = (overlapEnd - overlapStart) / DAY_MS;
+        const weeks = Math.max(0, Math.ceil(diffDays / 7));
+        return total + weeks * rate;
+      }, 0);
+    },
+    [lastForecastProductionDate, scheduleEndDate, sortedSchedulePoints],
+  );
+
+  const futureSlotsByDateLimit = useMemo(
+    () => computeFutureSlotsUntil(futureSlotCutoffDate),
+    [computeFutureSlotsUntil, futureSlotCutoffDate],
+  );
+  const futureSlotsBySixMonthLimit = useMemo(
+    () => computeFutureSlotsUntil(sixMonthCutoffDate),
+    [computeFutureSlotsUntil, sixMonthCutoffDate],
+  );
+  const isFutureSlotsByDateExceeded = futureSlotsByDateLimit > 19;
+  const isFutureSlotsBySixMonthExceeded = futureSlotsBySixMonthLimit > 38;
+
   const leadTimeSummary = useMemo(() => {
     const targetUnits = signedOrderReceivedCount - completedRegentCount;
     const today = new Date();
@@ -1508,6 +1551,58 @@ const CampervanSchedule = () => {
                   <div className="mt-2 text-2xl font-semibold text-gray-800">
                     {availableSlots.toLocaleString('en-US')}
                   </div>
+                </div>
+              </div>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <div
+                  className={`rounded-lg border p-3 shadow-sm ${
+                    isFutureSlotsByDateExceeded ? 'border-rose-200 bg-rose-50' : 'border-gray-100 bg-white'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 text-[11px] font-semibold text-gray-500">
+                    <span
+                      className={`inline-block h-[10px] w-[10px] rounded-full ${
+                        isFutureSlotsByDateExceeded ? 'bg-rose-500' : 'bg-emerald-500'
+                      }`}
+                    />
+                    Future Slots ≤ 15/05/2026
+                  </div>
+                  <div
+                    className={`mt-2 text-2xl font-semibold ${
+                      isFutureSlotsByDateExceeded ? 'text-rose-600' : 'text-gray-800'
+                    }`}
+                  >
+                    {futureSlotsByDateLimit.toLocaleString('en-US')}
+                    <span className="ml-2 text-sm font-semibold text-gray-500">/ 19</span>
+                  </div>
+                  {isFutureSlotsByDateExceeded && (
+                    <p className="mt-1 text-xs font-semibold text-rose-600">Vehicle数量不足</p>
+                  )}
+                </div>
+                <div
+                  className={`rounded-lg border p-3 shadow-sm ${
+                    isFutureSlotsBySixMonthExceeded ? 'border-rose-200 bg-rose-50' : 'border-gray-100 bg-white'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 text-[11px] font-semibold text-gray-500">
+                    <span
+                      className={`inline-block h-[10px] w-[10px] rounded-full ${
+                        isFutureSlotsBySixMonthExceeded ? 'bg-rose-500' : 'bg-emerald-500'
+                      }`}
+                    />
+                    Future Slots ≤ 6 months from today
+                  </div>
+                  <div
+                    className={`mt-2 text-2xl font-semibold ${
+                      isFutureSlotsBySixMonthExceeded ? 'text-rose-600' : 'text-gray-800'
+                    }`}
+                  >
+                    {futureSlotsBySixMonthLimit.toLocaleString('en-US')}
+                    <span className="ml-2 text-sm font-semibold text-gray-500">/ 38</span>
+                  </div>
+                  {isFutureSlotsBySixMonthExceeded && (
+                    <p className="mt-1 text-xs font-semibold text-rose-600">Vehicle数量不足</p>
+                  )}
                 </div>
               </div>
               {addPointMode && (
