@@ -966,9 +966,13 @@ const CampervanSchedule = () => {
       } else {
         const prevPoint = pointsWithEnd[index - 1];
         const prevIndex = scheduleIndexFromDate(prevPoint.date);
-        const prevX = scheduleXFromIndex(prevIndex);
         const prevY = scheduleYFromValue(prevPoint.value);
-        path += ` L ${x} ${prevY} L ${x} ${y}`;
+        const isSameLevel = Math.abs(y - prevY) < 0.001;
+        if (isSameLevel) {
+          path += ` L ${x} ${y}`;
+        } else {
+          path += ` L ${x} ${prevY} L ${x} ${y}`;
+        }
       }
     });
     return path;
