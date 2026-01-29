@@ -1076,8 +1076,8 @@ const CampervanSchedule = () => {
       if (!dragTarget || !scheduleChartRef.current) return;
       scheduleTouchedRef.current = true;
       const rect = scheduleChartRef.current.getBoundingClientRect();
-      const x = event.clientX - rect.left - (dragTarget.offsetX || 0);
-      const y = event.clientY - rect.top - (dragTarget.offsetY || 0);
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
       setProductionSchedulePoints((prev) => {
         const updated = prev.map((point) => {
           if (point.id !== dragTarget.id) return point;
@@ -1120,14 +1120,9 @@ const CampervanSchedule = () => {
       const y = event.clientY - rect.top;
       const targetPoint = productionSchedulePoints.find((point) => point.id === pointId);
       if (!targetPoint) return;
-      const pointIndex = scheduleIndexFromDate(targetPoint.date);
-      const pointX = scheduleXFromIndex(pointIndex);
-      const pointY = scheduleYFromValue(targetPoint.value);
       const isFirstPoint = sortedSchedulePoints[0]?.id === pointId;
       draggingPointRef.current = {
         id: pointId,
-        offsetX: x - pointX,
-        offsetY: y - pointY,
         lockX: isFirstPoint,
         lockedDate: targetPoint.date,
       };
@@ -1139,9 +1134,6 @@ const CampervanSchedule = () => {
       handleScheduleMouseMove,
       handleScheduleMouseUp,
       productionSchedulePoints,
-      scheduleIndexFromDate,
-      scheduleXFromIndex,
-      scheduleYFromValue,
       sortedSchedulePoints,
     ],
   );
