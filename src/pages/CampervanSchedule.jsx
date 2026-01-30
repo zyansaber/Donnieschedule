@@ -309,8 +309,27 @@ const columns = [
     readOnly: true,
   },
   { key: 'vehicleOrderDate', label: 'Vehicle Order Date', type: 'date' },
+  {
+    key: 'latestEurPartsOrder',
+    label: 'Latest EUR Parts Order (Forecast Production Date - 60)',
+    type: 'date',
+    readOnly: true,
+  },
+  { key: 'eurPartsOrderDate', label: 'EUR Parts Order Date', type: 'date' },
+  { key: 'eurPartsEta', label: 'EUR Parts ETA', type: 'date' },
+  {
+    key: 'latestLongtreePartsOrder',
+    label: 'Latest Longtree Parts Order (Forecast Production Date - 90)',
+    type: 'date',
+    readOnly: true,
+  },
   { key: 'longtreePartsOrderDate', label: 'Longtree Parts Order Date', type: 'date' },
+  { key: 'longtreePartsEta', label: 'Longtree Parts ETA', type: 'date' },
   { key: 'signedOrderReceived', label: 'Signed Order Received', type: 'date' },
+  { key: 'vehiclePlannedEta', label: 'Vehicle Planned ETA', type: 'date' },
+  { key: 'productionPlannedStartDate', label: 'Production Planned Start Date', type: 'date' },
+  { key: 'productionPlannedEndDate', label: 'Production Planned End Date', type: 'date' },
+  { key: 'duration', label: 'Duration (Days)', type: 'text', readOnly: true },
 ];
 
 const normalizeHeader = (value) => value.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -341,7 +360,10 @@ const CampervanSchedule = () => {
   const scheduleTouchedRef = useRef(false);
 
   const headerMap = useMemo(() => {
-    const mapping = {};
+    const mapping = {
+      [normalizeHeader('Row #')]: 'rowNumber',
+      [normalizeHeader('Row Number')]: 'rowNumber',
+    };
     columns.forEach((column) => {
       mapping[normalizeHeader(column.label)] = column.key;
       mapping[normalizeHeader(column.key)] = column.key;
@@ -592,7 +614,15 @@ const CampervanSchedule = () => {
         const row = emptyRow(index + 1);
         values.forEach((value, colIndex) => {
           const key = headerKeys[colIndex];
-          if (key) row[key] = value;
+          if (!key) return;
+          if (key === 'rowNumber') {
+            const parsedRow = Number.parseInt(value, 10);
+            if (Number.isFinite(parsedRow) && parsedRow > 0) {
+              row.rowNumber = parsedRow;
+            }
+            return;
+          }
+          row[key] = value;
         });
         return recalcRow(row);
       });
@@ -605,8 +635,9 @@ const CampervanSchedule = () => {
   };
 
   const handleTemplateDownload = () => {
-    const headers = columns.map((column) => column.label);
+    const headers = ['Row #', ...columns.map((column) => column.label)];
     const sampleRow = [
+      '1',
       '15/02/2025',
       'Scheduled',
       'CHS-001',
@@ -617,8 +648,17 @@ const CampervanSchedule = () => {
       'Sample Customer',
       '',
       '19/08/2024',
+      '',
+      '05/11/2024',
+      '20/11/2024',
+      '',
       '17/11/2024',
+      '01/12/2024',
       '01/10/2024',
+      '',
+      '10/02/2025',
+      '20/02/2025',
+      '',
     ];
 
     const escapeValue = (value) => {
@@ -686,8 +726,17 @@ const CampervanSchedule = () => {
       customer: 180,
       latestVehicleOrder: 110,
       vehicleOrderDate: 110,
+      latestEurPartsOrder: 140,
+      eurPartsOrderDate: 120,
+      eurPartsEta: 120,
+      latestLongtreePartsOrder: 150,
       longtreePartsOrderDate: 110,
+      longtreePartsEta: 120,
       signedOrderReceived: 110,
+      vehiclePlannedEta: 130,
+      productionPlannedStartDate: 150,
+      productionPlannedEndDate: 150,
+      duration: 110,
     };
     return columns.reduce((acc, column) => {
       if (fixedColumnWidths[column.key]) {
