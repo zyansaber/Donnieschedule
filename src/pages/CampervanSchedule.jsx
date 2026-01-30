@@ -18,6 +18,130 @@ import { get, ref, set } from 'firebase/database';
 import { database } from '../utils/firebase';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const COMPANY_HOLIDAYS = [
+  '14/07/2025',
+  '11/08/2025',
+  '22/09/2025',
+  '23/09/2025',
+  '24/09/2025',
+  '25/09/2025',
+  '26/09/2025',
+  '6/10/2025',
+  '3/11/2025',
+  '4/11/2025',
+  '24/12/2025',
+  '25/12/2025',
+  '26/12/2025',
+  '29/12/2025',
+  '1/01/2026',
+  '2/01/2026',
+  '5/01/2026',
+  '6/01/2026',
+  '7/01/2026',
+  '8/01/2026',
+  '9/01/2026',
+  '28/01/2026',
+  '16/02/2026',
+  '9/03/2026',
+  '10/03/2026',
+  '3/04/2026',
+  '6/04/2026',
+  '7/04/2026',
+  '8/04/2026',
+  '9/04/2026',
+  '10/04/2026',
+  '13/04/2026',
+  '18/05/2026',
+  '8/06/2026',
+  '9/06/2026',
+  '20/07/2026',
+  '24/08/2026',
+  '18/09/2026',
+  '21/09/2026',
+  '22/09/2026',
+  '23/09/2026',
+  '24/09/2026',
+  '25/09/2026',
+  '19/10/2026',
+  '2/11/2026',
+  '3/11/2026',
+  '16/11/2026',
+  '24/12/2026',
+  '25/12/2026',
+  '28/12/2026',
+  '29/12/2026',
+  '30/12/2026',
+  '31/12/2026',
+];
+
+const toStartOfDay = (date) => {
+  const next = new Date(date);
+  next.setHours(0, 0, 0, 0);
+  return next;
+};
+
+const parseHolidayDate = (value) => {
+  const [day, month, year] = value.split('/').map((part) => parseInt(part, 10));
+  if ([day, month, year].some((part) => Number.isNaN(part))) return null;
+  return toStartOfDay(new Date(year, month - 1, day));
+};
+
+const companyHolidaySet = new Set(
+  COMPANY_HOLIDAYS.map(parseHolidayDate)
+    .filter(Boolean)
+    .map((date) => date.getTime()),
+);
+
+const countHolidaysBetween = (startDate, endDate) => {
+  if (!startDate || !endDate) return 0;
+  const start = toStartOfDay(startDate).getTime();
+  const end = toStartOfDay(endDate).getTime();
+  if (end <= start) return 0;
+  let count = 0;
+  companyHolidaySet.forEach((timestamp) => {
+    if (timestamp >= start && timestamp < end) {
+      count += 1;
+    }
+  });
+  return count;
+};
+
+const getEffectiveDaysBetween = (startDate, endDate) => {
+  if (!startDate || !endDate) return 0;
+  const start = toStartOfDay(startDate);
+  const end = toStartOfDay(endDate);
+  const diffDays = Math.max(0, (end - start) / DAY_MS);
+  const holidayCount = countHolidaysBetween(start, end);
+  return Math.max(0, diffDays - holidayCount);
+};
+
+const addProductionDays = (startDate, productionDays) => {
+  if (!startDate || !Number.isFinite(productionDays) || productionDays <= 0) {
+    return startDate ? toStartOfDay(startDate) : null;
+  }
+  let remaining = productionDays;
+  let current = toStartOfDay(startDate);
+
+  while (remaining >= 1) {
+    const next = new Date(current.getTime() + DAY_MS);
+    const nextStart = toStartOfDay(next);
+    if (!companyHolidaySet.has(nextStart.getTime())) {
+      remaining -= 1;
+    }
+    current = nextStart;
+  }
+
+  if (remaining > 0) {
+    let next = new Date(current.getTime() + DAY_MS);
+    let nextStart = toStartOfDay(next);
+    while (companyHolidaySet.has(nextStart.getTime())) {
+      nextStart = new Date(nextStart.getTime() + DAY_MS);
+    }
+    current = new Date(nextStart.getTime() + remaining * DAY_MS);
+  }
+
+  return current;
+};
 
 const formatDate = (date) => {
   if (!date || Number.isNaN(date.getTime())) return '';
@@ -1005,8 +1129,8 @@ const CampervanSchedule = () => {
     if (!lastForecastProductionDate || sortedSchedulePoints.length === 0) return 0;
     return sortedSchedulePoints.reduce((total, point, index) => {
       const prevPoint = sortedSchedulePoints[index - 1] ?? null;
-      const diffDays = (lastForecastProductionDate - point.date) / DAY_MS;
-      const weeks = Math.max(0, Math.ceil(diffDays / 7));
+      const effectiveDays = getEffectiveDaysBetween(point.date, lastForecastProductionDate);
+      const weeks = Math.max(0, Math.ceil(effectiveDays / 7));
       const delta = prevPoint ? point.value - prevPoint.value : point.value;
       return total + weeks * delta;
     }, 0);
@@ -1025,8 +1149,8 @@ const CampervanSchedule = () => {
       return sortedSchedulePoints.reduce((total, point, index) => {
         if (!point.date || point.date >= targetDate) return total;
         const prevPoint = sortedSchedulePoints[index - 1] ?? null;
-        const diffDays = (targetDate - point.date) / DAY_MS;
-        const weeks = Math.max(0, Math.ceil(diffDays / 7));
+        const effectiveDays = getEffectiveDaysBetween(point.date, targetDate);
+        const weeks = Math.max(0, Math.ceil(effectiveDays / 7));
         const delta = prevPoint ? point.value - prevPoint.value : point.value;
         return total + weeks * delta;
       }, 0);
@@ -1060,11 +1184,11 @@ const CampervanSchedule = () => {
       const start = point.date;
       const nextPoint = sortedSchedulePoints[index + 1];
       if (nextPoint) {
-        const durationWeeks = Math.max(0, (nextPoint.date - start) / DAY_MS / 7);
+        const durationWeeks = Math.max(0, getEffectiveDaysBetween(start, nextPoint.date) / 7);
         const capacity = durationWeeks * rate;
         if (remaining <= capacity) {
           const weeksNeeded = remaining / rate;
-          const leadTimeDate = new Date(start.getTime() + weeksNeeded * 7 * DAY_MS);
+          const leadTimeDate = addProductionDays(start, weeksNeeded * 7);
           const leadTimeWeeks = Math.max(0, (leadTimeDate - today) / DAY_MS / 7);
           const leadTimeDays = Math.max(0, (leadTimeDate - today) / DAY_MS);
           const leadTimeMonths = Math.max(0, leadTimeDays / 30.4);
@@ -1073,7 +1197,7 @@ const CampervanSchedule = () => {
         remaining -= capacity;
       } else {
         const weeksNeeded = remaining / rate;
-        const leadTimeDate = new Date(start.getTime() + weeksNeeded * 7 * DAY_MS);
+        const leadTimeDate = addProductionDays(start, weeksNeeded * 7);
         const leadTimeWeeks = Math.max(0, (leadTimeDate - today) / DAY_MS / 7);
         const leadTimeDays = Math.max(0, (leadTimeDate - today) / DAY_MS);
         const leadTimeMonths = Math.max(0, leadTimeDays / 30.4);
