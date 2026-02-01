@@ -974,6 +974,44 @@ const CampervanSchedule = () => {
     return { data, total, missingVehicleCount, missingByVehicleType };
   }, [filteredOrderRows, orderBreakdownType]);
 
+  const averageOrdersFromOct2025 = useMemo(() => {
+    const startDate = new Date(2025, 9, 1);
+    const filteredDates = filteredOrderRows
+      .map(({ dateValue }) => dateValue)
+      .filter((dateValue) => dateValue >= startDate);
+    if (filteredDates.length === 0) {
+      return { monthly: null, weekly: null };
+    }
+    const latestDate = filteredDates.reduce(
+      (latest, current) => (current > latest ? current : latest),
+      filteredDates[0],
+    );
+    const totalOrders = filteredDates.length;
+
+    const monthSpan =
+      (latestDate.getFullYear() - startDate.getFullYear()) * 12 +
+      (latestDate.getMonth() - startDate.getMonth()) +
+      1;
+    const monthly = totalOrders / Math.max(monthSpan, 1);
+
+    const startWeek = new Date(startDate);
+    const startDay = startWeek.getDay();
+    const startDiff = (startDay + 6) % 7;
+    startWeek.setDate(startWeek.getDate() - startDiff);
+    startWeek.setHours(0, 0, 0, 0);
+
+    const endWeek = new Date(latestDate);
+    const endDay = endWeek.getDay();
+    const endDiff = (endDay + 6) % 7;
+    endWeek.setDate(endWeek.getDate() - endDiff);
+    endWeek.setHours(0, 0, 0, 0);
+
+    const weekSpan = Math.floor((endWeek - startWeek) / (7 * 24 * 60 * 60 * 1000)) + 1;
+    const weekly = totalOrders / Math.max(weekSpan, 1);
+
+    return { monthly, weekly };
+  }, [filteredOrderRows]);
+
   const orderBreakdownCategories =
     orderBreakdownType === 'vehicle'
       ? ['LDV', 'Ford']
@@ -1566,6 +1604,24 @@ const CampervanSchedule = () => {
                 <p className="text-sm text-gray-500">
                   Orders received each month, grouped by vehicle or model and filtered by stock status.
                 </p>
+                <div className="mt-2 text-sm text-gray-600">
+                  <span className="mr-2">
+                    Avg monthly orders since Oct 2025:{' '}
+                    <span className="font-semibold text-gray-800">
+                      {averageOrdersFromOct2025.monthly === null
+                        ? '—'
+                        : averageOrdersFromOct2025.monthly.toFixed(1)}
+                    </span>
+                  </span>
+                  <span>
+                    Avg weekly orders:{' '}
+                    <span className="font-semibold text-gray-800">
+                      {averageOrdersFromOct2025.weekly === null
+                        ? '—'
+                        : averageOrdersFromOct2025.weekly.toFixed(2)}
+                    </span>
+                  </span>
+                </div>
               </div>
               <div className="flex flex-wrap items-center gap-3 text-xs font-semibold text-gray-500">
                 <div className="flex items-center gap-2 rounded-full bg-gray-100 px-2 py-1">
