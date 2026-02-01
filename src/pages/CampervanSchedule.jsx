@@ -334,6 +334,18 @@ const columns = [
 
 const normalizeHeader = (value) => value.toLowerCase().replace(/[^a-z0-9]/g, '');
 const dateKeys = columns.filter((column) => column.type === 'date').map((column) => column.key);
+const hiddenColumnKeys = new Set([
+  'latestEurPartsOrder',
+  'eurPartsOrderDate',
+  'eurPartsEta',
+  'latestLongtreePartsOrder',
+  'longtreePartsOrderDate',
+  'longtreePartsEta',
+  'vehiclePlannedEta',
+  'productionPlannedStartDate',
+  'productionPlannedEndDate',
+  'duration',
+]);
 
 const CampervanSchedule = () => {
   const [rows, setRows] = useState([emptyRow(1)]);
@@ -358,6 +370,10 @@ const CampervanSchedule = () => {
   const draggingPointRef = useRef(null);
   const initializedScheduleRef = useRef(false);
   const scheduleTouchedRef = useRef(false);
+  const displayColumns = useMemo(
+    () => columns.filter((column) => !hiddenColumnKeys.has(column.key)),
+    [],
+  );
 
   const headerMap = useMemo(() => {
     const mapping = {
@@ -2199,7 +2215,7 @@ const CampervanSchedule = () => {
           <thead className="bg-gray-100 text-gray-700">
             <tr>
               <th className="px-3 py-2 sticky left-0 bg-gray-100 z-10">Row #</th>
-              {columns.map((column) => (
+              {displayColumns.map((column) => (
                 <th
                   key={column.key}
                   className="px-3 py-2 whitespace-normal"
@@ -2216,7 +2232,7 @@ const CampervanSchedule = () => {
                 <td className="px-3 py-2 sticky left-0 bg-white z-10 font-semibold text-gray-600">
                   {row.rowNumber}
                 </td>
-                {columns.map((column) => {
+                {displayColumns.map((column) => {
                   const inputType = column.type === 'date' ? 'text' : column.type;
                   const isEmptyDate = column.type === 'date' && !row[column.key] && inputType === 'date';
                   const isVehicleOrderMissing =
