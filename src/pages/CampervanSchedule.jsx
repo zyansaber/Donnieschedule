@@ -6,6 +6,7 @@ import {
   Line,
   LineChart,
   Legend,
+  LabelList,
   Pie,
   PieChart,
   Cell,
@@ -923,11 +924,16 @@ const CampervanSchedule = () => {
       return acc;
     }, {});
 
-    return Object.values(monthlyCounts).sort((a, b) => {
-      const [yearA, monthA] = a.month.split('-').map((value) => Number.parseInt(value, 10));
-      const [yearB, monthB] = b.month.split('-').map((value) => Number.parseInt(value, 10));
-      return new Date(yearA, monthA - 1, 1) - new Date(yearB, monthB - 1, 1);
-    });
+    return Object.values(monthlyCounts)
+      .map((entry) => {
+        const total = categories.reduce((sum, category) => sum + (entry[category] || 0), 0);
+        return { ...entry, total };
+      })
+      .sort((a, b) => {
+        const [yearA, monthA] = a.month.split('-').map((value) => Number.parseInt(value, 10));
+        const [yearB, monthB] = b.month.split('-').map((value) => Number.parseInt(value, 10));
+        return new Date(yearA, monthA - 1, 1) - new Date(yearB, monthB - 1, 1);
+      });
   }, [filteredOrderRows, orderBreakdownType]);
 
   const orderBreakdownSummary = useMemo(() => {
@@ -1074,6 +1080,43 @@ const CampervanSchedule = () => {
     const safeValue = Number.isFinite(value) ? value : 0;
     const safePercent = Number.isFinite(percent) ? percent : 0;
     return `${name}: ${safeValue} (${(safePercent * 100).toFixed(0)}%)`;
+  };
+
+  const renderMonthlyTotalLabel = ({ x, y, width, value }) => {
+    if (!Number.isFinite(value) || value <= 0) return null;
+    const label = String(value);
+    const labelWidth = Math.max(24, label.length * 8 + 12);
+    const labelHeight = 18;
+    const centerX = x + width / 2;
+    const rectX = centerX - labelWidth / 2;
+    const rectY = y - labelHeight - 6;
+
+    return (
+      <g>
+        <rect
+          x={rectX}
+          y={rectY}
+          width={labelWidth}
+          height={labelHeight}
+          rx={9}
+          ry={9}
+          fill="#ffffff"
+          stroke="#e2e8f0"
+          strokeWidth={1}
+        />
+        <text
+          x={centerX}
+          y={rectY + labelHeight / 2}
+          fill="#475569"
+          fontSize={11}
+          fontWeight={600}
+          textAnchor="middle"
+          dominantBaseline="middle"
+        >
+          {label}
+        </text>
+      </g>
+    );
   };
 
   const scheduleMonthSpan = useMemo(() => {
@@ -1691,7 +1734,7 @@ const CampervanSchedule = () => {
               ) : (
                 <div className="h-72">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={orderBreakdownData} margin={{ top: 10, right: 20, left: 0, bottom: 5 }}>
+                    <BarChart data={orderBreakdownData} margin={{ top: 26, right: 20, left: 0, bottom: 5 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                       <XAxis
                         dataKey="month"
@@ -1715,7 +1758,7 @@ const CampervanSchedule = () => {
                         cursor={{ fill: '#dbeafe', opacity: 0.4 }}
                       />
                       <Legend wrapperStyle={{ fontSize: '12px' }} />
-                      {orderBreakdownCategories.map((category) => (
+                      {orderBreakdownCategories.map((category, index) => (
                         <Bar
                           key={category}
                           dataKey={category}
@@ -1723,7 +1766,15 @@ const CampervanSchedule = () => {
                           stackId="orders"
                           fill={orderBreakdownColors[category] || '#94a3b8'}
                           radius={[6, 6, 0, 0]}
-                        />
+                        >
+                          {index === orderBreakdownCategories.length - 1 && (
+                            <LabelList
+                              dataKey="total"
+                              position="top"
+                              content={renderMonthlyTotalLabel}
+                            />
+                          )}
+                        </Bar>
                       ))}
                     </BarChart>
                   </ResponsiveContainer>
