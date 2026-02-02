@@ -1643,7 +1643,7 @@ const CampervanSchedule = () => {
           <div className="mt-6 border-t border-gray-100 pt-6">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div>
-                <h3 className="text-lg font-semibold text-gray-800">Monthly Order Mix</h3>
+                <h3 className="text-lg font-semibold text-gray-800">Monthly Order</h3>
                 <p className="text-sm text-gray-500">
                   Orders received each month, grouped by vehicle or model and filtered by stock status.
                 </p>
@@ -2079,7 +2079,7 @@ const CampervanSchedule = () => {
 
         <div className="bg-white shadow rounded-lg p-5">
           <div>
-            <h3 className="text-lg font-semibold text-gray-800">Dealer Order Mix</h3>
+            <h3 className="text-lg font-semibold text-gray-800">Dealer Order</h3>
             <p className="text-sm text-gray-500">
               Vehicles ordered by dealer, highlighting LDV and Ford model splits.
             </p>
