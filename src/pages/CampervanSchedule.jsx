@@ -1115,6 +1115,29 @@ const CampervanSchedule = () => {
     return `${name}: ${safeValue} (${(safePercent * 100).toFixed(0)}%)`;
   };
 
+  const renderMonthlyOrderTooltip = ({ active, payload, label }) => {
+    if (!active || !payload || payload.length === 0) return null;
+    const entries = payload
+      .filter((item) => Number(item.value) > 0)
+      .sort((a, b) => Number(b.value) - Number(a.value));
+
+    if (entries.length === 0) return null;
+
+    return (
+      <div className="rounded-lg border border-gray-200 bg-white/95 p-3 text-xs text-gray-700 shadow-lg">
+        <div className="text-sm font-semibold text-gray-900">{label}</div>
+        <div className="mt-2 grid gap-1">
+          {entries.map((entry) => (
+            <div key={entry.dataKey ?? entry.name} className="flex items-center justify-between gap-4">
+              <span className="truncate">{entry.name || entry.dataKey}</span>
+              <span className="font-semibold">{entry.value}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   const renderMonthlyTotalLabel = ({ x, y, width, value }) => {
     if (!Number.isFinite(value) || value <= 0) return null;
     const label = String(value);
@@ -1793,6 +1816,7 @@ const CampervanSchedule = () => {
                         allowDecimals={false}
                       />
                       <Tooltip
+                        content={orderBreakdownType === 'dealer' ? renderMonthlyOrderTooltip : undefined}
                         contentStyle={{
                           borderRadius: '12px',
                           borderColor: '#e2e8f0',
