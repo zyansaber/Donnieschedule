@@ -880,6 +880,10 @@ const CampervanSchedule = () => {
       if (vehicleText.includes('ford')) return 'Ford';
       return 'Other';
     }
+    if (orderBreakdownType === 'dealer') {
+      const dealerName = String(row.dealer || '').trim();
+      return dealerName || 'Unknown';
+    }
     const modelText = String(row.model || '').trim().toUpperCase();
     if (modelText.includes('SRV19.1')) return 'SRV19.1';
     if (modelText.includes('SRV22.1')) return 'SRV22.1';
@@ -903,11 +907,24 @@ const CampervanSchedule = () => {
     }, []);
   }, [rows, orderStockFilter]);
 
+  const orderBreakdownCategories = useMemo(() => {
+    if (orderBreakdownType === 'dealer') {
+      const dealerCounts = filteredOrderRows.reduce((acc, { row }) => {
+        const dealerName = String(row.dealer || '').trim() || 'Unknown';
+        acc[dealerName] = (acc[dealerName] || 0) + 1;
+        return acc;
+      }, {});
+      return Object.entries(dealerCounts)
+        .sort(([, countA], [, countB]) => countB - countA)
+        .map(([dealerName]) => dealerName);
+    }
+    return orderBreakdownType === 'vehicle'
+      ? ['LDV', 'Ford']
+      : ['SRV19.1', 'SRV22.1', 'SRV22.2', 'SRV22.3'];
+  }, [filteredOrderRows, orderBreakdownType]);
+
   const orderBreakdownData = useMemo(() => {
-    const categories =
-      orderBreakdownType === 'vehicle'
-        ? ['LDV', 'Ford']
-        : ['SRV19.1', 'SRV22.1', 'SRV22.2', 'SRV22.3'];
+    const categories = orderBreakdownCategories;
 
     const monthlyCounts = filteredOrderRows.reduce((acc, { row, dateValue }) => {
       const monthKey = `${dateValue.getFullYear()}-${String(dateValue.getMonth() + 1).padStart(2, '0')}`;
@@ -934,13 +951,10 @@ const CampervanSchedule = () => {
         const [yearB, monthB] = b.month.split('-').map((value) => Number.parseInt(value, 10));
         return new Date(yearA, monthA - 1, 1) - new Date(yearB, monthB - 1, 1);
       });
-  }, [filteredOrderRows, orderBreakdownType]);
+  }, [filteredOrderRows, orderBreakdownCategories]);
 
   const orderBreakdownSummary = useMemo(() => {
-    const categories =
-      orderBreakdownType === 'vehicle'
-        ? ['LDV', 'Ford']
-        : ['SRV19.1', 'SRV22.1', 'SRV22.2', 'SRV22.3'];
+    const categories = orderBreakdownCategories;
     const summary = categories.reduce(
       (acc, category) => ({ ...acc, [category]: 0 }),
       {},
@@ -978,7 +992,7 @@ const CampervanSchedule = () => {
       value: summary[category],
     }));
     return { data, total, missingVehicleCount, missingByVehicleType };
-  }, [filteredOrderRows, orderBreakdownType]);
+  }, [filteredOrderRows, orderBreakdownCategories]);
 
   const averageOrdersFromOct2025 = useMemo(() => {
     const startDate = new Date(2025, 9, 1);
@@ -1018,19 +1032,38 @@ const CampervanSchedule = () => {
     return { monthly, weekly };
   }, [filteredOrderRows]);
 
-  const orderBreakdownCategories =
-    orderBreakdownType === 'vehicle'
-      ? ['LDV', 'Ford']
-      : ['SRV19.1', 'SRV22.1', 'SRV22.2', 'SRV22.3'];
-  const orderBreakdownColors = {
-    LDV: '#34d399',
-    Ford: '#60a5fa',
-    Other: '#94a3b8',
-    'SRV19.1': '#f472b6',
-    'SRV22.1': '#60a5fa',
-    'SRV22.2': '#818cf8',
-    'SRV22.3': '#a78bfa',
-  };
+  const orderBreakdownColors = useMemo(() => {
+    const baseColors = {
+      LDV: '#34d399',
+      Ford: '#60a5fa',
+      Other: '#94a3b8',
+      Unknown: '#94a3b8',
+      'SRV19.1': '#f472b6',
+      'SRV22.1': '#60a5fa',
+      'SRV22.2': '#818cf8',
+      'SRV22.3': '#a78bfa',
+    };
+    if (orderBreakdownType !== 'dealer') {
+      return baseColors;
+    }
+    const palette = [
+      '#38bdf8',
+      '#f59e0b',
+      '#34d399',
+      '#a78bfa',
+      '#fb7185',
+      '#22c55e',
+      '#60a5fa',
+      '#f472b6',
+      '#818cf8',
+      '#f97316',
+    ];
+    const dealerColors = orderBreakdownCategories.reduce((acc, category, index) => {
+      acc[category] = palette[index % palette.length];
+      return acc;
+    }, {});
+    return { ...baseColors, ...dealerColors };
+  }, [orderBreakdownCategories, orderBreakdownType]);
 
   const renderDealerTooltip = ({ active, payload }) => {
     if (!active || !payload || payload.length === 0) return null;
@@ -1645,7 +1678,7 @@ const CampervanSchedule = () => {
               <div>
                 <h3 className="text-lg font-semibold text-gray-800">Monthly Order</h3>
                 <p className="text-sm text-gray-500">
-                  Orders received each month, grouped by vehicle or model and filtered by stock status.
+                  Orders received each month, grouped by vehicle, model, or dealer and filtered by stock status.
                 </p>
                 <div className="mt-2 text-sm text-gray-600">
                   <span className="mr-2">
@@ -1689,6 +1722,17 @@ const CampervanSchedule = () => {
                     }`}
                   >
                     Model
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOrderBreakdownType('dealer')}
+                    className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                      orderBreakdownType === 'dealer'
+                        ? 'bg-white text-indigo-600 shadow-sm'
+                        : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    Dealer
                   </button>
                 </div>
                 <div className="flex items-center gap-2 rounded-full bg-gray-100 px-2 py-1">
@@ -2204,6 +2248,17 @@ const CampervanSchedule = () => {
                     }`}
                   >
                     Model
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOrderBreakdownType('dealer')}
+                    className={`rounded-full px-2 py-1 text-[11px] font-semibold transition ${
+                      orderBreakdownType === 'dealer'
+                        ? 'bg-white text-indigo-600 shadow-sm'
+                        : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    Dealer
                   </button>
                 </div>
                 <div className="flex items-center gap-1 rounded-full bg-gray-100 px-2 py-1">
