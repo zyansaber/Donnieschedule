@@ -617,7 +617,7 @@ const CampervanSchedule = () => {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (loadEvent) => {
+    reader.onload = async (loadEvent) => {
       const text = loadEvent.target?.result;
       if (typeof text !== 'string') return;
       const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0);
@@ -646,7 +646,19 @@ const CampervanSchedule = () => {
 
       const fallbackRows = nextRows.length ? nextRows : [emptyRow(1)];
       setRows(fallbackRows);
-      fallbackRows.forEach((row) => scheduleRowSave(row));
+
+      try {
+        const rowsPayload = fallbackRows.reduce((acc, row) => {
+          if (!row.rowNumber) return acc;
+          acc[row.rowNumber] = recalcRow(row);
+          return acc;
+        }, {});
+        await set(ref(database, 'campervanSchedule'), rowsPayload);
+        setStatusMessage('CSV data uploaded and saved to Firebase.');
+      } catch (error) {
+        console.error('Failed to save uploaded CSV to Firebase:', error);
+        setStatusMessage('Failed to save uploaded CSV data.');
+      }
     };
     reader.readAsText(file);
   };
