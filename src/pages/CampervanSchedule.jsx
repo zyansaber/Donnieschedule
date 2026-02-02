@@ -1618,85 +1618,8 @@ const CampervanSchedule = () => {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <div className="bg-white shadow rounded-lg p-5">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h3 className="text-lg font-semibold text-gray-800">Signed Orders Trend</h3>
-              <p className="text-sm text-gray-500">
-                Signed Order Received counts by date for the selected dealer.
-              </p>
-            </div>
-            <div className="w-full sm:w-56">
-              <label className="block text-xs font-semibold text-gray-500 mb-1">Dealer</label>
-              <select
-                value={selectedDealer}
-                onChange={(event) => setSelectedDealer(event.target.value)}
-                className="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 shadow-sm focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100"
-              >
-                {dealerOptions.length === 0 ? (
-                  <option value="">No dealer data</option>
-                ) : (
-                  dealerOptions.map((dealer) => (
-                    <option key={dealer} value={dealer}>
-                      {dealer}
-                    </option>
-                  ))
-                )}
-              </select>
-            </div>
-          </div>
-          <div className="mt-4 rounded-xl border border-gray-100 bg-gradient-to-br from-indigo-50 via-white to-sky-50 p-4">
-            {dealerChartData.length === 0 ? (
-              <div className="text-sm text-gray-500">
-                No signed order data available for this dealer yet.
-              </div>
-            ) : (
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={dealerChartData} margin={{ top: 10, right: 20, left: 0, bottom: 5 }}>
-                    <defs>
-                      <linearGradient id="orderLine" x1="0" y1="0" x2="1" y2="0">
-                        <stop offset="0%" stopColor="#4f46e5" />
-                        <stop offset="100%" stopColor="#38bdf8" />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                    <XAxis
-                      dataKey="date"
-                      tick={{ fontSize: 12, fill: '#64748b' }}
-                      tickLine={false}
-                      axisLine={false}
-                    />
-                    <YAxis
-                      tick={{ fontSize: 12, fill: '#64748b' }}
-                      tickLine={false}
-                      axisLine={false}
-                      allowDecimals={false}
-                    />
-                    <Tooltip
-                      contentStyle={{
-                        borderRadius: '12px',
-                        borderColor: '#e2e8f0',
-                        boxShadow: '0 10px 30px rgba(15, 23, 42, 0.12)',
-                        fontSize: '12px',
-                      }}
-                      cursor={{ stroke: '#cbd5f5', strokeWidth: 1 }}
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="count"
-                      stroke="url(#orderLine)"
-                      strokeWidth={3}
-                      dot={{ r: 4, strokeWidth: 2, fill: '#fff', stroke: '#4f46e5' }}
-                      activeDot={{ r: 6 }}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-          </div>
-
-          <div className="mt-6 border-t border-gray-100 pt-6">
+        <div className="space-y-6">
+          <div className="bg-white shadow rounded-lg p-5">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <h3 className="text-lg font-semibold text-gray-800">Monthly Order</h3>
@@ -2145,110 +2068,111 @@ const CampervanSchedule = () => {
           </div>
         </div>
 
-        <div className="bg-white shadow rounded-lg p-5">
-          <div>
-            <h3 className="text-lg font-semibold text-gray-800">Dealer Order</h3>
-            <p className="text-sm text-gray-500">
-              Vehicles ordered by dealer, highlighting LDV and Ford model splits.
-            </p>
-          </div>
-          <div className="mt-4 rounded-xl border border-gray-100 bg-gradient-to-br from-emerald-50 via-white to-sky-50 p-4">
-            {dealerOrderMix.length === 0 ? (
-              <div className="text-sm text-gray-500">No dealer order data available yet.</div>
-            ) : (
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={dealerOrderMix} margin={{ top: 10, right: 20, left: 0, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                    <XAxis
-                      dataKey="dealer"
-                      interval={0}
-                      height={90}
-                      tickLine={false}
-                      axisLine={false}
-                      tick={renderDealerTick}
-                    />
-                    <YAxis
-                      tick={{ fontSize: 12, fill: '#64748b' }}
-                      tickLine={false}
-                      axisLine={false}
-                      allowDecimals={false}
-                    />
-                    <Tooltip content={renderDealerTooltip} cursor={{ fill: '#dbeafe', opacity: 0.4 }} />
-                    <Legend wrapperStyle={{ fontSize: '12px' }} />
-                    <Bar dataKey="ldv" name="LDV" stackId="orders" fill="#34d399" radius={[6, 6, 0, 0]} />
-                    <Bar dataKey="srv221" name="Ford SRV22.1" stackId="orders" fill="#60a5fa" />
-                    <Bar dataKey="srv222" name="Ford SRV22.2" stackId="orders" fill="#818cf8" />
-                    <Bar dataKey="srv223" name="Ford SRV22.3" stackId="orders" fill="#a78bfa" />
-                  </BarChart>
-                </ResponsiveContainer>
+        <div className="space-y-6">
+          <div className="bg-white shadow rounded-lg p-5">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-800">Dealer Order</h3>
+              <p className="text-sm text-gray-500">
+                Vehicles ordered by dealer, highlighting LDV and Ford model splits.
+              </p>
+            </div>
+            <div className="mt-4 rounded-xl border border-gray-100 bg-gradient-to-br from-emerald-50 via-white to-sky-50 p-4">
+              {dealerOrderMix.length === 0 ? (
+                <div className="text-sm text-gray-500">No dealer order data available yet.</div>
+              ) : (
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={dealerOrderMix} margin={{ top: 10, right: 20, left: 0, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                      <XAxis
+                        dataKey="dealer"
+                        interval={0}
+                        height={90}
+                        tickLine={false}
+                        axisLine={false}
+                        tick={renderDealerTick}
+                      />
+                      <YAxis
+                        tick={{ fontSize: 12, fill: '#64748b' }}
+                        tickLine={false}
+                        axisLine={false}
+                        allowDecimals={false}
+                      />
+                      <Tooltip content={renderDealerTooltip} cursor={{ fill: '#dbeafe', opacity: 0.4 }} />
+                      <Legend wrapperStyle={{ fontSize: '12px' }} />
+                      <Bar dataKey="ldv" name="LDV" stackId="orders" fill="#34d399" radius={[6, 6, 0, 0]} />
+                      <Bar dataKey="srv221" name="Ford SRV22.1" stackId="orders" fill="#60a5fa" />
+                      <Bar dataKey="srv222" name="Ford SRV22.2" stackId="orders" fill="#818cf8" />
+                      <Bar dataKey="srv223" name="Ford SRV22.3" stackId="orders" fill="#a78bfa" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </div>
+            {dealerOrderMix.length > 0 && (
+              <div className="mt-4 overflow-x-auto rounded-xl border border-gray-100">
+                <table className="min-w-full text-xs text-left">
+                  <thead className="bg-gray-50 text-gray-600">
+                    <tr>
+                      <th className="px-3 py-2 font-semibold">
+                        <button
+                          type="button"
+                          onClick={() => setShowDealerTable((prev) => !prev)}
+                          className="inline-flex items-center gap-2 text-gray-700 hover:text-gray-900"
+                          aria-expanded={showDealerTable}
+                        >
+                          Dealer
+                          <span
+                            className={`text-[10px] uppercase tracking-wide text-gray-400 ${
+                              showDealerTable ? 'rotate-180' : ''
+                            } transition-transform`}
+                          >
+                            ▼
+                          </span>
+                        </button>
+                      </th>
+                      <th className="px-3 py-2 font-semibold">Total</th>
+                      <th className="px-3 py-2 font-semibold text-emerald-600">LDV</th>
+                      <th className="px-3 py-2 font-semibold text-blue-600">Ford</th>
+                      <th className="px-3 py-2 font-semibold text-indigo-500">SRV22.1</th>
+                      <th className="px-3 py-2 font-semibold text-indigo-500">SRV22.2</th>
+                      <th className="px-3 py-2 font-semibold text-indigo-500">SRV22.3</th>
+                    </tr>
+                  </thead>
+                  {showDealerTable ? (
+                    <tbody className="divide-y divide-gray-100 bg-white">
+                      {dealerOrderMix.map((dealer) => (
+                        <tr key={dealer.dealer} className="hover:bg-gray-50">
+                          <td className="px-3 py-2 font-medium text-gray-700">{dealer.dealer}</td>
+                          <td className="px-3 py-2 text-gray-700">{dealer.total}</td>
+                          <td className="px-3 py-2 text-emerald-700">{dealer.ldv}</td>
+                          <td className="px-3 py-2 text-blue-700">{dealer.ford}</td>
+                          <td className="px-3 py-2 text-indigo-700">{dealer.srv221}</td>
+                          <td className="px-3 py-2 text-indigo-700">{dealer.srv222}</td>
+                          <td className="px-3 py-2 text-indigo-700">{dealer.srv223}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  ) : (
+                    <tbody className="bg-white">
+                      <tr>
+                        <td colSpan={7} className="px-3 py-4 text-center text-gray-400">
+                          Click “Dealer” to expand the breakdown.
+                        </td>
+                      </tr>
+                    </tbody>
+                  )}
+                </table>
               </div>
             )}
-          </div>
-          {dealerOrderMix.length > 0 && (
-            <div className="mt-4 overflow-x-auto rounded-xl border border-gray-100">
-              <table className="min-w-full text-xs text-left">
-                <thead className="bg-gray-50 text-gray-600">
-                  <tr>
-                    <th className="px-3 py-2 font-semibold">
-                      <button
-                        type="button"
-                        onClick={() => setShowDealerTable((prev) => !prev)}
-                        className="inline-flex items-center gap-2 text-gray-700 hover:text-gray-900"
-                        aria-expanded={showDealerTable}
-                      >
-                        Dealer
-                        <span
-                          className={`text-[10px] uppercase tracking-wide text-gray-400 ${
-                            showDealerTable ? 'rotate-180' : ''
-                          } transition-transform`}
-                        >
-                          ▼
-                        </span>
-                      </button>
-                    </th>
-                    <th className="px-3 py-2 font-semibold">Total</th>
-                    <th className="px-3 py-2 font-semibold text-emerald-600">LDV</th>
-                    <th className="px-3 py-2 font-semibold text-blue-600">Ford</th>
-                    <th className="px-3 py-2 font-semibold text-indigo-500">SRV22.1</th>
-                    <th className="px-3 py-2 font-semibold text-indigo-500">SRV22.2</th>
-                    <th className="px-3 py-2 font-semibold text-indigo-500">SRV22.3</th>
-                  </tr>
-                </thead>
-                {showDealerTable ? (
-                  <tbody className="divide-y divide-gray-100 bg-white">
-                    {dealerOrderMix.map((dealer) => (
-                      <tr key={dealer.dealer} className="hover:bg-gray-50">
-                        <td className="px-3 py-2 font-medium text-gray-700">{dealer.dealer}</td>
-                        <td className="px-3 py-2 text-gray-700">{dealer.total}</td>
-                        <td className="px-3 py-2 text-emerald-700">{dealer.ldv}</td>
-                        <td className="px-3 py-2 text-blue-700">{dealer.ford}</td>
-                        <td className="px-3 py-2 text-indigo-700">{dealer.srv221}</td>
-                        <td className="px-3 py-2 text-indigo-700">{dealer.srv222}</td>
-                        <td className="px-3 py-2 text-indigo-700">{dealer.srv223}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                ) : (
-                  <tbody className="bg-white">
-                    <tr>
-                      <td colSpan={7} className="px-3 py-4 text-center text-gray-400">
-                        Click “Dealer” to expand the breakdown.
-                      </td>
-                    </tr>
-                  </tbody>
-                )}
-              </table>
-            </div>
-          )}
-          <div className="mt-6 rounded-xl border border-gray-100 bg-gradient-to-br from-amber-50 via-white to-rose-50 p-4">
-            <div className="flex flex-col gap-4">
-              <div>
-                <h4 className="text-sm font-semibold text-gray-700">Order Type Share</h4>
-                <p className="text-xs text-gray-500">
-                  Pie chart view of received orders with stock filters.
-                </p>
-              </div>
+            <div className="mt-6 rounded-xl border border-gray-100 bg-gradient-to-br from-amber-50 via-white to-rose-50 p-4">
+              <div className="flex flex-col gap-4">
+                <div>
+                  <h4 className="text-sm font-semibold text-gray-700">Order Type Share</h4>
+                  <p className="text-xs text-gray-500">
+                    Pie chart view of received orders with stock filters.
+                  </p>
+                </div>
               <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold text-gray-500">
                 <div className="flex items-center gap-1 rounded-full bg-gray-100 px-2 py-1">
                   <button
@@ -2377,6 +2301,85 @@ const CampervanSchedule = () => {
                   </ResponsiveContainer>
                 )}
               </div>
+            </div>
+          </div>
+          </div>
+          <div className="bg-white shadow rounded-lg p-5">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-800">Signed Orders Trend</h3>
+                <p className="text-sm text-gray-500">
+                  Signed Order Received counts by date for the selected dealer.
+                </p>
+              </div>
+              <div className="w-full sm:w-56">
+                <label className="block text-xs font-semibold text-gray-500 mb-1">Dealer</label>
+                <select
+                  value={selectedDealer}
+                  onChange={(event) => setSelectedDealer(event.target.value)}
+                  className="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 shadow-sm focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                >
+                  {dealerOptions.length === 0 ? (
+                    <option value="">No dealer data</option>
+                  ) : (
+                    dealerOptions.map((dealer) => (
+                      <option key={dealer} value={dealer}>
+                        {dealer}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+            </div>
+            <div className="mt-4 rounded-xl border border-gray-100 bg-gradient-to-br from-indigo-50 via-white to-sky-50 p-4">
+              {dealerChartData.length === 0 ? (
+                <div className="text-sm text-gray-500">
+                  No signed order data available for this dealer yet.
+                </div>
+              ) : (
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={dealerChartData} margin={{ top: 10, right: 20, left: 0, bottom: 5 }}>
+                      <defs>
+                        <linearGradient id="orderLine" x1="0" y1="0" x2="1" y2="0">
+                          <stop offset="0%" stopColor="#4f46e5" />
+                          <stop offset="100%" stopColor="#38bdf8" />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                      <XAxis
+                        dataKey="date"
+                        tick={{ fontSize: 12, fill: '#64748b' }}
+                        tickLine={false}
+                        axisLine={false}
+                      />
+                      <YAxis
+                        tick={{ fontSize: 12, fill: '#64748b' }}
+                        tickLine={false}
+                        axisLine={false}
+                        allowDecimals={false}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          borderRadius: '12px',
+                          borderColor: '#e2e8f0',
+                          boxShadow: '0 10px 30px rgba(15, 23, 42, 0.12)',
+                          fontSize: '12px',
+                        }}
+                        cursor={{ stroke: '#cbd5f5', strokeWidth: 1 }}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="count"
+                        stroke="url(#orderLine)"
+                        strokeWidth={3}
+                        dot={{ r: 4, strokeWidth: 2, fill: '#fff', stroke: '#4f46e5' }}
+                        activeDot={{ r: 6 }}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
             </div>
           </div>
         </div>
