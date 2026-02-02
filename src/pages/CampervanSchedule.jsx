@@ -2339,7 +2339,7 @@ const CampervanSchedule = () => {
                   </div>
                 </div>
               </div>
-              <div className="h-[14.7rem]">
+              <div className="h-56">
                 {orderBreakdownSummary.total === 0 ? (
                   <div className="flex h-full items-center justify-center text-sm text-gray-500">
                     No order share data available.
