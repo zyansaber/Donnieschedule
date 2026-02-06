@@ -353,6 +353,8 @@ const CampervanSchedule = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusMessage, setStatusMessage] = useState('');
   const saveTimersRef = useRef({});
+  const paceControlSaveTimerRef = useRef(null);
+  const paceControlLoadedRef = useRef(false);
   const [scrollWidth, setScrollWidth] = useState(0);
   const topScrollRef = useRef(null);
   const tableScrollRef = useRef(null);
@@ -452,33 +454,93 @@ const CampervanSchedule = () => {
     const loadRows = async () => {
       try {
         const scheduleRef = ref(database, 'campervanSchedule');
-        const snapshot = await get(scheduleRef);
-        if (!snapshot.exists()) return;
+        const paceControlRef = ref(database, 'campervanProductionPaceControl');
+        const [scheduleSnapshot, paceControlSnapshot] = await Promise.all([
+          get(scheduleRef),
+          get(paceControlRef),
+        ]);
 
-        const data = snapshot.val();
-        const parsedRows = Object.entries(data)
-          .map(([key, value]) => {
-            const rowNumber = Number(key);
-            return recalcRow({
-              ...emptyRow(Number.isNaN(rowNumber) ? 0 : rowNumber),
-              ...value,
-              rowNumber: Number.isNaN(rowNumber) ? value.rowNumber : rowNumber,
-            });
-          })
-          .filter((row) => row.rowNumber)
-          .sort((a, b) => a.rowNumber - b.rowNumber);
+        if (scheduleSnapshot.exists()) {
+          const data = scheduleSnapshot.val();
+          const parsedRows = Object.entries(data)
+            .map(([key, value]) => {
+              const rowNumber = Number(key);
+              return recalcRow({
+                ...emptyRow(Number.isNaN(rowNumber) ? 0 : rowNumber),
+                ...value,
+                rowNumber: Number.isNaN(rowNumber) ? value.rowNumber : rowNumber,
+              });
+            })
+            .filter((row) => row.rowNumber)
+            .sort((a, b) => a.rowNumber - b.rowNumber);
 
-        if (parsedRows.length) {
-          setRows(parsedRows);
+          if (parsedRows.length) {
+            setRows(parsedRows);
+          }
+        }
+
+        if (paceControlSnapshot.exists()) {
+          const parsedPoints = (Array.isArray(paceControlSnapshot.val()) ? paceControlSnapshot.val() : [])
+            .map((point, index) => {
+              const parsedDate = parseDateValue(point?.date);
+              const parsedValue = Number(point?.value);
+              if (!parsedDate || !Number.isFinite(parsedValue)) return null;
+              return {
+                id: point?.id || `point-${index + 1}`,
+                date: parsedDate,
+                value: Math.min(Math.max(Math.round(parsedValue), 1), 5),
+              };
+            })
+            .filter(Boolean);
+
+          if (parsedPoints.length > 0) {
+            setProductionSchedulePoints(parsedPoints);
+            initializedScheduleRef.current = true;
+            scheduleTouchedRef.current = true;
+          }
         }
       } catch (error) {
         console.error('Failed to load campervan schedule data:', error);
         setStatusMessage('Failed to load Firebase data.');
+      } finally {
+        paceControlLoadedRef.current = true;
       }
     };
 
     loadRows();
   }, []);
+
+  useEffect(() => {
+    if (!paceControlLoadedRef.current) return;
+    if (productionSchedulePoints.length === 0) return;
+
+    if (paceControlSaveTimerRef.current) {
+      clearTimeout(paceControlSaveTimerRef.current);
+    }
+
+    paceControlSaveTimerRef.current = setTimeout(async () => {
+      try {
+        const paceControlRef = ref(database, 'campervanProductionPaceControl');
+        await set(
+          paceControlRef,
+          productionSchedulePoints.map((point) => ({
+            id: point.id,
+            date: formatDate(point.date),
+            value: point.value,
+          })),
+        );
+      } catch (error) {
+        console.error('Failed to save production pace control:', error);
+        setStatusMessage('Production pace control failed to save.');
+      }
+    }, 600);
+
+    return () => {
+      if (paceControlSaveTimerRef.current) {
+        clearTimeout(paceControlSaveTimerRef.current);
+      }
+    };
+  }, [productionSchedulePoints]);
 
   const handleTopScroll = () => {
     if (topScrollRef.current && tableScrollRef.current) {
