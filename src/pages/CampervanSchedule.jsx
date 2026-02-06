@@ -2415,7 +2415,12 @@ const CampervanSchedule = () => {
         <table className="min-w-full text-xs text-left">
           <thead className="bg-gray-100 text-gray-700">
             <tr>
-              <th className="px-3 py-2 sticky left-0 bg-gray-100 z-10">Row #</th>
+              <th
+                className="px-3 py-2 sticky left-0 bg-gray-100 z-10"
+                style={{ width: '3rem', minWidth: '3rem', maxWidth: '3rem' }}
+              >
+                Row #
+              </th>
               {displayColumns.map((column) => (
                 <th
                   key={column.key}
@@ -2430,7 +2435,10 @@ const CampervanSchedule = () => {
           <tbody>
             {filteredRows.map(({ row, index }) => (
               <tr key={row.rowNumber} className="border-b last:border-none">
-                <td className="px-3 py-2 sticky left-0 bg-white z-10 font-semibold text-gray-600">
+                <td
+                  className="px-3 py-2 sticky left-0 bg-white z-10 font-semibold text-gray-600"
+                  style={{ width: '3rem', minWidth: '3rem', maxWidth: '3rem' }}
+                >
                   {row.rowNumber}
                 </td>
                 {displayColumns.map((column) => {
