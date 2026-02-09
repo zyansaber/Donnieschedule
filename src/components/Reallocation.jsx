@@ -24,6 +24,7 @@ const Reallocation = ({ data }) => {
   const [loading, setLoading] = useState(false);
   const [globalMessage, setGlobalMessage] = useState('');
   const [trendFilter, setTrendFilter] = useState('all'); // 'all' | 'snowy'
+  const [campervanScheduleRows, setCampervanScheduleRows] = useState([]);
   // ====== Charts Data (Snowy Stock not finished + Prefix distribution + 10-week trend) ======
   const getPrefix = (ch) => {
     if (!ch) return 'UNK';
@@ -189,6 +190,24 @@ const repetitionBadgeStyles = {
     loadReallocationRequests();
   }, []);
 
+  useEffect(() => {
+    const loadCampervanSchedule = async () => {
+      try {
+        const scheduleRef = ref(database, 'campervanSchedule');
+        const snapshot = await get(scheduleRef);
+        if (!snapshot.exists()) return;
+
+        const rawData = snapshot.val();
+        const parsedRows = Object.values(rawData || {}).filter(Boolean);
+        setCampervanScheduleRows(parsedRows);
+      } catch (error) {
+        console.error('Error loading campervan schedule:', error);
+      }
+    };
+
+    loadCampervanSchedule();
+  }, []);
+
   // Calculate statistics
   useEffect(() => {
     calculateStats();
@@ -296,9 +315,22 @@ const repetitionBadgeStyles = {
           const vanInfo = (data || []).find(item =>
             item.Chassis && item.Chassis.toLowerCase() === trimmedChassis.toLowerCase()
           );
+          const campervanMatch = campervanScheduleRows.find(item =>
+            item?.chassisNumber && item.chassisNumber.toLowerCase() === trimmedChassis.toLowerCase()
+          );
+          const campervanInfo = campervanMatch ? {
+            Chassis: campervanMatch.chassisNumber,
+            Dealer: campervanMatch.dealer || '',
+            Model: campervanMatch.model || '',
+            Customer: campervanMatch.customer || '',
+            'Regent Production': campervanMatch.regentProduction || '',
+            'Signed Plans Received': campervanMatch.signedOrderReceived || '',
+          } : null;
+
+          const resolvedVanInfo = vanInfo || campervanInfo;
           
-          if (vanInfo) {
-            const signedPlansReceived = vanInfo['Signed Plans Received'] || '';
+          if (resolvedVanInfo) {
+            const signedPlansReceived = resolvedVanInfo['Signed Plans Received'] || '';
             let message = '';
             
             if (signedPlansReceived.toLowerCase() === 'no') {
@@ -319,7 +351,7 @@ const repetitionBadgeStyles = {
             return {
               ...row,
               chassisNumber: trimmedChassis,
-              currentVanInfo: vanInfo,
+              currentVanInfo: resolvedVanInfo,
               selectedDealer: '',
               message,
               historyInfo,
