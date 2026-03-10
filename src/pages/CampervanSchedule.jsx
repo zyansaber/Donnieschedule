@@ -1492,7 +1492,7 @@ const CampervanSchedule = () => {
     return { targetUnits, leadTimeWeeks: 0, leadTimeDays: 0, leadTimeMonths: 0, leadTimeDate: today };
   }, [completedRegentCount, signedOrderReceivedCount, sortedSchedulePoints]);
 
-  const totalSlots = completedRegentCount + scheduleDeltaTotal;
+  const totalSlots = filteredRows.length;
   const availableSlots = totalSlots - signedOrderReceivedCount;
   const p1Limit = 19;
   const p2Limit = 38;
