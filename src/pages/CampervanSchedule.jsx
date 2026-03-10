@@ -362,7 +362,6 @@ const CampervanSchedule = () => {
   const [showDealerTable, setShowDealerTable] = useState(false);
   const [orderBreakdownType, setOrderBreakdownType] = useState('vehicle');
   const [orderStockFilter, setOrderStockFilter] = useState('all');
-  const [srmOnlyMode, setSrmOnlyMode] = useState(false);
   const scheduleChartRef = useRef(null);
   const [scheduleChartSize, setScheduleChartSize] = useState({ width: 0, height: 0 });
   const [productionSchedulePoints, setProductionSchedulePoints] = useState([]);
@@ -776,8 +775,6 @@ const CampervanSchedule = () => {
   };
 
   const filteredRows = useMemo(() => {
-    const isSrmVehicle = (row) => String(row.vehicle || '').toLowerCase().includes('srm');
-    const scopeRows = rows.filter((row) => (srmOnlyMode ? isSrmVehicle(row) : !isSrmVehicle(row)));
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
     const cutoffDate = new Date(todayStart);
@@ -789,7 +786,7 @@ const CampervanSchedule = () => {
       const dealerEmpty = String(row.dealer || '').trim().length === 0;
       return forecastDate < cutoffDate && chassisEmpty && dealerEmpty;
     };
-    const visibleRows = scopeRows
+    const visibleRows = rows
       .map((row, index) => ({ row, index }))
       .filter(({ row }) => !shouldHideRow(row));
 
@@ -807,12 +804,7 @@ const CampervanSchedule = () => {
         .toLowerCase();
       return rowText.includes(term);
     });
-  }, [rows, searchTerm, srmOnlyMode]);
-
-  const scopedRowsCount = useMemo(() => {
-    const isSrmVehicle = (row) => String(row.vehicle || '').toLowerCase().includes('srm');
-    return rows.filter((row) => (srmOnlyMode ? isSrmVehicle(row) : !isSrmVehicle(row))).length;
-  }, [rows, srmOnlyMode]);
+  }, [rows, searchTerm]);
 
   const columnWidths = useMemo(() => {
     const fixedColumnWidths = {
@@ -860,12 +852,12 @@ const CampervanSchedule = () => {
 
   const dealerOptions = useMemo(() => {
     const options = new Set();
-    filteredRows.forEach(({ row }) => {
+    rows.forEach((row) => {
       const dealerName = String(row.dealer || '').trim();
       if (dealerName) options.add(dealerName);
     });
     return Array.from(options).sort((a, b) => a.localeCompare(b));
-  }, [filteredRows]);
+  }, [rows]);
 
   useEffect(() => {
     if (dealerOptions.length === 0) {
@@ -879,7 +871,7 @@ const CampervanSchedule = () => {
 
   const dealerChartData = useMemo(() => {
     if (!selectedDealer) return [];
-    const counts = filteredRows.reduce((acc, { row }) => {
+    const counts = rows.reduce((acc, row) => {
       const dealerName = String(row.dealer || '').trim();
       if (dealerName !== selectedDealer) return acc;
       const dateKey = normalizeDateString(row.signedOrderReceived);
@@ -896,24 +888,24 @@ const CampervanSchedule = () => {
         if (!first || !second) return 0;
         return first - second;
       });
-  }, [filteredRows, selectedDealer]);
+  }, [rows, selectedDealer]);
 
   const completedRegentCount = useMemo(
     () =>
-      filteredRows.filter(({ row }) => {
+      rows.filter((row) => {
         const status = String(row.regentProduction || '').trim().toLowerCase();
         return status === 'finished' || status === 'ready for dispatch';
       }).length,
-    [filteredRows],
+    [rows],
   );
 
   const signedOrderReceivedCount = useMemo(
-    () => filteredRows.filter(({ row }) => parseDateValue(row.signedOrderReceived)).length,
-    [filteredRows],
+    () => rows.filter((row) => parseDateValue(row.signedOrderReceived)).length,
+    [rows],
   );
 
   const dealerOrderMix = useMemo(() => {
-    const summary = filteredRows.reduce((acc, { row }) => {
+    const summary = rows.reduce((acc, row) => {
       const dealerName = String(row.dealer || '').trim();
       if (!dealerName) return acc;
       if (!acc[dealerName]) {
@@ -953,7 +945,7 @@ const CampervanSchedule = () => {
     }, {});
 
     return Object.values(summary).sort((a, b) => b.total - a.total);
-  }, [filteredRows]);
+  }, [rows]);
 
   const resolveOrderCategory = (row) => {
     if (orderBreakdownType === 'vehicle') {
@@ -975,7 +967,7 @@ const CampervanSchedule = () => {
   };
 
   const filteredOrderRows = useMemo(() => {
-    return filteredRows.reduce((acc, { row }) => {
+    return rows.reduce((acc, row) => {
       const chassisText = String(row.chassisNumber || '').trim();
       if (!chassisText) return acc;
       const dateValue = parseDateValue(row.signedOrderReceived);
@@ -987,7 +979,7 @@ const CampervanSchedule = () => {
       acc.push({ row, dateValue });
       return acc;
     }, []);
-  }, [filteredRows, orderStockFilter]);
+  }, [rows, orderStockFilter]);
 
   const orderBreakdownCategories = useMemo(() => {
     if (orderBreakdownType === 'dealer') {
@@ -1401,13 +1393,13 @@ const CampervanSchedule = () => {
   }, [sortedSchedulePoints, scheduleEndDate, scheduleIndexFromDate, scheduleXFromIndex, scheduleYFromValue]);
 
   const lastForecastProductionDate = useMemo(() => {
-    for (let index = filteredRows.length - 1; index >= 0; index -= 1) {
-      const candidate = filteredRows[index]?.row;
+    for (let index = rows.length - 1; index >= 0; index -= 1) {
+      const candidate = rows[index];
       const parsed = parseDateValue(candidate?.forecastProductionDate);
       if (parsed) return parsed;
     }
     return null;
-  }, [filteredRows]);
+  }, [rows]);
 
   const scheduleDeltaTotal = useMemo(() => {
     if (!lastForecastProductionDate || sortedSchedulePoints.length === 0) return 0;
@@ -1679,7 +1671,7 @@ const CampervanSchedule = () => {
           </div>
         </div>
         <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="flex flex-1 flex-col gap-2 sm:flex-row sm:items-center">
+          <div className="flex-1">
             <input
               type="text"
               value={searchTerm}
@@ -1687,20 +1679,9 @@ const CampervanSchedule = () => {
               placeholder="Search all rows..."
               className="w-full md:max-w-md rounded-md border-0 bg-gray-50 px-3 py-2 text-sm focus:outline-none focus:ring-0"
             />
-            <button
-              type="button"
-              onClick={() => setSrmOnlyMode((prev) => !prev)}
-              className={`w-fit rounded-md border px-3 py-2 text-xs font-semibold transition ${
-                srmOnlyMode
-                  ? 'border-indigo-600 bg-indigo-600 text-white hover:bg-indigo-700'
-                  : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50'
-              }`}
-            >
-              SRM
-            </button>
           </div>
           <div className="text-xs text-gray-500">
-            Showing {filteredRows.length} of {scopedRowsCount} rows
+            Showing {filteredRows.length} of {rows.length} rows
           </div>
         </div>
         {statusMessage && (
