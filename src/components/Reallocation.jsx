@@ -23,6 +23,9 @@ const Reallocation = ({ data }) => {
   const [reallocationRequests, setReallocationRequests] = useState([]);
   const [loading, setLoading] = useState(false);
   const [globalMessage, setGlobalMessage] = useState('');
+  const [showManualSubmit, setShowManualSubmit] = useState(false);
+  const [manualPassword, setManualPassword] = useState('');
+  const [manualRows, setManualRows] = useState([{ id: 1, chassisNumber: '', originalDealer: '', reallocatedTo: '' }]);
   const [trendFilter, setTrendFilter] = useState('all'); // 'all' | 'snowy'
   const [campervanScheduleRows, setCampervanScheduleRows] = useState([]);
   // ====== Charts Data (Snowy Stock not finished + Prefix distribution + 10-week trend) ======
@@ -425,6 +428,31 @@ const repetitionBadgeStyles = {
     });
   };
 
+  const submitReallocationRequest = async ({ chassis, dealer, dealerOri, status = 'Unknown', model = '', customer = '', signedPlansReceived = '' }) => {
+    const reallocationData = {
+      status,
+      originalDealer: dealerOri,
+      reallocatedTo: dealer,
+      submitTime: getMelbourneTime(),
+      model,
+      customer,
+      signedPlansReceived
+    };
+
+    const reallocationRef = ref(database, `reallocation/${chassis}`);
+    const newRequestRef = push(reallocationRef);
+    await set(newRequestRef, reallocationData);
+
+    await addDoc(collection(firestoreDB, "reallocation_mail"), {
+      to: ["darin@regentrv.com.au", "planning@regentrv.com.au", "marg@regentrv.com.au","karena@regentrv.com.au"],
+      message: {
+        subject: `New Reallocation Request: Chassis ${chassis}`,
+        text: `Chassis number ${chassis} has been requested for dealer ${dealer}.`,
+        html: `Chassis number <strong>${chassis}</strong> has been reallocated from dealer <strong>${dealerOri || 'Unknown'}</strong> to dealer <strong>${dealer}</strong>.`,
+      },
+    });
+  };
+
   const handleSubmit = async () => {
 
     const validRows = reallocationRows.filter(row => canSubmitRow(row));
@@ -443,30 +471,14 @@ const repetitionBadgeStyles = {
         const currentVan = row.currentVanInfo || {};
         const dealerOri = currentVan.Dealer || '';
 
-        // Realtime DB data
-        const reallocationData = {
+        await submitReallocationRequest({
+          chassis,
+          dealer,
+          dealerOri,
           status: currentVan['Regent Production'] || 'Unknown',
-          originalDealer: dealerOri,
-          reallocatedTo: dealer,
-          submitTime: getMelbourneTime(),
           model: currentVan.Model || '',
           customer: currentVan.Customer || '',
           signedPlansReceived: currentVan['Signed Plans Received'] || ''
-        };
-
-        // Write to Realtime Database
-        const reallocationRef = ref(database, `reallocation/${chassis}`);
-        const newRequestRef = push(reallocationRef);
-        await set(newRequestRef, reallocationData);
-
-        // Queue email in Firestore
-        await addDoc(collection(firestoreDB, "reallocation_mail"), {
-          to: ["darin@regentrv.com.au", "planning@regentrv.com.au", "marg@regentrv.com.au","karena@regentrv.com.au"],
-          message: {
-            subject: `New Reallocation Request: Chassis ${chassis}`,
-            text: `Chassis number ${chassis} has been requested for dealer ${dealer}.`,
-            html: `Chassis number <strong>${chassis}</strong> has been reallocated from dealer <strong>${dealerOri}</strong> to dealer <strong>${dealer}</strong>.`,
-          },
         });
 
         console.log(`Reallocation and email queued for chassis ${chassis}`);
@@ -493,6 +505,58 @@ const repetitionBadgeStyles = {
     } catch (error) {
       console.error('❌ Error submitting reallocation requests:', error);
       setGlobalMessage('Error submitting requests. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleManualRowChange = (rowId, field, value) => {
+    setManualRows(rows => rows.map(row => (row.id === rowId ? { ...row, [field]: value } : row)));
+  };
+
+  const addManualRow = () => {
+    const newId = Math.max(...manualRows.map(r => r.id)) + 1;
+    setManualRows([...manualRows, { id: newId, chassisNumber: '', originalDealer: '', reallocatedTo: '' }]);
+  };
+
+  const removeManualRow = (rowId) => {
+    if (manualRows.length > 1) {
+      setManualRows(manualRows.filter(row => row.id !== rowId));
+    }
+  };
+
+  const handleManualSubmit = async () => {
+    if (manualPassword !== '123') {
+      setGlobalMessage('Manual submit password is incorrect.');
+      return;
+    }
+
+    const validRows = manualRows.filter(row => row.chassisNumber.trim() && row.reallocatedTo.trim());
+    if (validRows.length === 0) {
+      setGlobalMessage('Please enter chassis number and new dealer for at least one manual row.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await Promise.all(
+        validRows.map(row =>
+          submitReallocationRequest({
+            chassis: row.chassisNumber.trim(),
+            dealer: row.reallocatedTo.trim(),
+            dealerOri: row.originalDealer.trim(),
+            status: 'Manual Override'
+          })
+        )
+      );
+
+      setGlobalMessage(`Successfully submitted ${validRows.length} manual reallocation request(s)!`);
+      setManualRows([{ id: 1, chassisNumber: '', originalDealer: '', reallocatedTo: '' }]);
+      setManualPassword('');
+      await loadReallocationRequests();
+    } catch (error) {
+      console.error('❌ Error submitting manual reallocation requests:', error);
+      setGlobalMessage('Error submitting manual requests. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -670,6 +734,96 @@ const repetitionBadgeStyles = {
                 </div>
               ))}
             </div>
+          </div>
+        )}
+      </div>
+
+      <div className="bg-white rounded-lg shadow-sm p-4 mb-4 border border-amber-200">
+        <button
+          onClick={() => setShowManualSubmit(!showManualSubmit)}
+          className="w-full flex items-center justify-between text-left"
+        >
+          <span className="text-lg font-semibold text-gray-700">Submit Reallocation Request (Manual Override)</span>
+          <span className="text-sm text-amber-700">{showManualSubmit ? 'Hide' : 'Open'}</span>
+        </button>
+
+        {showManualSubmit && (
+          <div className="mt-4 space-y-3">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Password</label>
+                <input
+                  type="password"
+                  value={manualPassword}
+                  onChange={(e) => setManualPassword(e.target.value)}
+                  className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-amber-500"
+                  placeholder="Enter password"
+                />
+              </div>
+            </div>
+
+            {manualRows.map((row) => (
+              <div key={row.id} className="border rounded-lg p-3 bg-amber-50">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Chassis Number</label>
+                    <input
+                      type="text"
+                      value={row.chassisNumber}
+                      onChange={(e) => handleManualRowChange(row.id, 'chassisNumber', e.target.value)}
+                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      placeholder="Any chassis"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Current Dealer (Optional)</label>
+                    <input
+                      type="text"
+                      value={row.originalDealer}
+                      onChange={(e) => handleManualRowChange(row.id, 'originalDealer', e.target.value)}
+                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      placeholder="Any dealer"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">New Dealer</label>
+                    <input
+                      type="text"
+                      value={row.reallocatedTo}
+                      onChange={(e) => handleManualRowChange(row.id, 'reallocatedTo', e.target.value)}
+                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      placeholder="Any dealer"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={addManualRow}
+                      className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm"
+                    >
+                      + Add Row
+                    </button>
+                    {manualRows.length > 1 && (
+                      <button
+                        onClick={() => removeManualRow(row.id)}
+                        className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+
+            <button
+              onClick={handleManualSubmit}
+              disabled={loading}
+              className={`px-6 py-2 rounded-md font-medium ${
+                !loading ? 'bg-amber-600 hover:bg-amber-700 text-white' : 'bg-gray-400 text-gray-200 cursor-not-allowed'
+              }`}
+            >
+              {loading ? 'Submitting...' : 'Submit Manual Requests'}
+            </button>
           </div>
         )}
       </div>
