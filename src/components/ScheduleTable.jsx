@@ -5,6 +5,7 @@ import html2canvas from 'html2canvas';
 import emailjs from '@emailjs/browser';
 import ReminderModal from './ReminderModal';
 import LoadingOverlay from './LoadingOverlay';
+import { formatChassisWithNzSpec } from '../utils/nzSpec';
 
 const ScheduleTable = React.memo(({ data, filters }) => {
   const [dealerColors, setDealerColors] = useState({});
@@ -712,13 +713,14 @@ const ScheduleTable = React.memo(({ data, filters }) => {
                       if (column.id === "Chassis") {
                         // Add "Red Slots" to chassis column for empty values in next 20 weeks
                         const showRedSlots = isDateWithinNext20Weeks(row["Forecast Production Date"]) && !row["Chassis"];
+                        const chassisDisplay = formatChassisWithNzSpec(row[column.id], row["Dealer"]);
                         return (
                           <td 
                             key={`${index}-${column.id}`}
                             className={`px-4 py-2 text-sm ${showRedSlots ? "text-red-600 font-bold" : "text-gray-700"} border-b border-gray-300 whitespace-nowrap text-center`}
                             style={{ width: `${columnWidths[column.id] || column.defaultWidth || 180}px` }}
                           >
-                            {showRedSlots ? "Red Slots" : row[column.id]}
+                            {showRedSlots ? "Red Slots" : chassisDisplay}
                           </td>
                         );
                       }

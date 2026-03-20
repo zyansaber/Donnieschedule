@@ -4,10 +4,9 @@ import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend, LineChart, L
 // Chart colors
 const chartColors = ['#2563eb','#16a34a','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#10b981','#f97316','#64748b','#d946ef'];
 import { ref, set, get, push } from 'firebase/database';
-import { getDatabase } from 'firebase/database';
-import { collection, addDoc, getDocs } from "firebase/firestore";
-import { getFirestore } from "firebase/firestore";
+import { collection, addDoc } from "firebase/firestore";
 import { database, firestoreDB } from '../utils/firebase';
+import { buildNzSpecMessage, isNzSpecDealer, shouldRequireNzSpecConfirmation, formatChassisWithNzSpec } from '../utils/nzSpec';
 
 const Reallocation = ({ data }) => {
   const [reallocationRows, setReallocationRows] = useState([{
@@ -17,7 +16,8 @@ const Reallocation = ({ data }) => {
     selectedDealer: '',
     message: '',
     historyInfo: null,
-    transportCompany: ''
+    transportCompany: '',
+    nzSpecConfirmation: ''
   }]);
   const [allDealers, setAllDealers] = useState([]);
   const [reallocationRequests, setReallocationRequests] = useState([]);
@@ -25,7 +25,7 @@ const Reallocation = ({ data }) => {
   const [globalMessage, setGlobalMessage] = useState('');
   const [showManualSubmit, setShowManualSubmit] = useState(false);
   const [manualPassword, setManualPassword] = useState('');
-  const [manualRows, setManualRows] = useState([{ id: 1, chassisNumber: '', originalDealer: '', reallocatedTo: '' }]);
+  const [manualRows, setManualRows] = useState([{ id: 1, chassisNumber: '', originalDealer: '', reallocatedTo: '', nzSpecConfirmation: '' }]);
   const [trendFilter, setTrendFilter] = useState('all'); // 'all' | 'snowy'
   const [campervanScheduleRows, setCampervanScheduleRows] = useState([]);
   // ====== Charts Data (Snowy Stock not finished + Prefix distribution + 10-week trend) ======
@@ -358,7 +358,8 @@ const repetitionBadgeStyles = {
               selectedDealer: '',
               message,
               historyInfo,
-              transportCompany
+              transportCompany,
+              nzSpecConfirmation: isNzSpecDealer(resolvedVanInfo.Dealer) ? 'yes' : ''
             };
           } else {
             return {
@@ -368,7 +369,8 @@ const repetitionBadgeStyles = {
               selectedDealer: '',
               message: 'Chassis number not found',
               historyInfo: null,
-              transportCompany
+              transportCompany,
+              nzSpecConfirmation: ''
             };
           }
         } else {
@@ -379,7 +381,8 @@ const repetitionBadgeStyles = {
             selectedDealer: '',
             message: '',
             historyInfo: null,
-            transportCompany: ''
+            transportCompany: '',
+            nzSpecConfirmation: ''
           };
         }
       }
@@ -390,7 +393,8 @@ const repetitionBadgeStyles = {
   const handleDealerChange = (rowId, dealer) => {
     const newRows = reallocationRows.map(row => {
       if (row.id === rowId) {
-        return { ...row, selectedDealer: dealer };
+        const shouldResetNzConfirmation = !shouldRequireNzSpecConfirmation(row.currentVanInfo?.Dealer, dealer);
+        return { ...row, selectedDealer: dealer, nzSpecConfirmation: shouldResetNzConfirmation ? '' : row.nzSpecConfirmation };
       }
       return row;
     });
@@ -406,7 +410,8 @@ const repetitionBadgeStyles = {
       selectedDealer: '',
       message: '',
       historyInfo: null,
-      transportCompany: ''
+      transportCompany: '',
+      nzSpecConfirmation: ''
     }]);
   };
 
@@ -428,7 +433,7 @@ const repetitionBadgeStyles = {
     });
   };
 
-  const submitReallocationRequest = async ({ chassis, dealer, dealerOri, status = 'Unknown', model = '', customer = '', signedPlansReceived = '' }) => {
+  const submitReallocationRequest = async ({ chassis, dealer, dealerOri, status = 'Unknown', model = '', customer = '', signedPlansReceived = '', nzSpec = false }) => {
     const reallocationData = {
       status,
       originalDealer: dealerOri,
@@ -436,7 +441,8 @@ const repetitionBadgeStyles = {
       submitTime: getMelbourneTime(),
       model,
       customer,
-      signedPlansReceived
+      signedPlansReceived,
+      nzSpec
     };
 
     const reallocationRef = ref(database, `reallocation/${chassis}`);
@@ -447,8 +453,8 @@ const repetitionBadgeStyles = {
       to: ["darin@regentrv.com.au", "planning@regentrv.com.au", "marg@regentrv.com.au","karena@regentrv.com.au"],
       message: {
         subject: `New Reallocation Request: Chassis ${chassis}`,
-        text: `Chassis number ${chassis} has been requested for dealer ${dealer}.`,
-        html: `Chassis number <strong>${chassis}</strong> has been reallocated from dealer <strong>${dealerOri || 'Unknown'}</strong> to dealer <strong>${dealer}</strong>.`,
+        text: `Chassis number ${chassis} has been requested for dealer ${dealer}.${nzSpec ? ' This vehicle is NZ spec.' : ''}`,
+        html: `Chassis number <strong>${chassis}</strong> has been reallocated from dealer <strong>${dealerOri || 'Unknown'}</strong> to dealer <strong>${dealer}</strong>.${nzSpec ? '<br /><br />This vehicle is NZ spec.' : ''}`,
       },
     });
   };
@@ -478,7 +484,8 @@ const repetitionBadgeStyles = {
           status: currentVan['Regent Production'] || 'Unknown',
           model: currentVan.Model || '',
           customer: currentVan.Customer || '',
-          signedPlansReceived: currentVan['Signed Plans Received'] || ''
+          signedPlansReceived: currentVan['Signed Plans Received'] || '',
+          nzSpec: row.nzSpecConfirmation === 'yes'
         });
 
         console.log(`Reallocation and email queued for chassis ${chassis}`);
@@ -496,7 +503,8 @@ const repetitionBadgeStyles = {
         selectedDealer: '',
         message: '',
         historyInfo: null,
-        transportCompany: ''
+        transportCompany: '',
+        nzSpecConfirmation: ''
       }]);
 
       // Reload requests
@@ -516,7 +524,7 @@ const repetitionBadgeStyles = {
 
   const addManualRow = () => {
     const newId = Math.max(...manualRows.map(r => r.id)) + 1;
-    setManualRows([...manualRows, { id: newId, chassisNumber: '', originalDealer: '', reallocatedTo: '' }]);
+    setManualRows([...manualRows, { id: newId, chassisNumber: '', originalDealer: '', reallocatedTo: '', nzSpecConfirmation: '' }]);
   };
 
   const removeManualRow = (rowId) => {
@@ -531,9 +539,13 @@ const repetitionBadgeStyles = {
       return;
     }
 
-    const validRows = manualRows.filter(row => row.chassisNumber.trim() && row.reallocatedTo.trim());
+    const validRows = manualRows.filter(row => {
+      if (!row.chassisNumber.trim() || !row.reallocatedTo.trim()) return false;
+      const requiresNzSpecConfirmation = shouldRequireNzSpecConfirmation(row.originalDealer, row.reallocatedTo);
+      return !requiresNzSpecConfirmation || Boolean(row.nzSpecConfirmation);
+    });
     if (validRows.length === 0) {
-      setGlobalMessage('Please enter chassis number and new dealer for at least one manual row.');
+      setGlobalMessage('Please enter chassis number, new dealer, and NZ spec confirmation where required for at least one manual row.');
       return;
     }
 
@@ -545,13 +557,14 @@ const repetitionBadgeStyles = {
             chassis: row.chassisNumber.trim(),
             dealer: row.reallocatedTo.trim(),
             dealerOri: row.originalDealer.trim(),
-            status: 'Manual Override'
+            status: 'Manual Override',
+            nzSpec: row.nzSpecConfirmation === 'yes'
           })
         )
       );
 
       setGlobalMessage(`Successfully submitted ${validRows.length} manual reallocation request(s)!`);
-      setManualRows([{ id: 1, chassisNumber: '', originalDealer: '', reallocatedTo: '' }]);
+      setManualRows([{ id: 1, chassisNumber: '', originalDealer: '', reallocatedTo: '', nzSpecConfirmation: '' }]);
       setManualPassword('');
       await loadReallocationRequests();
     } catch (error) {
@@ -613,6 +626,7 @@ const repetitionBadgeStyles = {
     
     const status = row.currentVanInfo['Regent Production'] || '';
     const signedPlansReceived = row.currentVanInfo['Signed Plans Received'] || '';
+    const requiresNzSpecConfirmation = shouldRequireNzSpecConfirmation(row.currentVanInfo?.Dealer, row.selectedDealer);
     
     if (row.transportCompany) return false;
 
@@ -621,6 +635,8 @@ const repetitionBadgeStyles = {
     
     // Can't submit if signed plans received is "No"
     if (signedPlansReceived.toLowerCase() === 'no') return false;
+
+    if (requiresNzSpecConfirmation && !row.nzSpecConfirmation) return false;
     
     return true;
   };
@@ -648,6 +664,44 @@ const repetitionBadgeStyles = {
 
   const canSubmitAnyRow = () => {
     return reallocationRows.some(row => canSubmitRow(row));
+  };
+
+  const renderNzSpecPrompt = ({ currentDealer = '', newDealer = '', value = '', onChange, keyPrefix }) => {
+    const requiresNzSpecConfirmation = shouldRequireNzSpecConfirmation(currentDealer, newDealer);
+    if (!requiresNzSpecConfirmation) return null;
+
+    const promptMessage = buildNzSpecMessage(currentDealer, newDealer);
+
+    return (
+      <div className="mt-3 rounded-md border border-sky-200 bg-sky-50 px-3 py-2">
+        <div className="text-xs font-medium text-sky-900">{promptMessage}</div>
+        <div className="mt-2">
+          <div className="text-xs text-sky-800 mb-1">Please confirm whether this vehicle is NZ spec.</div>
+          <div className="flex flex-wrap gap-4 text-xs text-sky-900">
+            <label className="inline-flex items-center gap-1">
+              <input
+                type="radio"
+                name={`${keyPrefix}-nz-spec`}
+                value="yes"
+                checked={value === 'yes'}
+                onChange={(event) => onChange(event.target.value)}
+              />
+              Yes
+            </label>
+            <label className="inline-flex items-center gap-1">
+              <input
+                type="radio"
+                name={`${keyPrefix}-nz-spec`}
+                value="no"
+                checked={value === 'no'}
+                onChange={(event) => onChange(event.target.value)}
+              />
+              No
+            </label>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   const filteredRequests = reallocationRequests.filter(request => {
@@ -812,6 +866,14 @@ const repetitionBadgeStyles = {
                     )}
                   </div>
                 </div>
+
+                {renderNzSpecPrompt({
+                  currentDealer: row.originalDealer,
+                  newDealer: row.reallocatedTo,
+                  value: row.nzSpecConfirmation,
+                  onChange: (value) => handleManualRowChange(row.id, 'nzSpecConfirmation', value),
+                  keyPrefix: `manual-${row.id}`,
+                })}
               </div>
             ))}
 
@@ -953,6 +1015,20 @@ const repetitionBadgeStyles = {
                   {getRowStatus(row)}
                 </div>
               )}
+
+              {renderNzSpecPrompt({
+                currentDealer: row.currentVanInfo?.Dealer,
+                newDealer: row.selectedDealer,
+                value: row.nzSpecConfirmation,
+                onChange: (value) => {
+                  setReallocationRows((prevRows) => prevRows.map((existingRow) => (
+                    existingRow.id === row.id
+                      ? { ...existingRow, nzSpecConfirmation: value }
+                      : existingRow
+                  )));
+                },
+                keyPrefix: `reallocation-${row.id}`,
+              })}
             </div>
           ))}
         </div>
@@ -1128,7 +1204,7 @@ const repetitionBadgeStyles = {
                     <tr key={index} style={{ backgroundColor: rowBgColor }}>
                       <td className="px-4 py-2 text-sm text-black font-bold">
                         <div className="flex items-center gap-2">
-                          <span>{request.chassisNumber}</span>
+                          <span>{request.nzSpec ? `${request.chassisNumber} (NZspec)` : formatChassisWithNzSpec(request.chassisNumber, request.originalDealer)}</span>
                           {chassisCount > 1 && (
                             <span
                               className={getRepetitionBadgeClass(chassisCount)}

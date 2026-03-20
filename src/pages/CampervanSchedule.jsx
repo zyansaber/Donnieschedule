@@ -17,6 +17,7 @@ import {
 } from 'recharts';
 import { get, ref, set } from 'firebase/database';
 import { database } from '../utils/firebase';
+import { isNzSpecDealer } from '../utils/nzSpec';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const COMPANY_HOLIDAYS = [
@@ -2532,31 +2533,37 @@ const CampervanSchedule = () => {
                   const customerText = String(row.customer || '').trim().toLowerCase();
                   const isCustomerNonStock =
                     column.key === 'customer' && customerText && !customerText.includes('stock');
+                  const showNzSpecBadge = column.key === 'chassisNumber' && isNzSpecDealer(row.dealer);
                   return (
                     <td
                       key={column.key}
                       className="px-3 py-2"
                       style={{ width: columnWidths[column.key], minWidth: columnWidths[column.key] }}
                     >
-                      <input
-                        type={inputType}
-                        value={row[column.key]}
-                        onChange={(event) => updateRow(index, column.key, event.target.value)}
-                        readOnly={column.readOnly}
-                        className={`w-full rounded border-0 px-2 py-1 text-xs focus:outline-none focus:ring-0 ${
-                          column.readOnly
-                            ? 'bg-gray-100 text-gray-500 cursor-not-allowed'
-                            : 'bg-white'
-                        } ${isEmptyDate ? 'text-transparent' : ''} ${
-                          isVehicleOrderMissing
-                            ? 'bg-red-50 text-red-700 ring-1 ring-red-200 shadow-inner transition-colors'
-                            : ''
-                        } ${
-                          isCustomerNonStock
-                            ? 'bg-gradient-to-r from-amber-100 to-amber-50 text-amber-900 ring-1 ring-amber-200 shadow-sm'
-                            : ''
-                        }`}
-                      />
+                      <div className={showNzSpecBadge ? 'flex items-center gap-2' : ''}>
+                        <input
+                          type={inputType}
+                          value={row[column.key]}
+                          onChange={(event) => updateRow(index, column.key, event.target.value)}
+                          readOnly={column.readOnly}
+                          className={`w-full rounded border-0 px-2 py-1 text-xs focus:outline-none focus:ring-0 ${
+                            column.readOnly
+                              ? 'bg-gray-100 text-gray-500 cursor-not-allowed'
+                              : 'bg-white'
+                          } ${isEmptyDate ? 'text-transparent' : ''} ${
+                            isVehicleOrderMissing
+                              ? 'bg-red-50 text-red-700 ring-1 ring-red-200 shadow-inner transition-colors'
+                              : ''
+                          } ${
+                            isCustomerNonStock
+                              ? 'bg-gradient-to-r from-amber-100 to-amber-50 text-amber-900 ring-1 ring-amber-200 shadow-sm'
+                              : ''
+                          }`}
+                        />
+                        {showNzSpecBadge && (
+                          <span className="whitespace-nowrap text-[11px] font-semibold text-sky-700">(NZspec)</span>
+                        )}
+                      </div>
                     </td>
                   );
                 })}
