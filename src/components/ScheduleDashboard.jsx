@@ -6,7 +6,7 @@ import StagesByClassChart from './charts/StagesByClassChart';
 import ForecastYearBreakdown from './charts/ForecastYearBreakdown';
 import LoadingOverlay from './LoadingOverlay';
 
-const ScheduleDashboard = ({ data, onCreateShuffleRequests }) => {
+const ScheduleDashboard = ({ data }) => {
   const [filteredData, setFilteredData] = useState(data);
   const [filters, setFilters] = useState({});
   const [showCharts, setShowCharts] = useState(true);
@@ -196,7 +196,7 @@ const ScheduleDashboard = ({ data, onCreateShuffleRequests }) => {
 
       <div className="w-full">
         <ScheduleFilters data={data} onFilterChange={handleFilterChange} />
-        <ScheduleTable data={filteredData} filters={filters} onCreateShuffleRequests={onCreateShuffleRequests} />
+        <ScheduleTable data={filteredData} filters={filters} />
       </div>
     </div>
   );
