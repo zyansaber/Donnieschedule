@@ -1,45 +1,24 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { fetchDealerColors } from '../data/scheduleData';
 import { isDateWithinNext20Weeks } from '../data/scheduleData';
+import html2canvas from 'html2canvas';
+import emailjs from '@emailjs/browser';
+import ReminderModal from './ReminderModal';
 import LoadingOverlay from './LoadingOverlay';
 import { formatChassisWithNzSpec } from '../utils/nzSpec';
 
-const ScheduleTable = React.memo(({ data, filters, onCreateShuffleRequests }) => {
-  const parseDdMmYyyy = (value) => {
-    if (!value) return null;
-    const parts = String(value).split('/');
-    if (parts.length < 3) return null;
-    const day = Number(parts[0]);
-    const month = Number(parts[1]) - 1;
-    const year = Number(parts[2]);
-    const parsed = new Date(year, month, day);
-    return Number.isNaN(parsed.getTime()) ? null : parsed;
-  };
-
-  const formatDdMmYyyy = (date) => {
-    if (!date || Number.isNaN(date.getTime())) return '';
-    const day = String(date.getDate()).padStart(2, '0');
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const year = date.getFullYear();
-    return `${day}/${month}/${year}`;
-  };
-
-  const getDeliveryDate = (forecastDate) => {
-    const parsed = parseDdMmYyyy(forecastDate);
-    if (!parsed) return '';
-    const next = new Date(parsed.getTime());
-    next.setDate(next.getDate() + 20);
-    return formatDdMmYyyy(next);
-  };
-
+const ScheduleTable = React.memo(({ data, filters }) => {
   const [dealerColors, setDealerColors] = useState({});
   const [sortConfig, setSortConfig] = useState({ key: 'id', direction: 'ascending' });
   const [hideFinished, setHideFinished] = useState(true); // Set to true by default - Restored
   const [chassisSearch, setChassisSearch] = useState('');
   const [debouncedChassisSearch, setDebouncedChassisSearch] = useState('');
+  const [noteText, setNoteText] = useState('');
+  const [showNoteModal, setShowNoteModal] = useState(false);
+  const [showReminderModal, setShowReminderModal] = useState(false);
+  const [sending, setSending] = useState(false);
   const [selectedChassis, setSelectedChassis] = useState([]);
-  const [showShuffleColumn, setShowShuffleColumn] = useState(false);
-  const [selectedMonth, setSelectedMonth] = useState('');
+  const [showNoteColumn, setShowNoteColumn] = useState(false);
   const [columnWidths, setColumnWidths] = useState({});
   const [resizingColumn, setResizingColumn] = useState(null);
   const [startX, setStartX] = useState(0);
@@ -74,9 +53,9 @@ const ScheduleTable = React.memo(({ data, filters, onCreateShuffleRequests }) =>
   // "Shipment", "Purchase Order Sent", and now "Order Received Date"
   const baseColumns = [
     // Add checkbox column when in note mode
-    ...(showShuffleColumn ? [{ id: 'select', label: 'Select', sortable: false, defaultWidth: 80 }] : []),
+    ...(showNoteColumn ? [{ id: 'select', label: 'Select', sortable: false, defaultWidth: 80 }] : []),
     // Put Forecast Production Date as the first column
-    { id: 'Forecast Production Date', label: showShuffleColumn ? 'Delivery Date' : 'Forecast Production Date', sortable: true, defaultWidth: 180 },
+    { id: 'Forecast Production Date', label: 'Forecast Production Date', sortable: true, defaultWidth: 180 },
     { id: 'Chassis', label: 'Chassis', sortable: true, defaultWidth: 140 },
     { id: 'Customer', label: 'Customer', sortable: true, defaultWidth: 180 },
     { id: 'Dealer', label: 'Dealer', sortable: true, defaultWidth: 140 },
@@ -236,9 +215,8 @@ const ScheduleTable = React.memo(({ data, filters, onCreateShuffleRequests }) =>
     // Apply forecast year filter
     if (filters.forecastYear) {
       result = result.filter(item => {
-        const dateValue = showShuffleColumn ? getDeliveryDate(item["Forecast Production Date"]) : item["Forecast Production Date"];
-        if (dateValue) {
-          const dateParts = dateValue.split('/');
+        if (item["Forecast Production Date"]) {
+          const dateParts = item["Forecast Production Date"].split('/');
           return dateParts.length >= 3 && dateParts[2] === filters.forecastYear;
         }
         return false;
@@ -248,9 +226,8 @@ const ScheduleTable = React.memo(({ data, filters, onCreateShuffleRequests }) =>
     // Apply forecast year-month filter
     if (filters.forecastYearMonth) {
       result = result.filter(item => {
-        const dateValue = showShuffleColumn ? getDeliveryDate(item["Forecast Production Date"]) : item["Forecast Production Date"];
-        if (dateValue) {
-          const dateParts = dateValue.split('/');
+        if (item["Forecast Production Date"]) {
+          const dateParts = item["Forecast Production Date"].split('/');
           if (dateParts.length >= 3) {
             const yearMonth = `${dateParts[2]}-${dateParts[1]}`; // YYYY-MM format
             return yearMonth === filters.forecastYearMonth;
@@ -312,7 +289,7 @@ const ScheduleTable = React.memo(({ data, filters, onCreateShuffleRequests }) =>
     }
     
     return result;
-  }, [baseFilteredData, filters, debouncedChassisSearch, showShuffleColumn]);
+  }, [baseFilteredData, filters, debouncedChassisSearch]);
 
   const sortedData = useMemo(() => {
     if (!filteredData) return [];
@@ -357,25 +334,126 @@ const ScheduleTable = React.memo(({ data, filters, onCreateShuffleRequests }) =>
     document.body.removeChild(link);
   };
 
-  const selectableMonths = useMemo(() => {
-    const months = [];
-    const now = new Date();
-    const start = new Date(now.getFullYear(), now.getMonth(), 1);
-    for (let i = 0; i < 12; i += 1) {
-      const monthDate = new Date(start.getFullYear(), start.getMonth() + i, 1);
-      months.push(`${monthDate.getFullYear()}-${String(monthDate.getMonth() + 1).padStart(2, '0')}`);
+  // Function to handle sending note with table screenshot
+  const handleSendNote = async () => {
+    if (!noteText) {
+      alert("Please enter a note before sending");
+      return;
     }
-    return months;
-  }, []);
 
-  const handleCreateShufflingRequest = () => {
-    if (!selectedMonth || selectedChassis.length === 0) return;
-    const selectedRows = sortedData.filter((row) => selectedChassis.includes(row.Chassis));
-    if (onCreateShuffleRequests) {
-      onCreateShuffleRequests(selectedRows, selectedMonth);
+    setSending(true);
+    try {
+      // Take screenshot of the table - use a smaller selection for performance
+      if (tableRef.current) {
+        // Get only the visible part of the table for better performance
+        const visibleTable = document.createElement('div');
+        visibleTable.innerHTML = `
+          <h3>Selected Chassis: ${selectedChassis.join(", ")}</h3>
+          <table border="1" cellpadding="5" style="border-collapse: collapse;">
+            <thead>
+              <tr>
+                ${columns.map(col => `<th>${col.label}</th>`).join('')}
+              </tr>
+            </thead>
+            <tbody>
+              ${sortedData
+                .filter(row => selectedChassis.includes(row.Chassis))
+                .map(row => `
+                  <tr>
+                    ${columns.map(col => `<td>${row[col.id] || ''}</td>`).join('')}
+                  </tr>
+                `).join('')}
+            </tbody>
+          </table>
+        `;
+        
+        // Email parameters - with reduced image size
+        const emailParams = {
+          from_name: 'Schedule Dashboard',
+          to_email: 'yan@regentrv.com.au',
+          message: noteText,
+          selected_chassis: selectedChassis.join(", "),
+          chassis_count: selectedChassis.length,
+        };
+        
+        // Send email via EmailJS - don't include the large image
+        const result = await emailjs.send(
+          'service_zjcpaps',
+          'template_barjtqgp',
+          emailParams,
+          'rAEsoMfySq9l5mXvz' // EmailJS public key for service_zjcpaps
+        );
+        
+        if (result.status === 200) {
+          alert('Note sent successfully!');
+          setNoteText('');
+          setSelectedChassis([]);
+          setShowNoteModal(false);
+          setShowNoteColumn(false);
+        } else {
+          throw new Error('Failed to send email');
+        }
+      }
+    } catch (error) {
+      console.error('Error sending email:', error);
+      alert('Failed to send note: ' + error.message);
+    } finally {
+      setSending(false);
     }
-    setSelectedChassis([]);
-    setShowShuffleColumn(false);
+  };
+
+
+
+  // Note Modal Component
+  const NoteModal = () => {
+    if (!showNoteModal) return null;
+    
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="bg-white rounded-lg p-6 w-full max-w-lg">
+          <h2 className="text-xl font-bold mb-4">Add Note</h2>
+          
+          {/* Show selected chassis */}
+          {selectedChassis.length > 0 && (
+            <div className="mb-4 p-3 bg-gray-50 rounded">
+              <h3 className="text-sm font-medium text-gray-700 mb-2">Selected Chassis:</h3>
+              <div className="text-sm text-gray-600">
+                {selectedChassis.join(", ")}
+              </div>
+            </div>
+          )}
+          
+          <textarea 
+            className="w-full h-40 border border-gray-300 rounded p-2 mb-4"
+            placeholder="Enter your note here..."
+            value={noteText}
+            onChange={(e) => setNoteText(e.target.value)}
+            onKeyDown={(e) => e.stopPropagation()}
+            onKeyPress={(e) => e.stopPropagation()}
+          />
+          <div className="flex justify-end space-x-3">
+            <button 
+              className="bg-gray-300 text-gray-800 px-4 py-2 rounded"
+              onClick={() => {
+                setShowNoteModal(false);
+                setShowNoteColumn(false);
+                setSelectedChassis([]);
+                setNoteText('');
+              }}
+            >
+              Cancel
+            </button>
+            <button 
+              className="bg-blue-600 text-white px-4 py-2 rounded"
+              onClick={handleSendNote}
+              disabled={sending}
+            >
+              {sending ? "Sending..." : "Send Note"}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   // Expanded color palette for dealer colors
@@ -496,17 +574,42 @@ const ScheduleTable = React.memo(({ data, filters, onCreateShuffleRequests }) =>
         </div>
         
         <div className="flex space-x-2">
-          <button
-            className={`px-4 py-2 rounded-md ${showShuffleColumn ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'} text-white`}
+          <button 
+            className={`px-4 py-2 rounded-md ${showNoteColumn ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'} text-white`}
             onClick={() => {
-              if (showShuffleColumn) {
+              if (showNoteColumn) {
+                // If closing note mode, clear selections
                 setSelectedChassis([]);
               }
-              setShowShuffleColumn(!showShuffleColumn);
+              setShowNoteColumn(!showNoteColumn);
             }}
           >
-            {showShuffleColumn ? 'Cancel Selection' : 'Schedule Shuffling'}
+            {showNoteColumn ? 'Cancel Selection' : 'Add Note'}
           </button>
+          
+          <button 
+            className="bg-amber-500 text-white px-4 py-2 rounded-md hover:bg-amber-600 flex items-center"
+            onClick={() => {
+              // Add select column without entering note mode
+              setShowNoteColumn(true);
+              setShowReminderModal(true);
+            }}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6zM10 18a3 3 0 01-3-3h6a3 3 0 01-3 3z" />
+            </svg>
+            Add Reminder
+          </button>
+          
+          {showNoteColumn && (
+            <button 
+              className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
+              onClick={() => setShowNoteModal(true)}
+              disabled={selectedChassis.length === 0}
+            >
+              Write Note ({selectedChassis.length} selected)
+            </button>
+          )}
           
           <button 
             className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
@@ -516,40 +619,19 @@ const ScheduleTable = React.memo(({ data, filters, onCreateShuffleRequests }) =>
           </button>
         </div>
       </div>
-
-      {showShuffleColumn && (
-        <div className="fixed bottom-6 right-6 z-50 bg-white shadow-2xl border border-gray-200 rounded-xl p-3 flex items-center gap-2">
-          <button
-            className="px-3 py-2 rounded-md bg-red-600 hover:bg-red-700 text-white"
-            onClick={() => {
-              setShowShuffleColumn(false);
-              setSelectedChassis([]);
-              setSelectedMonth('');
-            }}
-          >
-            Cancel Selection
-          </button>
-          <select
-            className="border border-gray-300 rounded-md px-3 py-2"
-            value={selectedMonth}
-            onChange={(event) => setSelectedMonth(event.target.value)}
-          >
-            <option value="">Select Month</option>
-            {selectableMonths.map((month) => (
-              <option key={month} value={month}>{month}</option>
-            ))}
-          </select>
-          <button
-            className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:bg-gray-400"
-            onClick={handleCreateShufflingRequest}
-            disabled={!selectedMonth || selectedChassis.length === 0}
-          >
-            Confirm ({selectedChassis.length} selected)
-          </button>
-        </div>
-      )}
       
 
+      
+      {/* Note Modal */}
+      <NoteModal />
+      
+      {/* Reminder Modal */}
+      <ReminderModal 
+        isOpen={showReminderModal}
+        onClose={() => setShowReminderModal(false)}
+        selectedChassis={selectedChassis}
+        chassisData={data || []}
+      />
       
       <div ref={tableRef} className="overflow-hidden">
         <table className="min-w-full bg-white border border-gray-200">
@@ -639,19 +721,6 @@ const ScheduleTable = React.memo(({ data, filters, onCreateShuffleRequests }) =>
                             style={{ width: `${columnWidths[column.id] || column.defaultWidth || 180}px` }}
                           >
                             {showRedSlots ? "Red Slots" : chassisDisplay}
-                          </td>
-                        );
-                      }
-
-                      if (column.id === 'Forecast Production Date' && showShuffleColumn) {
-                        const deliveryDate = getDeliveryDate(row[column.id]);
-                        return (
-                          <td
-                            key={`${index}-${column.id}`}
-                            className="px-4 py-2 text-sm text-gray-700 border-b border-gray-300 whitespace-nowrap text-center"
-                            style={{ width: `${columnWidths[column.id] || column.defaultWidth || 180}px` }}
-                          >
-                            {deliveryDate}
                           </td>
                         );
                       }
