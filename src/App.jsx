@@ -1,34 +1,78 @@
 import React, { useState, useEffect } from 'react';
+import emailjs from '@emailjs/browser';
+import { get, ref, set } from 'firebase/database';
 import ReminderChecker from './components/ReminderChecker';
 import Header from './components/Header';
 import ScheduleDashboard from './components/ScheduleDashboard';
 import LoadingOverlay from './components/LoadingOverlay';
-import AllocationSummary from './components/AllocationSummary';
-import PieChartComponent from './components/charts/PieChart';
 import StockLevelAnalysis from './components/StockLevelAnalysis';
 import UnfinishedVanTracking from './components/UnfinishedVanTracking';
 import Reallocation from './components/Reallocation';
 import CampervanSchedule from './pages/CampervanSchedule';
 import InternalSnowyPage from './pages/InternalSnowy';
+import ScheduleAdjustment, { buildShuffleRequests } from './components/ScheduleAdjustment';
 import { fetchScheduleData, mockScheduleData } from './data/scheduleData';
+import { database } from './utils/firebase';
 
 function App() {
   const [activeView, setActiveView] = useState('schedule');
   const [scheduleData, setScheduleData] = useState([]);
+  const [shuffleRequests, setShuffleRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [shuffleRequestsLoaded, setShuffleRequestsLoaded] = useState(false);
   const internalSnowyPath = '/xxx/internal-snowy-2487';
   const isInternalSnowy = window.location.pathname === internalSnowyPath;
 
   const menuItems = [
     { id: 'schedule', name: 'Schedule', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
+    { id: 'schedule-adjustment', name: 'Schedule Adjustment', icon: 'M8 7h8m-8 5h8m-8 5h8M6 7h.01M6 12h.01M6 17h.01' },
     { id: 'stock-level', name: 'Stock Level Analysis', icon: 'M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z' },
     { id: 'van-tracking', name: 'Unfinished Van Date Tracking', icon: 'M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z' },
-    { id: 'allocation-summary', name: 'Allocation Summary', icon: 'M4 6h16M4 10h16M4 14h16M4 18h16' },
     { id: 'reallocation', name: 'Reallocation', icon: 'M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4' },
     { id: 'campervan-schedule', name: 'Campervan Schedule', icon: 'M3 7h18M3 12h18M3 17h18M5 5h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2z' },
-    { id: 'internal-snowy', name: 'Yard Cards', icon: 'M12 8v8m4-4H8m4-6a9 9 0 100 18 9 9 0 000-18z' }
   ];
+
+  const handleCreateShuffleRequests = (selectedRows, targetMonth) => {
+    if (!selectedRows || selectedRows.length === 0 || !targetMonth) return;
+    const newRequests = buildShuffleRequests(selectedRows, targetMonth, scheduleData);
+    setShuffleRequests((prev) => [...newRequests, ...prev]);
+    const parseDate = (value) => {
+      const parts = String(value || '').split('/');
+      if (parts.length < 3) return null;
+      const d = new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0]));
+      return Number.isNaN(d.getTime()) ? null : d;
+    };
+    const subtractDays = (value, days) => {
+      const parsed = parseDate(value);
+      if (!parsed) return '';
+      const next = new Date(parsed.getTime());
+      next.setDate(next.getDate() - days);
+      const dd = String(next.getDate()).padStart(2, '0');
+      const mm = String(next.getMonth() + 1).padStart(2, '0');
+      const yyyy = next.getFullYear();
+      return `${dd}/${mm}/${yyyy}`;
+    };
+
+    const requestRows = newRequests.map((item) => (
+      `${item.chassis || ''} | ${subtractDays(item.adjustedTime, 20)} | ${item.monthVin || ''}`
+    ));
+
+    emailjs.send(
+      'service_d39k2lv',
+      'template_gdxbyhg',
+      {
+        title: 'Schedule Shuffling Requests',
+        total_count: newRequests.length,
+        request_table: requestRows.join('\n'),
+        generated_at: new Date().toISOString(),
+      },
+      'Ox1_IwykSClDMOhqz',
+    ).catch((error) => {
+      console.error('Failed to auto-send schedule shuffling email:', error);
+    });
+    setActiveView('schedule-adjustment');
+  };
 
   useEffect(() => {
     document.body.style.zoom = "125%";
@@ -59,6 +103,44 @@ function App() {
 
     getScheduleData();
   }, []);
+
+  useEffect(() => {
+    const loadShuffleRequests = async () => {
+      try {
+        const shuffleRef = ref(database, 'scheduleShufflingRequests');
+        const snapshot = await get(shuffleRef);
+        if (snapshot.exists()) {
+          const raw = snapshot.val();
+          if (Array.isArray(raw)) {
+            setShuffleRequests(raw.filter(Boolean));
+          } else if (raw && typeof raw === 'object') {
+            setShuffleRequests(Object.values(raw).filter(Boolean));
+          }
+        } else {
+          setShuffleRequests([]);
+        }
+      } catch (loadError) {
+        console.error('Failed to load schedule shuffling requests:', loadError);
+      } finally {
+        setShuffleRequestsLoaded(true);
+      }
+    };
+
+    loadShuffleRequests();
+  }, []);
+
+  useEffect(() => {
+    if (!shuffleRequestsLoaded) return;
+    const persistShuffleRequests = async () => {
+      try {
+        const shuffleRef = ref(database, 'scheduleShufflingRequests');
+        await set(shuffleRef, shuffleRequests);
+      } catch (saveError) {
+        console.error('Failed to save schedule shuffling requests:', saveError);
+      }
+    };
+    persistShuffleRequests();
+  }, [shuffleRequests, shuffleRequestsLoaded]);
 
   const handleMenuClick = (itemId) => {
     setActiveView(itemId);
@@ -99,17 +181,16 @@ function App() {
         ) : (
           <>
             <ReminderChecker data={scheduleData} />
-            {activeView === 'schedule' && <ScheduleDashboard data={scheduleData} />}
+            {activeView === 'schedule' && <ScheduleDashboard data={scheduleData} onCreateShuffleRequests={handleCreateShuffleRequests} />}
+            {activeView === 'schedule-adjustment' && (
+              <ScheduleAdjustment
+                data={scheduleData}
+                shuffleRequests={shuffleRequests}
+                setShuffleRequests={setShuffleRequests}
+              />
+            )}
             {activeView === 'stock-level' && <StockLevelAnalysis data={scheduleData} />}
             {activeView === 'van-tracking' && <UnfinishedVanTracking />}
-            {activeView === 'allocation-summary' && (
-              <>
-                <AllocationSummary data={scheduleData} />
-                <div className="mt-8">
-                  <PieChartComponent scheduleData={scheduleData} />
-                </div>
-              </>
-            )}
             {activeView === 'reallocation' && <Reallocation data={scheduleData} />}
             {activeView === 'campervan-schedule' && <CampervanSchedule />}
             {activeView === 'internal-snowy' && <InternalSnowyPage />}
