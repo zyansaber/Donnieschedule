@@ -148,6 +148,19 @@ const ScheduleFilters = ({ data, onFilterChange }) => {
   return (
     <div className="bg-white p-4 rounded-lg shadow-sm mb-6 text-base" style={{ zoom: '125%' }}>
       <h2 className="text-lg font-medium text-gray-800 mb-4">Filters</h2>
+        {/* Type Filter */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
+          <select
+            className="w-full border rounded py-2 px-3"
+            value={filters.type}
+            onChange={(e) => handleFilterChange('type', e.target.value)}
+          >
+            <option value="">All Types</option>
+            <option value="stock">Stock</option>
+            <option value="customer">Customer</option>
+          </select>
+        </div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Dealer */}
         <div>
@@ -244,7 +257,6 @@ const ScheduleFilters = ({ data, onFilterChange }) => {
       <div className="mt-4 flex justify-end">
         <button
           onClick={() => setFilters({
-            type: '',
             dealer: '',
             forecastYear: '',
             forecastYearMonth: '',
