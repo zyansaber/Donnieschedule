@@ -1,24 +1,18 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { fetchDealerColors } from '../data/scheduleData';
 import { isDateWithinNext20Weeks } from '../data/scheduleData';
-import html2canvas from 'html2canvas';
-import emailjs from '@emailjs/browser';
-import ReminderModal from './ReminderModal';
 import LoadingOverlay from './LoadingOverlay';
 import { formatChassisWithNzSpec } from '../utils/nzSpec';
 
-const ScheduleTable = React.memo(({ data, filters }) => {
+const ScheduleTable = React.memo(({ data, filters, onCreateShuffleRequests }) => {
   const [dealerColors, setDealerColors] = useState({});
   const [sortConfig, setSortConfig] = useState({ key: 'id', direction: 'ascending' });
   const [hideFinished, setHideFinished] = useState(true); // Set to true by default - Restored
   const [chassisSearch, setChassisSearch] = useState('');
   const [debouncedChassisSearch, setDebouncedChassisSearch] = useState('');
-  const [noteText, setNoteText] = useState('');
-  const [showNoteModal, setShowNoteModal] = useState(false);
-  const [showReminderModal, setShowReminderModal] = useState(false);
-  const [sending, setSending] = useState(false);
   const [selectedChassis, setSelectedChassis] = useState([]);
-  const [showNoteColumn, setShowNoteColumn] = useState(false);
+  const [showShuffleColumn, setShowShuffleColumn] = useState(false);
+  const [selectedMonth, setSelectedMonth] = useState('');
   const [columnWidths, setColumnWidths] = useState({});
   const [resizingColumn, setResizingColumn] = useState(null);
   const [startX, setStartX] = useState(0);
@@ -53,7 +47,7 @@ const ScheduleTable = React.memo(({ data, filters }) => {
   // "Shipment", "Purchase Order Sent", and now "Order Received Date"
   const baseColumns = [
     // Add checkbox column when in note mode
-    ...(showNoteColumn ? [{ id: 'select', label: 'Select', sortable: false, defaultWidth: 80 }] : []),
+    ...(showShuffleColumn ? [{ id: 'select', label: 'Select', sortable: false, defaultWidth: 80 }] : []),
     // Put Forecast Production Date as the first column
     { id: 'Forecast Production Date', label: 'Forecast Production Date', sortable: true, defaultWidth: 180 },
     { id: 'Chassis', label: 'Chassis', sortable: true, defaultWidth: 140 },
@@ -334,126 +328,26 @@ const ScheduleTable = React.memo(({ data, filters }) => {
     document.body.removeChild(link);
   };
 
-  // Function to handle sending note with table screenshot
-  const handleSendNote = async () => {
-    if (!noteText) {
-      alert("Please enter a note before sending");
-      return;
+  const selectableMonths = useMemo(() => {
+    const monthSet = new Set();
+    (data || []).forEach((item) => {
+      const value = item['Forecast Production Date'];
+      if (!value) return;
+      const parts = String(value).split('/');
+      if (parts.length < 3) return;
+      monthSet.add(`${parts[2]}-${parts[1].padStart(2, '0')}`);
+    });
+    return [...monthSet].sort();
+  }, [data]);
+
+  const handleCreateShufflingRequest = () => {
+    if (!selectedMonth || selectedChassis.length === 0) return;
+    const selectedRows = sortedData.filter((row) => selectedChassis.includes(row.Chassis));
+    if (onCreateShuffleRequests) {
+      onCreateShuffleRequests(selectedRows, selectedMonth);
     }
-
-    setSending(true);
-    try {
-      // Take screenshot of the table - use a smaller selection for performance
-      if (tableRef.current) {
-        // Get only the visible part of the table for better performance
-        const visibleTable = document.createElement('div');
-        visibleTable.innerHTML = `
-          <h3>Selected Chassis: ${selectedChassis.join(", ")}</h3>
-          <table border="1" cellpadding="5" style="border-collapse: collapse;">
-            <thead>
-              <tr>
-                ${columns.map(col => `<th>${col.label}</th>`).join('')}
-              </tr>
-            </thead>
-            <tbody>
-              ${sortedData
-                .filter(row => selectedChassis.includes(row.Chassis))
-                .map(row => `
-                  <tr>
-                    ${columns.map(col => `<td>${row[col.id] || ''}</td>`).join('')}
-                  </tr>
-                `).join('')}
-            </tbody>
-          </table>
-        `;
-        
-        // Email parameters - with reduced image size
-        const emailParams = {
-          from_name: 'Schedule Dashboard',
-          to_email: 'yan@regentrv.com.au',
-          message: noteText,
-          selected_chassis: selectedChassis.join(", "),
-          chassis_count: selectedChassis.length,
-        };
-        
-        // Send email via EmailJS - don't include the large image
-        const result = await emailjs.send(
-          'service_zjcpaps',
-          'template_barjtqgp',
-          emailParams,
-          'rAEsoMfySq9l5mXvz' // EmailJS public key for service_zjcpaps
-        );
-        
-        if (result.status === 200) {
-          alert('Note sent successfully!');
-          setNoteText('');
-          setSelectedChassis([]);
-          setShowNoteModal(false);
-          setShowNoteColumn(false);
-        } else {
-          throw new Error('Failed to send email');
-        }
-      }
-    } catch (error) {
-      console.error('Error sending email:', error);
-      alert('Failed to send note: ' + error.message);
-    } finally {
-      setSending(false);
-    }
-  };
-
-
-
-  // Note Modal Component
-  const NoteModal = () => {
-    if (!showNoteModal) return null;
-    
-    return (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-        <div className="bg-white rounded-lg p-6 w-full max-w-lg">
-          <h2 className="text-xl font-bold mb-4">Add Note</h2>
-          
-          {/* Show selected chassis */}
-          {selectedChassis.length > 0 && (
-            <div className="mb-4 p-3 bg-gray-50 rounded">
-              <h3 className="text-sm font-medium text-gray-700 mb-2">Selected Chassis:</h3>
-              <div className="text-sm text-gray-600">
-                {selectedChassis.join(", ")}
-              </div>
-            </div>
-          )}
-          
-          <textarea 
-            className="w-full h-40 border border-gray-300 rounded p-2 mb-4"
-            placeholder="Enter your note here..."
-            value={noteText}
-            onChange={(e) => setNoteText(e.target.value)}
-            onKeyDown={(e) => e.stopPropagation()}
-            onKeyPress={(e) => e.stopPropagation()}
-          />
-          <div className="flex justify-end space-x-3">
-            <button 
-              className="bg-gray-300 text-gray-800 px-4 py-2 rounded"
-              onClick={() => {
-                setShowNoteModal(false);
-                setShowNoteColumn(false);
-                setSelectedChassis([]);
-                setNoteText('');
-              }}
-            >
-              Cancel
-            </button>
-            <button 
-              className="bg-blue-600 text-white px-4 py-2 rounded"
-              onClick={handleSendNote}
-              disabled={sending}
-            >
-              {sending ? "Sending..." : "Send Note"}
-            </button>
-          </div>
-        </div>
-      </div>
-    );
+    setSelectedChassis([]);
+    setShowShuffleColumn(false);
   };
 
   // Expanded color palette for dealer colors
@@ -574,42 +468,17 @@ const ScheduleTable = React.memo(({ data, filters }) => {
         </div>
         
         <div className="flex space-x-2">
-          <button 
-            className={`px-4 py-2 rounded-md ${showNoteColumn ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'} text-white`}
+          <button
+            className={`px-4 py-2 rounded-md ${showShuffleColumn ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'} text-white`}
             onClick={() => {
-              if (showNoteColumn) {
-                // If closing note mode, clear selections
+              if (showShuffleColumn) {
                 setSelectedChassis([]);
               }
-              setShowNoteColumn(!showNoteColumn);
+              setShowShuffleColumn(!showShuffleColumn);
             }}
           >
-            {showNoteColumn ? 'Cancel Selection' : 'Add Note'}
+            {showShuffleColumn ? 'Cancel Selection' : 'Schedule Shuffling'}
           </button>
-          
-          <button 
-            className="bg-amber-500 text-white px-4 py-2 rounded-md hover:bg-amber-600 flex items-center"
-            onClick={() => {
-              // Add select column without entering note mode
-              setShowNoteColumn(true);
-              setShowReminderModal(true);
-            }}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor">
-              <path d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6zM10 18a3 3 0 01-3-3h6a3 3 0 01-3 3z" />
-            </svg>
-            Add Reminder
-          </button>
-          
-          {showNoteColumn && (
-            <button 
-              className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
-              onClick={() => setShowNoteModal(true)}
-              disabled={selectedChassis.length === 0}
-            >
-              Write Note ({selectedChassis.length} selected)
-            </button>
-          )}
           
           <button 
             className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
@@ -619,19 +488,40 @@ const ScheduleTable = React.memo(({ data, filters }) => {
           </button>
         </div>
       </div>
+
+      {showShuffleColumn && (
+        <div className="fixed bottom-6 right-6 z-50 bg-white shadow-2xl border border-gray-200 rounded-xl p-3 flex items-center gap-2">
+          <button
+            className="px-3 py-2 rounded-md bg-red-600 hover:bg-red-700 text-white"
+            onClick={() => {
+              setShowShuffleColumn(false);
+              setSelectedChassis([]);
+              setSelectedMonth('');
+            }}
+          >
+            Cancel Selection
+          </button>
+          <select
+            className="border border-gray-300 rounded-md px-3 py-2"
+            value={selectedMonth}
+            onChange={(event) => setSelectedMonth(event.target.value)}
+          >
+            <option value="">Select Month</option>
+            {selectableMonths.map((month) => (
+              <option key={month} value={month}>{month}</option>
+            ))}
+          </select>
+          <button
+            className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:bg-gray-400"
+            onClick={handleCreateShufflingRequest}
+            disabled={!selectedMonth || selectedChassis.length === 0}
+          >
+            Confirm ({selectedChassis.length} selected)
+          </button>
+        </div>
+      )}
       
 
-      
-      {/* Note Modal */}
-      <NoteModal />
-      
-      {/* Reminder Modal */}
-      <ReminderModal 
-        isOpen={showReminderModal}
-        onClose={() => setShowReminderModal(false)}
-        selectedChassis={selectedChassis}
-        chassisData={data || []}
-      />
       
       <div ref={tableRef} className="overflow-hidden">
         <table className="min-w-full bg-white border border-gray-200">
