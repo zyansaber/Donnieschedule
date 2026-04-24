@@ -32,28 +32,18 @@ const ScheduleDashboard = ({ data, onCreateShuffleRequests }) => {
     });
   };
 
-  const non2025ForecastData = useMemo(() => {
-    if (!Array.isArray(data)) return [];
-    return data.filter(item => {
-      const forecastDate = item?.["Forecast Production Date"];
-      if (!forecastDate) return true;
-      const dateParts = forecastDate.split('/');
-      return !(dateParts.length >= 3 && dateParts[2] === '2025');
-    });
-  }, [data]);
-
   useEffect(() => {
-    if (!non2025ForecastData) {
+    if (!data) {
       setFilteredData([]);
       return;
     }
 
-    if (non2025ForecastData.length > 100) {
+    if (data.length > 100) {
       setIsFilteringData(true);
     }
 
     const filterTimeout = setTimeout(() => {
-      const newFilteredData = non2025ForecastData.filter(item => {
+      const newFilteredData = data.filter(item => {
         try {
           if (filters.dealer && filters.dealer !== 'all' && item["Dealer"] !== filters.dealer) {
             return false;
@@ -123,7 +113,7 @@ const ScheduleDashboard = ({ data, onCreateShuffleRequests }) => {
     }, 300);
 
     return () => clearTimeout(filterTimeout);
-  }, [non2025ForecastData, filters]);
+  }, [data, filters]);
 
   const handleFilterChange = (newFilters) => {
     setFilters(newFilters);
@@ -205,7 +195,7 @@ const ScheduleDashboard = ({ data, onCreateShuffleRequests }) => {
       )}
 
       <div className="w-full">
-        <ScheduleFilters data={non2025ForecastData} onFilterChange={handleFilterChange} />
+        <ScheduleFilters data={data} onFilterChange={handleFilterChange} />
         <ScheduleTable data={filteredData} filters={filters} onCreateShuffleRequests={onCreateShuffleRequests} />
       </div>
     </div>
