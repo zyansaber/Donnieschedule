@@ -278,6 +278,7 @@ const emptyRow = (rowNumber) => ({
   vinNumber: '',
   vehicle: '',
   model: '',
+  modelYear: '',
   dealer: '',
   customer: '',
   latestVehicleOrder: '',
@@ -392,6 +393,7 @@ const CampervanSchedule = () => {
     const mapping = {
       [normalizeHeader('Row #')]: 'rowNumber',
       [normalizeHeader('Row Number')]: 'rowNumber',
+      [normalizeHeader('Model Year')]: 'modelYear',
     };
     columns.forEach((column) => {
       mapping[normalizeHeader(column.label)] = column.key;
