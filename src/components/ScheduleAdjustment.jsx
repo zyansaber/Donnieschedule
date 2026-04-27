@@ -42,15 +42,15 @@ const formatMonthToDate = (monthValue) => {
   return `01/${month}/${year}`;
 };
 
-const subtractDays = (value, days) => {
-  const date = parseDate(value);
-  if (!date) return '';
-  const next = new Date(date.getTime());
-  next.setDate(next.getDate() - days);
-  const dd = String(next.getDate()).padStart(2, '0');
-  const mm = String(next.getMonth() + 1).padStart(2, '0');
-  const yyyy = next.getFullYear();
-  return `${dd}/${mm}/${yyyy}`;
+const formatRequestTime = (value) => {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const dd = String(date.getDate()).padStart(2, '0');
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const yyyy = date.getFullYear();
+  const hh = String(date.getHours()).padStart(2, '0');
+  const min = String(date.getMinutes()).padStart(2, '0');
+  return `${dd}/${mm}/${yyyy} ${hh}:${min}`;
 };
 
 const isSameMonth = (dateA, dateB) => {
@@ -125,11 +125,12 @@ const ScheduleAdjustment = ({ data, shuffleRequests, setShuffleRequests }) => {
 
   const exportRequests = () => {
     if (!shuffleRequests.length) return;
-    const headers = ['Chassis', 'Australia Production Date', 'Vin Number'];
+    const headers = ['Chassis', 'Australia Production Date', 'Vin Number', '申请时间'];
     const rows = shuffleRequests.map((item) => [
       item.chassis || '',
-      subtractDays(item.adjustedTime, 20),
+      item.adjustedTime || '',
       item.monthVin || '',
+      item.requestedAt || '',
     ]);
     const csv = [headers.join(','), ...rows.map((row) => row.map((v) => `"${v}"`).join(','))].join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -280,6 +281,7 @@ export const buildShuffleRequests = (rows, targetMonth, allRows) => {
     originalForecastDate: row['Forecast Production Date'] || '',
     currentForecastProductionDate: row['Forecast Production Date'] || '',
     monthVin: firstNumericVinByMonth[targetMonth] || '',
+    requestedAt: formatRequestTime(new Date()),
     status: 'pending',
   }));
 };
