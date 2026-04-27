@@ -800,13 +800,13 @@ const CampervanSchedule = () => {
 
   const filteredRows = useMemo(() => {
     const isSrmModel = (row) => String(row.model || '').toLowerCase().includes('srm');
-    const isSrvSlotIn2026 = (row) => {
+    const isSrvSlotInVisibleYears = (row) => {
       const forecastDate = parseDateValue(row.forecastProductionDate);
-      return Boolean(forecastDate) && forecastDate.getFullYear() === 2026;
+      return Boolean(forecastDate) && forecastDate.getFullYear() >= 2025;
     };
     const scopeRows = rows.filter((row) => {
       if (srmOnlyMode) return isSrmModel(row);
-      return !isSrmModel(row) && isSrvSlotIn2026(row);
+      return !isSrmModel(row) && isSrvSlotInVisibleYears(row);
     });
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
@@ -841,11 +841,11 @@ const CampervanSchedule = () => {
 
   const scopedRowsCount = useMemo(() => {
     const isSrmModel = (row) => String(row.model || '').toLowerCase().includes('srm');
-    const isSrvSlotIn2026 = (row) => {
+    const isSrvSlotInVisibleYears = (row) => {
       const forecastDate = parseDateValue(row.forecastProductionDate);
-      return Boolean(forecastDate) && forecastDate.getFullYear() === 2026;
+      return Boolean(forecastDate) && forecastDate.getFullYear() >= 2025;
     };
-    return rows.filter((row) => (srmOnlyMode ? isSrmModel(row) : !isSrmModel(row) && isSrvSlotIn2026(row))).length;
+    return rows.filter((row) => (srmOnlyMode ? isSrmModel(row) : !isSrmModel(row) && isSrvSlotInVisibleYears(row))).length;
   }, [rows, srmOnlyMode]);
 
   const columnWidths = useMemo(() => {
@@ -2548,13 +2548,13 @@ const CampervanSchedule = () => {
             </tr>
           </thead>
           <tbody>
-            {filteredRows.map(({ row, index }) => (
+            {filteredRows.map(({ row, index }, displayIndex) => (
               <tr key={row.rowNumber} className="border-b last:border-none">
                 <td
                   className="px-3 py-2 sticky left-0 bg-white z-10 font-semibold text-gray-600"
                   style={{ width: '3rem', minWidth: '3rem', maxWidth: '3rem' }}
                 >
-                  {index + 1}
+                  {displayIndex + 1}
                 </td>
                 {displayColumns.map((column) => {
                   const inputType = column.type === 'date' ? 'text' : column.type;
