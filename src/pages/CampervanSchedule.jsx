@@ -2534,7 +2534,7 @@ const CampervanSchedule = () => {
                 className="px-3 py-2 sticky left-0 bg-gray-100 z-10"
                 style={{ width: '3rem', minWidth: '3rem', maxWidth: '3rem' }}
               >
-                Row #
+                Slot #
               </th>
               {displayColumns.map((column) => (
                 <th
@@ -2554,7 +2554,7 @@ const CampervanSchedule = () => {
                   className="px-3 py-2 sticky left-0 bg-white z-10 font-semibold text-gray-600"
                   style={{ width: '3rem', minWidth: '3rem', maxWidth: '3rem' }}
                 >
-                  {row.rowNumber}
+                  {index + 1}
                 </td>
                 {displayColumns.map((column) => {
                   const inputType = column.type === 'date' ? 'text' : column.type;
