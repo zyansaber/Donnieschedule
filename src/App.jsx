@@ -37,25 +37,8 @@ function App() {
     if (!selectedRows || selectedRows.length === 0 || !targetMonth) return;
     const newRequests = buildShuffleRequests(selectedRows, targetMonth, scheduleData);
     setShuffleRequests((prev) => [...newRequests, ...prev]);
-    const parseDate = (value) => {
-      const parts = String(value || '').split('/');
-      if (parts.length < 3) return null;
-      const d = new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0]));
-      return Number.isNaN(d.getTime()) ? null : d;
-    };
-    const subtractDays = (value, days) => {
-      const parsed = parseDate(value);
-      if (!parsed) return '';
-      const next = new Date(parsed.getTime());
-      next.setDate(next.getDate() - days);
-      const dd = String(next.getDate()).padStart(2, '0');
-      const mm = String(next.getMonth() + 1).padStart(2, '0');
-      const yyyy = next.getFullYear();
-      return `${dd}/${mm}/${yyyy}`;
-    };
-
     const requestRows = newRequests.map((item) => (
-      `${item.chassis || ''} | ${subtractDays(item.adjustedTime, 20)} | ${item.monthVin || ''}`
+      `${item.chassis || ''}, ${item.adjustedTime || ''}, ${item.monthVin || ''}`
     ));
 
     emailjs.send(
