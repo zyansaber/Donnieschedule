@@ -42,6 +42,17 @@ const formatMonthToDate = (monthValue) => {
   return `01/${month}/${year}`;
 };
 
+const subtractDays = (value, days) => {
+  const date = parseDate(value);
+  if (!date) return '';
+  const next = new Date(date.getTime());
+  next.setDate(next.getDate() - days);
+  const dd = String(next.getDate()).padStart(2, '0');
+  const mm = String(next.getMonth() + 1).padStart(2, '0');
+  const yyyy = next.getFullYear();
+  return `${dd}/${mm}/${yyyy}`;
+};
+
 const isSameMonth = (dateA, dateB) => {
   const first = parseDate(dateA);
   const second = parseDate(dateB);
@@ -117,7 +128,7 @@ const ScheduleAdjustment = ({ data, shuffleRequests, setShuffleRequests }) => {
     const headers = ['Chassis', 'Australia Production Date', 'Vin Number'];
     const rows = shuffleRequests.map((item) => [
       item.chassis || '',
-      item.adjustedTime || '',
+      subtractDays(item.adjustedTime, 20),
       item.monthVin || '',
     ]);
     const csv = [headers.join(','), ...rows.map((row) => row.map((v) => `"${v}"`).join(','))].join('\n');
