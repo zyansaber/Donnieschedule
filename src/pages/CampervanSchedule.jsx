@@ -778,7 +778,14 @@ const CampervanSchedule = () => {
 
   const filteredRows = useMemo(() => {
     const isSrmModel = (row) => String(row.model || '').toLowerCase().includes('srm');
-    const scopeRows = rows.filter((row) => (srmOnlyMode ? isSrmModel(row) : !isSrmModel(row)));
+    const isSrvSlotIn2026 = (row) => {
+      const forecastDate = parseDateValue(row.forecastProductionDate);
+      return Boolean(forecastDate) && forecastDate.getFullYear() === 2026;
+    };
+    const scopeRows = rows.filter((row) => {
+      if (srmOnlyMode) return isSrmModel(row);
+      return !isSrmModel(row) && isSrvSlotIn2026(row);
+    });
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
     const cutoffDate = new Date(todayStart);
@@ -812,7 +819,11 @@ const CampervanSchedule = () => {
 
   const scopedRowsCount = useMemo(() => {
     const isSrmModel = (row) => String(row.model || '').toLowerCase().includes('srm');
-    return rows.filter((row) => (srmOnlyMode ? isSrmModel(row) : !isSrmModel(row))).length;
+    const isSrvSlotIn2026 = (row) => {
+      const forecastDate = parseDateValue(row.forecastProductionDate);
+      return Boolean(forecastDate) && forecastDate.getFullYear() === 2026;
+    };
+    return rows.filter((row) => (srmOnlyMode ? isSrmModel(row) : !isSrmModel(row) && isSrvSlotIn2026(row))).length;
   }, [rows, srmOnlyMode]);
 
   const columnWidths = useMemo(() => {
