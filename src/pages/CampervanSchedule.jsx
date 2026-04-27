@@ -348,6 +348,14 @@ const hiddenColumnKeys = new Set([
   'productionPlannedEndDate',
   'duration',
 ]);
+const protectedCsvUploadFields = [
+  'BOM Number',
+  'LT Salesorder number',
+  'PO Date',
+  'PO Number',
+  'Sales Order Number',
+  'Vendor',
+];
 
 const CampervanSchedule = () => {
   const [rows, setRows] = useState([emptyRow(1)]);
@@ -712,13 +720,25 @@ const CampervanSchedule = () => {
       setRows(fallbackRows);
 
       try {
+        const existingSnapshot = await get(ref(database, 'campervanSchedule'));
+        const existingRows =
+          existingSnapshot.exists() && typeof existingSnapshot.val() === 'object'
+            ? existingSnapshot.val()
+            : {};
         const rowsPayload = fallbackRows.reduce((acc, row) => {
           if (!row.rowNumber) return acc;
-          acc[row.rowNumber] = recalcRow(row);
+          const existingRow = existingRows[String(row.rowNumber)] || existingRows[row.rowNumber] || {};
+          const mergedRow = recalcRow(row);
+          protectedCsvUploadFields.forEach((field) => {
+            if (Object.prototype.hasOwnProperty.call(existingRow, field)) {
+              mergedRow[field] = existingRow[field];
+            }
+          });
+          acc[row.rowNumber] = mergedRow;
           return acc;
         }, {});
         await set(ref(database, 'campervanSchedule'), rowsPayload);
-        setStatusMessage('CSV data uploaded and saved to Firebase.');
+        setStatusMessage('CSV data uploaded and saved to Firebase. Protected fields were preserved.');
       } catch (error) {
         console.error('Failed to save uploaded CSV to Firebase:', error);
         setStatusMessage('Failed to save uploaded CSV data.');
