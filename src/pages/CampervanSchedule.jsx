@@ -633,7 +633,7 @@ const CampervanSchedule = () => {
  xmlns:x="urn:schemas-microsoft-com:office:excel"
  xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
  xmlns:html="http://www.w3.org/TR/REC-html40">
- <Worksheet ss:Name="Campervan Schedule">
+ <Worksheet ss:Name="SRV/SRM Schedule">
   <Table>
    ${worksheetRows}
   </Table>
@@ -1690,7 +1690,7 @@ const CampervanSchedule = () => {
       <div className="bg-white shadow rounded-lg p-4">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <h2 className="text-xl font-semibold text-gray-800">Campervan Schedule</h2>
+            <h2 className="text-xl font-semibold text-gray-800">SRV/SRM Schedule</h2>
             <p className="text-sm text-gray-500">
               Fill in the table to auto-save rows to Firebase using the row number as the identifier.
             </p>
