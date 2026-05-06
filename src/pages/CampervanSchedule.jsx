@@ -1748,11 +1748,11 @@ const CampervanSchedule = () => {
                 Search
               </button>
             </div>
-            <div className="flex items-center justify-center gap-3">
+            <div className="flex w-full items-center justify-center gap-4">
               <button
                 type="button"
                 onClick={() => setSrmOnlyMode(false)}
-                className={`min-w-[100px] rounded-md border px-5 py-3 text-sm font-semibold transition ${
+                className={`min-w-[128px] rounded-md border px-7 py-3.5 text-base font-semibold transition ${
                   !srmOnlyMode
                     ? 'border-indigo-600 bg-indigo-600 text-white hover:bg-indigo-700'
                     : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50'
@@ -1763,7 +1763,7 @@ const CampervanSchedule = () => {
               <button
                 type="button"
                 onClick={() => setSrmOnlyMode(true)}
-                className={`min-w-[100px] rounded-md border px-5 py-3 text-sm font-semibold transition ${
+                className={`min-w-[128px] rounded-md border px-7 py-3.5 text-base font-semibold transition ${
                   srmOnlyMode
                     ? 'border-indigo-600 bg-indigo-600 text-white hover:bg-indigo-700'
                     : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50'
