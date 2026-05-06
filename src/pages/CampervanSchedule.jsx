@@ -1763,7 +1763,44 @@ const CampervanSchedule = () => {
           <div className="bg-white shadow rounded-lg p-5">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div>
-                <h3 className="text-lg font-semibold text-gray-800">Monthly Order</h3>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="text-lg font-semibold text-gray-800">Monthly Order</h3>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setOrderScheduleFilter('srv')}
+                      className={`rounded-md border px-3 py-1 text-xs font-semibold transition ${
+                        orderScheduleFilter === 'srv'
+                          ? 'border-indigo-200 bg-indigo-50 text-indigo-600 shadow-sm'
+                          : 'border-gray-200 bg-white text-gray-500 hover:text-gray-700'
+                      }`}
+                    >
+                      SRV
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setOrderScheduleFilter('srm')}
+                      className={`rounded-md border px-3 py-1 text-xs font-semibold transition ${
+                        orderScheduleFilter === 'srm'
+                          ? 'border-indigo-200 bg-indigo-50 text-indigo-600 shadow-sm'
+                          : 'border-gray-200 bg-white text-gray-500 hover:text-gray-700'
+                      }`}
+                    >
+                      SRM
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setOrderScheduleFilter('all')}
+                      className={`rounded-md border px-3 py-1 text-xs font-semibold transition ${
+                        orderScheduleFilter === 'all'
+                          ? 'border-indigo-200 bg-indigo-50 text-indigo-600 shadow-sm'
+                          : 'border-gray-200 bg-white text-gray-500 hover:text-gray-700'
+                      }`}
+                    >
+                      SRV+SRM
+                    </button>
+                  </div>
+                </div>
                 <p className="text-sm text-gray-500">
                   Orders received each month, grouped by vehicle, model, or dealer and filtered by stock status.
                 </p>
@@ -1820,42 +1857,6 @@ const CampervanSchedule = () => {
                     }`}
                   >
                     Dealer
-                  </button>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setOrderScheduleFilter('srv')}
-                    className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
-                      orderScheduleFilter === 'srv'
-                        ? 'border-indigo-200 bg-indigo-50 text-indigo-600 shadow-sm'
-                        : 'border-gray-200 bg-white text-gray-500 hover:text-gray-700'
-                    }`}
-                  >
-                    SRV
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setOrderScheduleFilter('srm')}
-                    className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
-                      orderScheduleFilter === 'srm'
-                        ? 'border-indigo-200 bg-indigo-50 text-indigo-600 shadow-sm'
-                        : 'border-gray-200 bg-white text-gray-500 hover:text-gray-700'
-                    }`}
-                  >
-                    SRM
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setOrderScheduleFilter('all')}
-                    className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
-                      orderScheduleFilter === 'all'
-                        ? 'border-indigo-200 bg-indigo-50 text-indigo-600 shadow-sm'
-                        : 'border-gray-200 bg-white text-gray-500 hover:text-gray-700'
-                    }`}
-                  >
-                    SRV+SRM
                   </button>
                 </div>
 
