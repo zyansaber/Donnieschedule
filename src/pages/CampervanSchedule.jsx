@@ -1724,8 +1724,8 @@ const CampervanSchedule = () => {
             </button>
           </div>
         </div>
-        <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="flex flex-1 flex-col gap-2 sm:flex-row sm:items-center">
+        <div className="mt-4 flex flex-col gap-3">
+          <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex w-full md:max-w-md">
               <input
                 type="text"
@@ -1748,19 +1748,32 @@ const CampervanSchedule = () => {
                 Search
               </button>
             </div>
-            <button
-              type="button"
-              onClick={() => setSrmOnlyMode((prev) => !prev)}
-              className={`w-fit rounded-md border px-3 py-2 text-xs font-semibold transition ${
-                srmOnlyMode
-                  ? 'border-indigo-600 bg-indigo-600 text-white hover:bg-indigo-700'
-                  : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50'
-              }`}
-            >
-              SRM
-            </button>
+            <div className="flex items-center justify-center gap-3">
+              <button
+                type="button"
+                onClick={() => setSrmOnlyMode(false)}
+                className={`min-w-[100px] rounded-md border px-5 py-3 text-sm font-semibold transition ${
+                  !srmOnlyMode
+                    ? 'border-indigo-600 bg-indigo-600 text-white hover:bg-indigo-700'
+                    : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                SRV
+              </button>
+              <button
+                type="button"
+                onClick={() => setSrmOnlyMode(true)}
+                className={`min-w-[100px] rounded-md border px-5 py-3 text-sm font-semibold transition ${
+                  srmOnlyMode
+                    ? 'border-indigo-600 bg-indigo-600 text-white hover:bg-indigo-700'
+                    : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                SRM
+              </button>
+            </div>
           </div>
-          <div className="text-xs text-gray-500">
+          <div className="text-xs text-gray-500 md:text-right">
             Showing {filteredRows.length} of {scopedRowsCount} rows
           </div>
         </div>
