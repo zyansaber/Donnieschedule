@@ -1823,14 +1823,14 @@ const CampervanSchedule = () => {
                   </button>
                 </div>
 
-                <div className="flex items-center gap-2 rounded-full bg-gray-100 px-2 py-1">
+                <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => setOrderScheduleFilter('srv')}
-                    className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                    className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
                       orderScheduleFilter === 'srv'
-                        ? 'bg-white text-indigo-600 shadow-sm'
-                        : 'text-gray-500 hover:text-gray-700'
+                        ? 'border-indigo-200 bg-indigo-50 text-indigo-600 shadow-sm'
+                        : 'border-gray-200 bg-white text-gray-500 hover:text-gray-700'
                     }`}
                   >
                     SRV
@@ -1838,10 +1838,10 @@ const CampervanSchedule = () => {
                   <button
                     type="button"
                     onClick={() => setOrderScheduleFilter('srm')}
-                    className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                    className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
                       orderScheduleFilter === 'srm'
-                        ? 'bg-white text-indigo-600 shadow-sm'
-                        : 'text-gray-500 hover:text-gray-700'
+                        ? 'border-indigo-200 bg-indigo-50 text-indigo-600 shadow-sm'
+                        : 'border-gray-200 bg-white text-gray-500 hover:text-gray-700'
                     }`}
                   >
                     SRM
@@ -1849,10 +1849,10 @@ const CampervanSchedule = () => {
                   <button
                     type="button"
                     onClick={() => setOrderScheduleFilter('all')}
-                    className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                    className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
                       orderScheduleFilter === 'all'
-                        ? 'bg-white text-indigo-600 shadow-sm'
-                        : 'text-gray-500 hover:text-gray-700'
+                        ? 'border-indigo-200 bg-indigo-50 text-indigo-600 shadow-sm'
+                        : 'border-gray-200 bg-white text-gray-500 hover:text-gray-700'
                     }`}
                   >
                     SRV+SRM
