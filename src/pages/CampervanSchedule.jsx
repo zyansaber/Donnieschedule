@@ -1010,6 +1010,7 @@ const CampervanSchedule = () => {
     if (modelText.includes('SRV22.1')) return 'SRV22.1';
     if (modelText.includes('SRV22.2')) return 'SRV22.2';
     if (modelText.includes('SRV22.3')) return 'SRV22.3';
+    if (modelText.includes('SRM')) return 'SRM';
     return 'Other';
   };
 
@@ -1050,7 +1051,7 @@ const CampervanSchedule = () => {
     }
     return orderBreakdownType === 'vehicle'
       ? ['LDV', 'Ford']
-      : ['SRV19.1', 'SRV22.1', 'SRV22.2', 'SRV22.3'];
+      : ['SRV19.1', 'SRV22.1', 'SRV22.2', 'SRV22.3', 'SRM'];
   }, [filteredOrderRows, orderBreakdownType]);
 
   const orderBreakdownData = useMemo(() => {
@@ -1172,6 +1173,7 @@ const CampervanSchedule = () => {
       'SRV22.1': '#60a5fa',
       'SRV22.2': '#818cf8',
       'SRV22.3': '#a78bfa',
+      SRM: '#0ea5e9',
     };
     if (orderBreakdownType !== 'dealer') {
       return baseColors;
