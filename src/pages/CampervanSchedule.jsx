@@ -804,7 +804,7 @@ const CampervanSchedule = () => {
       const forecastDate = parseDateValue(row.forecastProductionDate);
       if (!forecastDate) return false;
       const year = forecastDate.getFullYear();
-      return year >= 2025 && year <= 2026;
+      return year >= 2025 && year <= 2027;
     };
     const scopeRows = rows.filter((row) => {
       if (srmOnlyMode) return isSrmModel(row);
@@ -847,7 +847,7 @@ const CampervanSchedule = () => {
       const forecastDate = parseDateValue(row.forecastProductionDate);
       if (!forecastDate) return false;
       const year = forecastDate.getFullYear();
-      return year >= 2025 && year <= 2026;
+      return year >= 2025 && year <= 2027;
     };
     return rows.filter((row) => (srmOnlyMode ? isSrmModel(row) : !isSrmModel(row) && isSrvSlotInVisibleYears(row))).length;
   }, [rows, srmOnlyMode]);
