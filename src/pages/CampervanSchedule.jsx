@@ -361,6 +361,7 @@ const protectedCsvUploadFields = [
 const CampervanSchedule = () => {
   const [rows, setRows] = useState([emptyRow(1)]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [searchInput, setSearchInput] = useState('');
   const [statusMessage, setStatusMessage] = useState('');
   const saveTimersRef = useRef({});
   const paceControlSaveTimerRef = useRef(null);
@@ -830,17 +831,12 @@ const CampervanSchedule = () => {
       return visibleRows;
     }
     const term = searchTerm.toLowerCase();
-    return visibleRows.filter(({ row }) => {
-      const rowText = [
-        row.rowNumber,
-        ...columns.map((column) => row[column.key]),
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase();
-      return rowText.includes(term);
-    });
+    return visibleRows.filter(({ row }) => String(row.chassisNumber || '').toLowerCase().includes(term));
   }, [rows, searchTerm, srmOnlyMode]);
+
+  const handleChassisSearch = useCallback(() => {
+    setSearchTerm(searchInput.trim());
+  }, [searchInput]);
 
   const scopedRowsCount = useMemo(() => {
     const isSrmModel = (row) => String(row.model || '').toLowerCase().includes('srm');
@@ -1730,13 +1726,28 @@ const CampervanSchedule = () => {
         </div>
         <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="flex flex-1 flex-col gap-2 sm:flex-row sm:items-center">
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(event) => setSearchTerm(event.target.value)}
-              placeholder="Search all rows..."
-              className="w-full md:max-w-md rounded-md border-0 bg-gray-50 px-3 py-2 text-sm focus:outline-none focus:ring-0"
-            />
+            <div className="flex w-full md:max-w-md">
+              <input
+                type="text"
+                value={searchInput}
+                onChange={(event) => setSearchInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    handleChassisSearch();
+                  }
+                }}
+                placeholder="Search by chassis number..."
+                className="w-full rounded-l-md border-0 bg-gray-50 px-3 py-2 text-sm focus:outline-none focus:ring-0"
+              />
+              <button
+                type="button"
+                onClick={handleChassisSearch}
+                className="rounded-r-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+              >
+                Search
+              </button>
+            </div>
             <button
               type="button"
               onClick={() => setSrmOnlyMode((prev) => !prev)}
