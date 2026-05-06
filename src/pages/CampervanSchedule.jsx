@@ -372,6 +372,7 @@ const CampervanSchedule = () => {
   const [showDealerTable, setShowDealerTable] = useState(false);
   const [orderBreakdownType, setOrderBreakdownType] = useState('vehicle');
   const [orderStockFilter, setOrderStockFilter] = useState('all');
+  const [orderScheduleFilter, setOrderScheduleFilter] = useState('srv');
   const [srmOnlyMode, setSrmOnlyMode] = useState(false);
   const scheduleChartRef = useRef(null);
   const [scheduleChartSize, setScheduleChartSize] = useState({ width: 0, height: 0 });
@@ -1013,7 +1014,16 @@ const CampervanSchedule = () => {
   };
 
   const filteredOrderRows = useMemo(() => {
+    const matchesScheduleFilter = (row) => {
+      const modelText = String(row.model || '').trim().toLowerCase();
+      const isSrm = modelText.includes('srm');
+      if (orderScheduleFilter === 'srv') return !isSrm;
+      if (orderScheduleFilter === 'srm') return isSrm;
+      return true;
+    };
+
     return filteredRows.reduce((acc, { row }) => {
+      if (!matchesScheduleFilter(row)) return acc;
       const chassisText = String(row.chassisNumber || '').trim();
       if (!chassisText) return acc;
       const dateValue = parseDateValue(row.signedOrderReceived);
@@ -1025,7 +1035,7 @@ const CampervanSchedule = () => {
       acc.push({ row, dateValue });
       return acc;
     }, []);
-  }, [filteredRows, orderStockFilter]);
+  }, [filteredRows, orderScheduleFilter, orderStockFilter]);
 
   const orderBreakdownCategories = useMemo(() => {
     if (orderBreakdownType === 'dealer') {
@@ -1812,6 +1822,43 @@ const CampervanSchedule = () => {
                     Dealer
                   </button>
                 </div>
+
+                <div className="flex items-center gap-2 rounded-full bg-gray-100 px-2 py-1">
+                  <button
+                    type="button"
+                    onClick={() => setOrderScheduleFilter('srv')}
+                    className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                      orderScheduleFilter === 'srv'
+                        ? 'bg-white text-indigo-600 shadow-sm'
+                        : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    SRV
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOrderScheduleFilter('srm')}
+                    className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                      orderScheduleFilter === 'srm'
+                        ? 'bg-white text-indigo-600 shadow-sm'
+                        : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    SRM
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOrderScheduleFilter('all')}
+                    className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                      orderScheduleFilter === 'all'
+                        ? 'bg-white text-indigo-600 shadow-sm'
+                        : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    SRV+SRM
+                  </button>
+                </div>
+
                 <div className="flex items-center gap-2 rounded-full bg-gray-100 px-2 py-1">
                   <button
                     type="button"
