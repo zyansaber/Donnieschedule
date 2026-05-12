@@ -61,16 +61,25 @@ const isSameMonth = (dateA, dateB) => {
 };
 
 const ScheduleAdjustment = ({ data, shuffleRequests, setShuffleRequests }) => {
-  const displayRequests = useMemo(() => (
-    (shuffleRequests || []).map((row) => {
-      const autoFinished = isSameMonth(row.currentForecastProductionDate, row.adjustedTime);
+  const displayRequests = useMemo(() => {
+    const latestForecastDateByChassis = new Map(
+      (data || [])
+        .filter((item) => item?.Chassis)
+        .map((item) => [String(item.Chassis), item['Forecast Production Date'] || '']),
+    );
+
+    return (shuffleRequests || []).map((row) => {
+      const latestForecastDate = latestForecastDateByChassis.get(String(row.chassis || '')) || '';
+      const currentForecastProductionDate = latestForecastDate || row.currentForecastProductionDate || row.originalForecastDate || '';
+      const autoFinished = isSameMonth(currentForecastProductionDate, row.adjustedTime);
       return {
         ...row,
+        currentForecastProductionDate,
         autoFinished,
         status: autoFinished ? 'finished' : (row.status || 'pending'),
       };
-    })
-  ), [shuffleRequests]);
+    });
+  }, [data, shuffleRequests]);
 
   const selectedRequests = displayRequests.filter((row) => row.status !== 'finished');
 
