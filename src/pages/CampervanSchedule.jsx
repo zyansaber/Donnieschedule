@@ -420,7 +420,8 @@ const CampervanSchedule = () => {
     return parsed || scheduleStartDate;
   }, [rows, scheduleStartDate]);
 
-  const recalcRow = (row) => {
+  const recalcRow = (row, options = {}) => {
+    const { preserveVehicleOrderFields = false } = options;
     const normalizedDates = dateKeys.reduce((acc, key) => {
       acc[key] = normalizeDateString(row[key]);
       return acc;
@@ -429,7 +430,9 @@ const CampervanSchedule = () => {
     return {
       ...row,
       ...normalizedDates,
-      latestVehicleOrder: addDays(forecastDate, -180),
+      latestVehicleOrder: preserveVehicleOrderFields
+        ? normalizedDates.latestVehicleOrder
+        : addDays(forecastDate, -180),
       latestEurPartsOrder: addDays(forecastDate, -60),
       latestLongtreePartsOrder: addDays(forecastDate, -90),
       duration: parseDuration(row.productionPlannedStartDate, row.productionPlannedEndDate),
@@ -717,7 +720,7 @@ const CampervanSchedule = () => {
           }
           row[key] = value;
         });
-        return recalcRow(row);
+        return recalcRow(row, { preserveVehicleOrderFields: true });
       });
 
       const fallbackRows = nextRows.length ? nextRows : [emptyRow(1)];
@@ -732,7 +735,7 @@ const CampervanSchedule = () => {
         const rowsPayload = fallbackRows.reduce((acc, row) => {
           if (!row.rowNumber) return acc;
           const existingRow = existingRows[String(row.rowNumber)] || existingRows[row.rowNumber] || {};
-          const mergedRow = recalcRow(row);
+          const mergedRow = recalcRow(row, { preserveVehicleOrderFields: true });
           protectedCsvUploadFields.forEach((field) => {
             if (Object.prototype.hasOwnProperty.call(existingRow, field)) {
               mergedRow[field] = existingRow[field];
