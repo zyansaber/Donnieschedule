@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   ResponsiveContainer,
   CartesianGrid,
@@ -61,6 +61,7 @@ const isSameMonth = (dateA, dateB) => {
 };
 
 const ScheduleAdjustment = ({ data, shuffleRequests, setShuffleRequests }) => {
+  const [dealerFilter, setDealerFilter] = useState('all');
   const displayRequests = useMemo(() => {
     const latestForecastDateByChassis = new Map(
       (data || [])
@@ -81,7 +82,18 @@ const ScheduleAdjustment = ({ data, shuffleRequests, setShuffleRequests }) => {
     });
   }, [data, shuffleRequests]);
 
-  const selectedRequests = displayRequests.filter((row) => row.status !== 'finished');
+
+  const allDealers = useMemo(
+    () => [...new Set((data || []).map((row) => row?.Dealer).filter(Boolean))].sort(),
+    [data],
+  );
+
+  const filteredDisplayRequests = useMemo(() => {
+    if (dealerFilter === 'all') return displayRequests;
+    return displayRequests.filter((row) => row.dealer === dealerFilter);
+  }, [dealerFilter, displayRequests]);
+
+  const selectedRequests = filteredDisplayRequests.filter((row) => row.status !== 'finished');
 
   const selectedDealers = useMemo(
     () => [...new Set(selectedRequests.map((row) => row.dealer).filter(Boolean))],
@@ -207,6 +219,18 @@ const ScheduleAdjustment = ({ data, shuffleRequests, setShuffleRequests }) => {
         <div className="flex justify-between items-center mb-3">
           <h3 className="text-lg font-semibold">Schedule Shuffling Requests</h3>
           <div className="flex items-center gap-2">
+            <select
+              className="border border-gray-300 rounded px-2 py-2 text-sm"
+              value={dealerFilter}
+              onChange={(event) => setDealerFilter(event.target.value)}
+            >
+              <option value="all">All Dealers</option>
+              {allDealers.map((dealer) => (
+                <option key={dealer} value={dealer}>
+                  {dealer}
+                </option>
+              ))}
+            </select>
             <button className="bg-blue-600 text-white px-3 py-2 rounded hover:bg-blue-700" onClick={exportRequests}>
               Download Requests
             </button>
@@ -225,7 +249,7 @@ const ScheduleAdjustment = ({ data, shuffleRequests, setShuffleRequests }) => {
               </tr>
             </thead>
             <tbody>
-              {displayRequests.map((row) => (
+              {filteredDisplayRequests.map((row) => (
                 <tr
                   key={row.id}
                   className={`transition-colors hover:bg-gray-50 ${row.status === 'finished' ? 'bg-green-100' : ''}`}
@@ -254,7 +278,7 @@ const ScheduleAdjustment = ({ data, shuffleRequests, setShuffleRequests }) => {
                   </td>
                 </tr>
               ))}
-              {displayRequests.length === 0 && (
+              {filteredDisplayRequests.length === 0 && (
                 <tr>
                   <td colSpan={6} className="px-3 py-8 text-center text-gray-500">
                     No schedule shuffling requests yet.
