@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { get, push, ref } from 'firebase/database';
 import {
   ResponsiveContainer,
   CartesianGrid,
@@ -10,6 +11,7 @@ import {
   Cell,
   Legend,
 } from 'recharts';
+import { database } from '../utils/firebase';
 
 const parseDate = (value) => {
   if (!value) return null;
@@ -69,6 +71,12 @@ const nextStockState = (current) => {
 
 const ScheduleAdjustment = ({ data, shuffleRequests, setShuffleRequests, dealerStockLevels = {}, setDealerStockLevels }) => {
   const [dealerFilter, setDealerFilter] = useState('all');
+  const [urgentChassis, setUrgentChassis] = useState('');
+  const [urgentSubmitting, setUrgentSubmitting] = useState(false);
+  const [urgentRecords, setUrgentRecords] = useState([]);
+  const [showUrgentRecords, setShowUrgentRecords] = useState(false);
+  const [urgentRecordsPage, setUrgentRecordsPage] = useState(1);
+  const URGENT_RECORDS_PAGE_SIZE = 10;
   const displayRequests = useMemo(() => {
     const latestForecastDateByChassis = new Map(
       (data || [])
@@ -101,6 +109,86 @@ const ScheduleAdjustment = ({ data, shuffleRequests, setShuffleRequests, dealerS
       .map((row) => row?.Dealer)
       .filter(Boolean))].sort()
   ), [data]);
+
+  const chassisRegentMap = useMemo(() => new Map(
+    (data || [])
+      .filter((item) => item?.Chassis)
+      .map((item) => [String(item.Chassis).trim().toLowerCase(), item['Regent Production'] || '']),
+  ), [data]);
+
+  const matchedRegentProduction = useMemo(() => (
+    chassisRegentMap.get(String(urgentChassis || '').trim().toLowerCase()) || ''
+  ), [chassisRegentMap, urgentChassis]);
+
+  const chassisInfoMap = useMemo(() => new Map(
+    (data || [])
+      .filter((item) => item?.Chassis)
+      .map((item) => [String(item.Chassis).trim().toLowerCase(), {
+        dealer: item?.Dealer || '',
+        customer: item?.Customer || '',
+        model: item?.Model || '',
+      }]),
+  ), [data]);
+
+  const needsCurrentFactory = ['Production Commenced Regent', 'Van Arrived', 'Van on the sea'];
+  const effectiveRegentProduction = matchedRegentProduction || 'Longtree Not Started';
+
+  const loadUrgentRecords = async () => {
+    try {
+      const snapshot = await get(ref(database, 'mes/requisitionTickets'));
+      if (!snapshot.exists()) {
+        setUrgentRecords([]);
+        return;
+      }
+
+      const records = Object.values(snapshot.val() || {})
+        .filter((item) => item?.changeMode === 'expedite')
+        .sort((a, b) => Number(b?.createdAt || 0) - Number(a?.createdAt || 0));
+      setUrgentRecords(records);
+    } catch (error) {
+      console.error('Failed to load urgent request records:', error);
+      setUrgentRecords([]);
+    }
+  };
+
+  useEffect(() => {
+    loadUrgentRecords();
+  }, []);
+
+  useEffect(() => {
+    setUrgentRecordsPage(1);
+  }, [showUrgentRecords]);
+
+  const submitUrgentRequest = async () => {
+    const trimmedChassis = String(urgentChassis || '').trim();
+    if (!trimmedChassis || urgentSubmitting) return;
+
+    const payload = {
+      type: 'change-production-date',
+      changeMode: 'expedite',
+      chassis: trimmedChassis,
+      description: '加急车，尽快完成',
+      approvals: { productionApproved: false },
+      createdAt: Date.now(),
+    };
+
+    if (needsCurrentFactory.includes(effectiveRegentProduction)) {
+      payload.currentfactory = 'Melbourne';
+    }
+
+    try {
+      setUrgentSubmitting(true);
+      await push(ref(database, 'mes/requisitionTickets'), payload);
+      await loadUrgentRecords();
+      setUrgentChassis('');
+      alert('Urgent request submitted.');
+    } catch (error) {
+      console.error('Failed to submit urgent request:', error);
+      alert('Failed to submit urgent request.');
+    } finally {
+      setUrgentSubmitting(false);
+    }
+  };
 
   const toggleDealerStockLevel = (dealer) => {
     if (!setDealerStockLevels) return;
@@ -192,6 +280,39 @@ const ScheduleAdjustment = ({ data, shuffleRequests, setShuffleRequests, dealerS
     )));
   };
 
+  const urgentRecordsTotalPages = Math.max(1, Math.ceil(urgentRecords.length / URGENT_RECORDS_PAGE_SIZE));
+  const currentUrgentRecordsPage = Math.min(urgentRecordsPage, urgentRecordsTotalPages);
+  const pagedUrgentRecords = useMemo(() => {
+    const startIndex = (currentUrgentRecordsPage - 1) * URGENT_RECORDS_PAGE_SIZE;
+    return urgentRecords.slice(startIndex, startIndex + URGENT_RECORDS_PAGE_SIZE);
+  }, [urgentRecords, currentUrgentRecordsPage]);
+
+  const downloadUrgentRecords = () => {
+    if (!urgentRecords.length) return;
+    const headers = ['Chassis', 'Current Regent Production', 'Dealer', 'Customer', 'Model', 'Requested At'];
+    const rows = urgentRecords.map((record) => {
+      const key = String(record?.chassis || '').trim().toLowerCase();
+      const info = chassisInfoMap.get(key) || {};
+      return [
+        record?.chassis || '',
+        chassisRegentMap.get(key) || 'Longtree Not Started',
+        record?.dealer || info.dealer || '',
+        record?.customer || info.customer || '',
+        record?.model || info.model || '',
+        formatRequestTime(record?.createdAt),
+      ];
+    });
+    const csv = [headers.join(','), ...rows.map((row) => row.map((v) => `"${v}"`).join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `urgent_request_records_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="space-y-4">
       <div className="bg-white rounded-lg shadow p-4">
@@ -202,7 +323,7 @@ const ScheduleAdjustment = ({ data, shuffleRequests, setShuffleRequests, dealerS
             const isLess = stockLevel === 'less';
             const isOver = stockLevel === 'over';
             return (
-              <div key={dealer} className="border border-gray-200 rounded-lg p-2 bg-gray-50">
+              <div key={dealer} className={`border rounded-lg p-2 ${stockLevel === 'normal' ? 'border-gray-200 bg-gray-50' : 'border-red-300 bg-red-50'}`}>
                 <div className="text-xs text-gray-700 mb-2 truncate" title={dealer}>{dealer}</div>
                 <button
                   type="button"
@@ -213,7 +334,7 @@ const ScheduleAdjustment = ({ data, shuffleRequests, setShuffleRequests, dealerS
                     className={`absolute top-0.5 bottom-0.5 w-1/3 rounded-md bg-white border border-gray-300 transition-transform duration-300 ease-out shadow-sm ${isLess ? 'translate-x-0' : isOver ? 'translate-x-[200%]' : 'translate-x-[100%]'}`}
                     style={{ left: '2px' }}
                   />
-                  <span className={`relative z-10 flex-1 text-center text-xs font-semibold transition-colors duration-200 ${isLess ? 'text-green-700' : 'text-gray-500'}`}>Less</span>
+                  <span className={`relative z-10 flex-1 text-center text-xs font-semibold transition-colors duration-200 ${isLess ? 'text-green-700' : 'text-gray-500'}`}>Under</span>
                   <span className={`relative z-10 flex-1 text-center text-xs font-semibold transition-colors duration-200 ${!isLess && !isOver ? 'text-gray-800' : 'text-gray-500'}`}>Normal</span>
                   <span className={`relative z-10 flex-1 text-center text-xs font-semibold transition-colors duration-200 ${isOver ? 'text-red-700' : 'text-gray-500'}`}>Over</span>
                 </button>
@@ -224,6 +345,91 @@ const ScheduleAdjustment = ({ data, shuffleRequests, setShuffleRequests, dealerS
             <div className="col-span-full text-sm text-gray-500">No unfinished van dealers found.</div>
           )}
         </div>
+      </div>
+
+      <div className="bg-white rounded-lg shadow p-4">
+        <h3 className="text-lg font-semibold mb-3">Urgent Request</h3>
+        <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
+          <div className="flex-1">
+            <label className="block text-sm text-gray-700 mb-1">Chassis</label>
+            <input
+              type="text"
+              value={urgentChassis}
+              onChange={(e) => setUrgentChassis(e.target.value)}
+              className="w-full border border-gray-300 rounded px-3 py-2"
+              placeholder="Enter chassis number"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={submitUrgentRequest}
+            disabled={!String(urgentChassis || '').trim() || urgentSubmitting}
+            className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+          >
+            {urgentSubmitting ? 'Submitting...' : 'Confirm Urgent Request'}
+          </button>
+        </div>
+        <div className="mt-3 text-sm text-gray-700">
+          <span className="font-medium">Regent Production: </span>
+          {effectiveRegentProduction}
+        </div>
+        {urgentRecords.length > 0 && (
+          <div className="mt-3 border border-gray-200 rounded p-3 bg-gray-50">
+            <button
+              type="button"
+              onClick={() => setShowUrgentRecords((prev) => !prev)}
+              className="text-sm font-medium text-gray-800 mb-2 hover:text-gray-900"
+            >
+              Urgent Request Records {showUrgentRecords ? '▲' : '▼'}
+            </button>
+            {showUrgentRecords && (
+              <div className="space-y-2 text-sm text-gray-700">
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={downloadUrgentRecords}
+                    className="text-xs bg-blue-600 text-white px-2 py-1 rounded hover:bg-blue-700"
+                  >
+                    Download CSV
+                  </button>
+                </div>
+                {pagedUrgentRecords.map((record) => {
+                  const key = String(record?.chassis || '').trim().toLowerCase();
+                  const info = chassisInfoMap.get(String(record?.chassis || '').trim().toLowerCase()) || {};
+                  const currentRegentProduction = chassisRegentMap.get(key) || 'Longtree Not Started';
+                  return (
+                    <div key={`${record.chassis}-${record.createdAt}`} className="border-b border-gray-200 pb-1 last:border-b-0">
+                      <div>{record.chassis} - {currentRegentProduction}</div>
+                      <div className="text-xs text-gray-600">
+                        Dealer: {record?.dealer || info.dealer || '-'} | Customer: {record?.customer || info.customer || '-'} | Model: {record?.model || info.model || '-'}
+                      </div>
+                      <div className="text-xs text-gray-500">Requested At: {formatRequestTime(record?.createdAt) || '-'}</div>
+                    </div>
+                  );
+                })}
+                <div className="flex items-center justify-between pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setUrgentRecordsPage((prev) => Math.max(1, prev - 1))}
+                    disabled={currentUrgentRecordsPage === 1}
+                    className="text-xs px-2 py-1 rounded border border-gray-300 disabled:opacity-50"
+                  >
+                    Prev
+                  </button>
+                  <span className="text-xs text-gray-600">Page {currentUrgentRecordsPage} / {urgentRecordsTotalPages}</span>
+                  <button
+                    type="button"
+                    onClick={() => setUrgentRecordsPage((prev) => Math.min(urgentRecordsTotalPages, prev + 1))}
+                    disabled={currentUrgentRecordsPage === urgentRecordsTotalPages}
+                    className="text-xs px-2 py-1 rounded border border-gray-300 disabled:opacity-50"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="bg-white rounded-lg shadow p-4">
