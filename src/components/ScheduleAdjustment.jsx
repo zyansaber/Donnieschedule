@@ -1,5 +1,4 @@
 import React, { useMemo, useState } from 'react';
-import { push, ref } from 'firebase/database';
 import {
   ResponsiveContainer,
   CartesianGrid,
@@ -11,7 +10,6 @@ import {
   Cell,
   Legend,
 } from 'recharts';
-import { database } from '../utils/firebase';
 
 const parseDate = (value) => {
   if (!value) return null;
@@ -71,8 +69,6 @@ const nextStockState = (current) => {
 
 const ScheduleAdjustment = ({ data, shuffleRequests, setShuffleRequests, dealerStockLevels = {}, setDealerStockLevels }) => {
   const [dealerFilter, setDealerFilter] = useState('all');
-  const [urgentChassis, setUrgentChassis] = useState('');
-  const [urgentSubmitting, setUrgentSubmitting] = useState(false);
   const displayRequests = useMemo(() => {
     const latestForecastDateByChassis = new Map(
       (data || [])
@@ -105,48 +101,6 @@ const ScheduleAdjustment = ({ data, shuffleRequests, setShuffleRequests, dealerS
       .map((row) => row?.Dealer)
       .filter(Boolean))].sort()
   ), [data]);
-
-  const chassisRegentMap = useMemo(() => new Map(
-    (data || [])
-      .filter((item) => item?.Chassis)
-      .map((item) => [String(item.Chassis).trim().toLowerCase(), item['Regent Production'] || '']),
-  ), [data]);
-
-  const matchedRegentProduction = useMemo(() => (
-    chassisRegentMap.get(String(urgentChassis || '').trim().toLowerCase()) || ''
-  ), [chassisRegentMap, urgentChassis]);
-
-  const needsCurrentFactory = ['Production Commenced Regent', 'Van Arrived', 'Van on the sea'];
-
-  const submitUrgentRequest = async () => {
-    const trimmedChassis = String(urgentChassis || '').trim();
-    if (!trimmedChassis || !matchedRegentProduction || urgentSubmitting) return;
-
-    const payload = {
-      type: 'change-production-date',
-      changeMode: 'expedite',
-      chassis: trimmedChassis,
-      description: '加急车，尽快完成',
-      approvals: { productionApproved: false },
-      createdAt: Date.now(),
-    };
-
-    if (needsCurrentFactory.includes(matchedRegentProduction)) {
-      payload.currentfactory = 'Melbourne';
-    }
-
-    try {
-      setUrgentSubmitting(true);
-      await push(ref(database, 'mes/requisitionTickets'), payload);
-      setUrgentChassis('');
-      alert('Urgent request submitted.');
-    } catch (error) {
-      console.error('Failed to submit urgent request:', error);
-      alert('Failed to submit urgent request.');
-    } finally {
-      setUrgentSubmitting(false);
-    }
-  };
 
   const toggleDealerStockLevel = (dealer) => {
     if (!setDealerStockLevels) return;
@@ -248,7 +202,7 @@ const ScheduleAdjustment = ({ data, shuffleRequests, setShuffleRequests, dealerS
             const isLess = stockLevel === 'less';
             const isOver = stockLevel === 'over';
             return (
-              <div key={dealer} className={`border rounded-lg p-2 ${stockLevel === 'normal' ? 'border-gray-200 bg-gray-50' : 'border-red-300 bg-red-50'}`}>
+              <div key={dealer} className="border border-gray-200 rounded-lg p-2 bg-gray-50">
                 <div className="text-xs text-gray-700 mb-2 truncate" title={dealer}>{dealer}</div>
                 <button
                   type="button"
@@ -269,34 +223,6 @@ const ScheduleAdjustment = ({ data, shuffleRequests, setShuffleRequests, dealerS
           {unfinishedDealers.length === 0 && (
             <div className="col-span-full text-sm text-gray-500">No unfinished van dealers found.</div>
           )}
-        </div>
-      </div>
-
-      <div className="bg-white rounded-lg shadow p-4">
-        <h3 className="text-lg font-semibold mb-3">Urgent Request</h3>
-        <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
-          <div className="flex-1">
-            <label className="block text-sm text-gray-700 mb-1">Chassis</label>
-            <input
-              type="text"
-              value={urgentChassis}
-              onChange={(e) => setUrgentChassis(e.target.value)}
-              className="w-full border border-gray-300 rounded px-3 py-2"
-              placeholder="Enter chassis number"
-            />
-          </div>
-          <button
-            type="button"
-            onClick={submitUrgentRequest}
-            disabled={!String(urgentChassis || '').trim() || !matchedRegentProduction || urgentSubmitting}
-            className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
-          >
-            {urgentSubmitting ? 'Submitting...' : 'Confirm Urgent Request'}
-          </button>
-        </div>
-        <div className="mt-3 text-sm text-gray-700">
-          <span className="font-medium">Regent Production: </span>
-          {matchedRegentProduction || 'No matching chassis found in current schedule'}
         </div>
       </div>
 
