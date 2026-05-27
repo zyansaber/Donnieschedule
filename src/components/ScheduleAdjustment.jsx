@@ -207,13 +207,15 @@ const ScheduleAdjustment = ({ data, shuffleRequests, setShuffleRequests, dealerS
                 <button
                   type="button"
                   onClick={() => toggleDealerStockLevel(dealer)}
-                  className="relative w-full h-8 rounded-full bg-white border border-gray-300 flex items-center px-1"
+                  className="relative w-full h-9 rounded-lg bg-gray-100 border border-gray-300 flex items-center justify-between px-1 overflow-hidden transition-all"
                 >
-                  <div className={`absolute inset-y-1 left-1 w-[calc(33.333%-0.5rem)] rounded-full transition-transform duration-200 bg-gray-200 ${isLess ? 'translate-x-0' : isOver ? 'translate-x-[200%]' : 'translate-x-[100%]'}`} />
-                  <div className={`absolute right-1 top-1 bottom-1 w-[calc(33.333%-0.5rem)] rounded-full ${isLess ? 'bg-green-200' : isOver ? 'bg-red-200' : 'bg-transparent'}`} />
-                  <span className="relative z-10 flex-1 text-[10px] text-center text-gray-700">Less</span>
-                  <span className="relative z-10 flex-1 text-[10px] text-center text-gray-700">Normal</span>
-                  <span className="relative z-10 flex-1 text-[10px] text-center text-gray-700">Over</span>
+                  <div 
+                    className={`absolute top-0.5 bottom-0.5 w-1/3 rounded-md bg-white border border-gray-300 transition-transform duration-300 ease-out shadow-sm ${isLess ? 'translate-x-0' : isOver ? 'translate-x-[200%]' : 'translate-x-[100%]'}`}
+                    style={{ left: '2px' }}
+                  />
+                  <span className={`relative z-10 flex-1 text-center text-xs font-semibold transition-colors duration-200 ${isLess ? 'text-green-700' : 'text-gray-500'}`}>Less</span>
+                  <span className={`relative z-10 flex-1 text-center text-xs font-semibold transition-colors duration-200 ${!isLess && !isOver ? 'text-gray-800' : 'text-gray-500'}`}>Normal</span>
+                  <span className={`relative z-10 flex-1 text-center text-xs font-semibold transition-colors duration-200 ${isOver ? 'text-red-700' : 'text-gray-500'}`}>Over</span>
                 </button>
               </div>
             );
