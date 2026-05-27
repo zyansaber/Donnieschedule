@@ -60,7 +60,14 @@ const isSameMonth = (dateA, dateB) => {
   return first.getFullYear() === second.getFullYear() && first.getMonth() === second.getMonth();
 };
 
-const ScheduleAdjustment = ({ data, shuffleRequests, setShuffleRequests }) => {
+const STOCK_STATES = ['less', 'normal', 'over'];
+
+const nextStockState = (current) => {
+  const index = STOCK_STATES.indexOf(current);
+  return STOCK_STATES[(index + 1) % STOCK_STATES.length] || 'normal';
+};
+
+const ScheduleAdjustment = ({ data, shuffleRequests, setShuffleRequests, dealerStockLevels = {}, setDealerStockLevels }) => {
   const [dealerFilter, setDealerFilter] = useState('all');
   const displayRequests = useMemo(() => {
     const latestForecastDateByChassis = new Map(
@@ -87,6 +94,21 @@ const ScheduleAdjustment = ({ data, shuffleRequests, setShuffleRequests }) => {
     () => [...new Set((data || []).map((row) => row?.Dealer).filter(Boolean))].sort(),
     [data],
   );
+
+  const unfinishedDealers = useMemo(() => (
+    [...new Set((data || [])
+      .filter((row) => String(row?.['Regent Production'] || '').toLowerCase() !== 'finished')
+      .map((row) => row?.Dealer)
+      .filter(Boolean))].sort()
+  ), [data]);
+
+  const toggleDealerStockLevel = (dealer) => {
+    if (!setDealerStockLevels) return;
+    setDealerStockLevels((prev) => ({
+      ...prev,
+      [dealer]: nextStockState(prev?.[dealer] || 'normal'),
+    }));
+  };
 
   const filteredDisplayRequests = useMemo(() => {
     if (dealerFilter === 'all') return displayRequests;
@@ -172,6 +194,36 @@ const ScheduleAdjustment = ({ data, shuffleRequests, setShuffleRequests }) => {
 
   return (
     <div className="space-y-4">
+      <div className="bg-white rounded-lg shadow p-4">
+        <h3 className="text-lg font-semibold mb-3">Unfinished Vans Dealer Stock Status</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 xl:grid-cols-10 gap-3">
+          {unfinishedDealers.map((dealer) => {
+            const stockLevel = dealerStockLevels?.[dealer] || 'normal';
+            const isLess = stockLevel === 'less';
+            const isOver = stockLevel === 'over';
+            return (
+              <div key={dealer} className="border border-gray-200 rounded-lg p-2 bg-gray-50">
+                <div className="text-xs text-gray-700 mb-2 truncate" title={dealer}>{dealer}</div>
+                <button
+                  type="button"
+                  onClick={() => toggleDealerStockLevel(dealer)}
+                  className="relative w-full h-8 rounded-full bg-white border border-gray-300 flex items-center px-1"
+                >
+                  <div className={`absolute inset-y-1 left-1 w-[calc(33.333%-0.5rem)] rounded-full transition-transform duration-200 bg-gray-200 ${isLess ? 'translate-x-0' : isOver ? 'translate-x-[200%]' : 'translate-x-[100%]'}`} />
+                  <div className={`absolute right-1 top-1 bottom-1 w-[calc(33.333%-0.5rem)] rounded-full ${isLess ? 'bg-green-200' : isOver ? 'bg-red-200' : 'bg-transparent'}`} />
+                  <span className="relative z-10 flex-1 text-[10px] text-center text-gray-700">Less</span>
+                  <span className="relative z-10 flex-1 text-[10px] text-center text-gray-700">Normal</span>
+                  <span className="relative z-10 flex-1 text-[10px] text-center text-gray-700">Over</span>
+                </button>
+              </div>
+            );
+          })}
+          {unfinishedDealers.length === 0 && (
+            <div className="col-span-full text-sm text-gray-500">No unfinished van dealers found.</div>
+          )}
+        </div>
+      </div>
+
       <div className="bg-white rounded-lg shadow p-4">
         <h3 className="text-lg font-semibold mb-3">Schedule Shuffling Impact</h3>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">

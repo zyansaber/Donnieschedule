@@ -21,6 +21,8 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [shuffleRequestsLoaded, setShuffleRequestsLoaded] = useState(false);
+  const [dealerStockLevels, setDealerStockLevels] = useState({});
+  const [dealerStockLevelsLoaded, setDealerStockLevelsLoaded] = useState(false);
   const internalSnowyPath = '/xxx/internal-snowy-2487';
   const isInternalSnowy = window.location.pathname === internalSnowyPath;
 
@@ -112,6 +114,41 @@ function App() {
     loadShuffleRequests();
   }, []);
 
+
+  useEffect(() => {
+    const loadDealerStockLevels = async () => {
+      try {
+        const stockRef = ref(database, 'scheduleDealerStockLevels');
+        const snapshot = await get(stockRef);
+        if (snapshot.exists()) {
+          const raw = snapshot.val();
+          if (raw && typeof raw === 'object') {
+            setDealerStockLevels(raw);
+          }
+        }
+      } catch (loadError) {
+        console.error('Failed to load dealer stock levels:', loadError);
+      } finally {
+        setDealerStockLevelsLoaded(true);
+      }
+    };
+
+    loadDealerStockLevels();
+  }, []);
+
+  useEffect(() => {
+    if (!dealerStockLevelsLoaded) return;
+    const persistDealerStockLevels = async () => {
+      try {
+        const stockRef = ref(database, 'scheduleDealerStockLevels');
+        await set(stockRef, dealerStockLevels);
+      } catch (saveError) {
+        console.error('Failed to save dealer stock levels:', saveError);
+      }
+    };
+    persistDealerStockLevels();
+  }, [dealerStockLevels, dealerStockLevelsLoaded]);
+
   useEffect(() => {
     if (!shuffleRequestsLoaded) return;
     const persistShuffleRequests = async () => {
@@ -170,6 +207,8 @@ function App() {
                 data={scheduleData}
                 shuffleRequests={shuffleRequests}
                 setShuffleRequests={setShuffleRequests}
+                dealerStockLevels={dealerStockLevels}
+                setDealerStockLevels={setDealerStockLevels}
               />
             )}
             {activeView === 'stock-level' && <StockLevelAnalysis data={scheduleData} />}
