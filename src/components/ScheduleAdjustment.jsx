@@ -76,7 +76,9 @@ const ScheduleAdjustment = ({ data, shuffleRequests, setShuffleRequests, dealerS
   const [urgentRecords, setUrgentRecords] = useState([]);
   const [showUrgentRecords, setShowUrgentRecords] = useState(false);
   const [urgentRecordsPage, setUrgentRecordsPage] = useState(1);
+  const [shuffleRequestsPage, setShuffleRequestsPage] = useState(1);
   const URGENT_RECORDS_PAGE_SIZE = 10;
+  const SHUFFLE_REQUESTS_PAGE_SIZE = 25;
   const displayRequests = useMemo(() => {
     const latestForecastDateByChassis = new Map(
       (data || [])
@@ -158,6 +160,10 @@ const ScheduleAdjustment = ({ data, shuffleRequests, setShuffleRequests, dealerS
   useEffect(() => {
     setUrgentRecordsPage(1);
   }, [showUrgentRecords]);
+
+  useEffect(() => {
+    setShuffleRequestsPage(1);
+  }, [dealerFilter, displayRequests.length]);
 
   const submitUrgentRequest = async () => {
     const trimmedChassis = String(urgentChassis || '').trim();
@@ -286,6 +292,20 @@ const ScheduleAdjustment = ({ data, shuffleRequests, setShuffleRequests, dealerS
     const startIndex = (currentUrgentRecordsPage - 1) * URGENT_RECORDS_PAGE_SIZE;
     return urgentRecords.slice(startIndex, startIndex + URGENT_RECORDS_PAGE_SIZE);
   }, [urgentRecords, currentUrgentRecordsPage]);
+
+  const shuffleRequestsTotalPages = Math.max(1, Math.ceil(filteredDisplayRequests.length / SHUFFLE_REQUESTS_PAGE_SIZE));
+  const currentShuffleRequestsPage = Math.min(shuffleRequestsPage, shuffleRequestsTotalPages);
+  const shuffleRequestsStartIndex = filteredDisplayRequests.length === 0
+    ? 0
+    : (currentShuffleRequestsPage - 1) * SHUFFLE_REQUESTS_PAGE_SIZE + 1;
+  const shuffleRequestsEndIndex = Math.min(
+    filteredDisplayRequests.length,
+    currentShuffleRequestsPage * SHUFFLE_REQUESTS_PAGE_SIZE,
+  );
+  const pagedDisplayRequests = useMemo(() => {
+    const startIndex = (currentShuffleRequestsPage - 1) * SHUFFLE_REQUESTS_PAGE_SIZE;
+    return filteredDisplayRequests.slice(startIndex, startIndex + SHUFFLE_REQUESTS_PAGE_SIZE);
+  }, [filteredDisplayRequests, currentShuffleRequestsPage]);
 
   const downloadUrgentRecords = () => {
     if (!urgentRecords.length) return;
@@ -476,9 +496,15 @@ const ScheduleAdjustment = ({ data, shuffleRequests, setShuffleRequests, dealerS
       </div>
 
       <div className="bg-white rounded-lg shadow p-4">
-        <div className="flex justify-between items-center mb-3">
-          <h3 className="text-lg font-semibold">Schedule Shuffling Requests</h3>
-          <div className="flex items-center gap-2">
+        <div className="flex flex-col gap-3 mb-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h3 className="text-lg font-semibold">Schedule Shuffling Requests</h3>
+            <p className="text-sm text-gray-500">
+              Showing {shuffleRequestsStartIndex}-{shuffleRequestsEndIndex} of {filteredDisplayRequests.length} requests
+              ({SHUFFLE_REQUESTS_PAGE_SIZE} per page)
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
             <select
               className="border border-gray-300 rounded px-2 py-2 text-sm"
               value={dealerFilter}
@@ -509,7 +535,7 @@ const ScheduleAdjustment = ({ data, shuffleRequests, setShuffleRequests, dealerS
               </tr>
             </thead>
             <tbody>
-              {filteredDisplayRequests.map((row) => (
+              {pagedDisplayRequests.map((row) => (
                 <tr
                   key={row.id}
                   className={`transition-colors hover:bg-gray-50 ${row.status === 'finished' ? 'bg-green-100' : ''}`}
@@ -548,6 +574,31 @@ const ScheduleAdjustment = ({ data, shuffleRequests, setShuffleRequests, dealerS
             </tbody>
           </table>
         </div>
+        {filteredDisplayRequests.length > SHUFFLE_REQUESTS_PAGE_SIZE && (
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <span className="text-sm text-gray-600">
+              Page {currentShuffleRequestsPage} / {shuffleRequestsTotalPages}
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShuffleRequestsPage((prev) => Math.max(1, prev - 1))}
+                disabled={currentShuffleRequestsPage === 1}
+                className="px-3 py-1.5 text-sm rounded border border-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Prev
+              </button>
+              <button
+                type="button"
+                onClick={() => setShuffleRequestsPage((prev) => Math.min(shuffleRequestsTotalPages, prev + 1))}
+                disabled={currentShuffleRequestsPage === shuffleRequestsTotalPages}
+                className="px-3 py-1.5 text-sm rounded border border-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
