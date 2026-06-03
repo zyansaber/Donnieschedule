@@ -5,7 +5,7 @@ import ReminderChecker from './components/ReminderChecker';
 import Header from './components/Header';
 import ScheduleDashboard from './components/ScheduleDashboard';
 import LoadingOverlay from './components/LoadingOverlay';
-import StockReservation from './components/StockReservation';
+import StockLevelAnalysis from './components/StockLevelAnalysis';
 import UnfinishedVanTracking from './components/UnfinishedVanTracking';
 import Reallocation from './components/Reallocation';
 import CampervanSchedule from './pages/CampervanSchedule';
@@ -29,7 +29,7 @@ function App() {
   const menuItems = [
     { id: 'schedule', name: 'Schedule', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
     { id: 'schedule-adjustment', name: 'Schedule Adjustment', icon: 'M8 7h8m-8 5h8m-8 5h8M6 7h.01M6 12h.01M6 17h.01' },
-    { id: 'stock-reservation', name: 'Stock Reservation', icon: 'M5 5a2 2 0 012-2h6l4 4v14l-7-3-7 3V5a2 2 0 012-2z' },
+    { id: 'stock-level', name: 'Stock Level Analysis', icon: 'M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z' },
     { id: 'van-tracking', name: 'Unfinished Van Date Tracking', icon: 'M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z' },
     { id: 'reallocation', name: 'Reallocation', icon: 'M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4' },
     { id: 'campervan-schedule', name: 'SRV/SRM Schedule', icon: 'M3 7h18M3 12h18M3 17h18M5 5h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2z' },
@@ -211,7 +211,7 @@ function App() {
                 setDealerStockLevels={setDealerStockLevels}
               />
             )}
-            {activeView === 'stock-reservation' && <StockReservation data={scheduleData} />}
+            {activeView === 'stock-level' && <StockLevelAnalysis data={scheduleData} />}
             {activeView === 'van-tracking' && <UnfinishedVanTracking />}
             {activeView === 'reallocation' && <Reallocation data={scheduleData} />}
             {activeView === 'campervan-schedule' && <CampervanSchedule />}
