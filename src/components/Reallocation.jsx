@@ -1,15 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend, LineChart, Line, XAxis, YAxis, CartesianGrid, BarChart, Bar } from 'recharts';
 
+// Chart colors
+const chartColors = ['#2563eb','#16a34a','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#10b981','#f97316','#64748b','#d946ef'];
 import { ref, set, get, push } from 'firebase/database';
 import { collection, addDoc } from "firebase/firestore";
 import { database, firestoreDB } from '../utils/firebase';
 import { buildNzSpecMessage, isNzSpecDealer, shouldRequireNzSpecConfirmation, formatChassisWithNzSpec } from '../utils/nzSpec';
-
-// Chart colors
-const chartColors = ['#2563eb','#16a34a','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#10b981','#f97316','#64748b','#d946ef'];
-const buildStockReservationKey = (chassis) => String(chassis || '').trim().toUpperCase().replace(/[.#$\/\[\]]/g, '_');
-const getVanStatus = (van) => van?.['Regent Production'] || van?.['Regent Production Status'] || van?.status || '';
 
 const Reallocation = ({ data }) => {
   const [reallocationRows, setReallocationRows] = useState([{
@@ -20,8 +17,7 @@ const Reallocation = ({ data }) => {
     message: '',
     historyInfo: null,
     transportCompany: '',
-    nzSpecConfirmation: '',
-    stockReservationInfo: null
+    nzSpecConfirmation: ''
   }]);
   const [allDealers, setAllDealers] = useState([]);
   const [reallocationRequests, setReallocationRequests] = useState([]);
@@ -32,7 +28,6 @@ const Reallocation = ({ data }) => {
   const [manualRows, setManualRows] = useState([{ id: 1, chassisNumber: '', originalDealer: '', reallocatedTo: '', nzSpecConfirmation: '' }]);
   const [trendFilter, setTrendFilter] = useState('all'); // 'all' | 'snowy'
   const [campervanScheduleRows, setCampervanScheduleRows] = useState([]);
-  const [stockReservations, setStockReservations] = useState({});
   // ====== Charts Data (Snowy Stock not finished + Prefix distribution + 10-week trend) ======
   const getPrefix = (ch) => {
     if (!ch) return 'UNK';
@@ -199,29 +194,6 @@ const repetitionBadgeStyles = {
   }, []);
 
   useEffect(() => {
-    const loadStockReservations = async () => {
-      try {
-        const stockReservationRef = ref(database, 'stock_reservation');
-        const snapshot = await get(stockReservationRef);
-        setStockReservations(snapshot.exists() ? (snapshot.val() || {}) : {});
-      } catch (error) {
-        console.error('Error loading stock reservations:', error);
-      }
-    };
-
-    loadStockReservations();
-  }, []);
-
-  useEffect(() => {
-    setReallocationRows((prevRows) => prevRows.map((row) => ({
-      ...row,
-      stockReservationInfo: row.chassisNumber
-        ? stockReservations[buildStockReservationKey(row.chassisNumber)] || null
-        : null,
-    })));
-  }, [stockReservations]);
-
-  useEffect(() => {
     const loadCampervanSchedule = async () => {
       try {
         const scheduleRef = ref(database, 'campervanSchedule');
@@ -368,8 +340,6 @@ const repetitionBadgeStyles = {
               message = "⚠️ The van isn't signed, please sign off or cancel to reorder";
             }
 
-            const stockReservationInfo = stockReservations[buildStockReservationKey(trimmedChassis)] || null;
-
             const historyMatches = reallocationRequests.filter(req =>
               (req?.chassisNumber || '').toLowerCase() === trimmedChassis.toLowerCase()
             );
@@ -389,8 +359,7 @@ const repetitionBadgeStyles = {
               message,
               historyInfo,
               transportCompany,
-              nzSpecConfirmation: isNzSpecDealer(resolvedVanInfo.Dealer) ? 'yes' : '',
-              stockReservationInfo
+              nzSpecConfirmation: isNzSpecDealer(resolvedVanInfo.Dealer) ? 'yes' : ''
             };
           } else {
             return {
@@ -401,8 +370,7 @@ const repetitionBadgeStyles = {
               message: 'Chassis number not found',
               historyInfo: null,
               transportCompany,
-              nzSpecConfirmation: '',
-              stockReservationInfo: stockReservations[buildStockReservationKey(trimmedChassis)] || null
+              nzSpecConfirmation: ''
             };
           }
         } else {
@@ -414,8 +382,7 @@ const repetitionBadgeStyles = {
             message: '',
             historyInfo: null,
             transportCompany: '',
-            nzSpecConfirmation: '',
-            stockReservationInfo: null
+            nzSpecConfirmation: ''
           };
         }
       }
@@ -444,8 +411,7 @@ const repetitionBadgeStyles = {
       message: '',
       historyInfo: null,
       transportCompany: '',
-      nzSpecConfirmation: '',
-      stockReservationInfo: null
+      nzSpecConfirmation: ''
     }]);
   };
 
@@ -467,7 +433,7 @@ const repetitionBadgeStyles = {
     });
   };
 
-  const submitReallocationRequest = async ({ chassis, dealer, dealerOri, status = 'Unknown', model = '', customer = '', signedPlansReceived = '', nzSpec = false, stockReservationInfo = null, forecastProductionDate = '' }) => {
+  const submitReallocationRequest = async ({ chassis, dealer, dealerOri, status = 'Unknown', model = '', customer = '', signedPlansReceived = '', nzSpec = false }) => {
     const reallocationData = {
       status,
       originalDealer: dealerOri,
@@ -476,15 +442,7 @@ const repetitionBadgeStyles = {
       model,
       customer,
       signedPlansReceived,
-      nzSpec,
-      stockReservation: stockReservationInfo ? {
-        chassis: stockReservationInfo.chassis || chassis,
-        reason: stockReservationInfo.reason || '',
-        dealer: stockReservationInfo.dealer || dealerOri || '',
-        forecastProductionDate: stockReservationInfo.forecastProductionDate || forecastProductionDate || '',
-        status: stockReservationInfo.status || status || '',
-        savedAt: stockReservationInfo.savedAt || '',
-      } : null
+      nzSpec
     };
 
     const reallocationRef = ref(database, `reallocation/${chassis}`);
@@ -495,8 +453,8 @@ const repetitionBadgeStyles = {
       to: ["darin@regentrv.com.au", "planning@regentrv.com.au", "marg@regentrv.com.au","karena@regentrv.com.au"],
       message: {
         subject: `New Reallocation Request: Chassis ${chassis}`,
-        text: `Chassis number ${chassis} has been requested for dealer ${dealer}.${nzSpec ? ' This vehicle is NZ spec.' : ''}${stockReservationInfo ? ` Stock reservation reason: ${stockReservationInfo.reason || 'No reason provided'}.` : ''}`,
-        html: `Chassis number <strong>${chassis}</strong> has been reallocated from dealer <strong>${dealerOri || 'Unknown'}</strong> to dealer <strong>${dealer}</strong>.${nzSpec ? '<br /><br />This vehicle is NZ spec.' : ''}${stockReservationInfo ? `<br /><br /><strong>Stock reservation:</strong> Yes<br /><strong>Reason:</strong> ${stockReservationInfo.reason || 'No reason provided'}` : ''}`,
+        text: `Chassis number ${chassis} has been requested for dealer ${dealer}.${nzSpec ? ' This vehicle is NZ spec.' : ''}`,
+        html: `Chassis number <strong>${chassis}</strong> has been reallocated from dealer <strong>${dealerOri || 'Unknown'}</strong> to dealer <strong>${dealer}</strong>.${nzSpec ? '<br /><br />This vehicle is NZ spec.' : ''}`,
       },
     });
   };
@@ -527,9 +485,7 @@ const repetitionBadgeStyles = {
           model: currentVan.Model || '',
           customer: currentVan.Customer || '',
           signedPlansReceived: currentVan['Signed Plans Received'] || '',
-          nzSpec: row.nzSpecConfirmation === 'yes',
-          stockReservationInfo: row.stockReservationInfo || null,
-          forecastProductionDate: currentVan['Forecast Production Date'] || ''
+          nzSpec: row.nzSpecConfirmation === 'yes'
         });
 
         console.log(`Reallocation and email queued for chassis ${chassis}`);
@@ -548,8 +504,7 @@ const repetitionBadgeStyles = {
         message: '',
         historyInfo: null,
         transportCompany: '',
-        nzSpecConfirmation: '',
-        stockReservationInfo: null
+        nzSpecConfirmation: ''
       }]);
 
       // Reload requests
@@ -603,8 +558,7 @@ const repetitionBadgeStyles = {
             dealer: row.reallocatedTo.trim(),
             dealerOri: row.originalDealer.trim(),
             status: 'Manual Override',
-            nzSpec: row.nzSpecConfirmation === 'yes',
-            stockReservationInfo: stockReservations[buildStockReservationKey(row.chassisNumber)] || null
+            nzSpec: row.nzSpecConfirmation === 'yes'
           })
         )
       );
@@ -1046,16 +1000,6 @@ const repetitionBadgeStyles = {
                     <div className="text-xs text-blue-900 space-y-0.5">
                       <div className="font-semibold">Previously reallocated {row.historyInfo.count} {row.historyInfo.count === 1 ? 'time' : 'times'}</div>
                       <div className="text-[11px] text-blue-800/80">Last to <span className="font-semibold">{row.historyInfo.lastDealer}</span> on {row.historyInfo.lastSubmitTime}</div>
-                    </div>
-                  </div>
-                )}
-
-                {row.stockReservationInfo && (
-                  <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 shadow-inner">
-                    <div className="font-semibold">⚠️ This chassis is in stock_reservation.</div>
-                    <div className="mt-1"><span className="font-medium">Reason:</span> {row.stockReservationInfo.reason || 'No reason provided'}</div>
-                    <div className="mt-1 text-[11px] text-amber-800">
-                      Reserved dealer: {row.stockReservationInfo.dealer || row.currentVanInfo?.Dealer || '-'} · Forecast: {row.stockReservationInfo.forecastProductionDate || row.currentVanInfo?.['Forecast Production Date'] || '-'} · Status: {row.stockReservationInfo.status || getVanStatus(row.currentVanInfo) || '-'} · Saved: {row.stockReservationInfo.savedAt || '-'}
                     </div>
                   </div>
                 )}
