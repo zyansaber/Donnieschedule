@@ -55,15 +55,8 @@ const isNonStockCustomer = (row, column) => {
   return customer !== '' && customer.toUpperCase() !== 'STOCK';
 };
 
-const getCellClassName = (row, column) => {
-  const baseClassName = 'whitespace-nowrap border-b border-gray-100 px-3 py-2.5 text-center';
-
-  if (isNonStockCustomer(row, column)) {
-    return `${baseClassName} bg-amber-100 font-semibold text-amber-900 ring-1 ring-inset ring-amber-200`;
-  }
-
-  return `${baseClassName} text-gray-700`;
-};
+const getCellClassName = () =>
+  'whitespace-nowrap border-b border-gray-100 px-3 py-2.5 text-center text-gray-700';
 
 const parseCsv = (text) => {
   const rows = [];
@@ -399,11 +392,22 @@ const CampervanSchedule = () => {
                     key={`${normalizeChassisNumber(row.chassisNumber) || 'row'}-${rowIndex}`}
                     className="odd:bg-white even:bg-gray-50"
                   >
-                    {columns.map((column) => (
-                      <td key={column} className={getCellClassName(row, column)}>
-                        {String(row[column] ?? '')}
-                      </td>
-                    ))}
+                    {columns.map((column) => {
+                      const cellValue = String(row[column] ?? '');
+                      const highlightCustomer = isNonStockCustomer(row, column);
+
+                      return (
+                        <td key={column} className={getCellClassName()}>
+                          {highlightCustomer ? (
+                            <span className="inline-flex rounded-full border border-amber-200 bg-gradient-to-r from-amber-50 to-yellow-100 px-2.5 py-1 font-medium text-amber-800 shadow-sm">
+                              {cellValue}
+                            </span>
+                          ) : (
+                            cellValue
+                          )}
+                        </td>
+                      );
+                    })}
                   </tr>
                 ))}
               </tbody>
