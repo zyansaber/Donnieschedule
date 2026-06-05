@@ -371,6 +371,9 @@ const CampervanSchedule = () => {
             <table className="min-w-full border-collapse text-sm">
               <thead className="sticky top-0 bg-gray-100">
                 <tr>
+                  <th className="w-12 border-b border-gray-200 px-2 py-3 text-center align-middle font-semibold leading-tight text-gray-700">
+                    Qty
+                  </th>
                   {columns.map((column) => (
                     <th
                       key={column}
@@ -392,6 +395,9 @@ const CampervanSchedule = () => {
                     key={`${normalizeChassisNumber(row.chassisNumber) || 'row'}-${rowIndex}`}
                     className="odd:bg-white even:bg-gray-50"
                   >
+                    <td className="w-12 whitespace-nowrap border-b border-gray-100 px-2 py-2.5 text-center font-medium text-gray-500">
+                      {rowIndex + 1}
+                    </td>
                     {columns.map((column) => {
                       const cellValue = String(row[column] ?? '');
                       const highlightCustomer = isNonStockCustomer(row, column);
