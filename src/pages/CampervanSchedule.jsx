@@ -26,6 +26,21 @@ const DEFAULT_COLUMNS = [
   'signedOrderReceived',
 ];
 
+const COLUMN_LABELS = {
+  forecastProductionDate: 'Forecast Production Date',
+  regentProduction: 'Regent Production',
+  chassisNumber: 'Chassis Number',
+  vinNumber: 'Vin Number',
+  vehicle: 'Vehicle',
+  model: 'Model',
+  modelYear: 'Model Year',
+  dealer: 'Dealer',
+  customer: 'Customer',
+  requestedVehicleOrderDate: 'Requested Vehicle Order Date',
+  requestedVehicleDeliveryDate: 'Requested Vehicle Delivery Date',
+  signedOrderReceived: 'Signed Order Received',
+};
+
 const normalizeChassisNumber = (value) =>
   String(value ?? '')
     .trim()
@@ -349,7 +364,7 @@ const CampervanSchedule = () => {
                       key={column}
                       className="whitespace-nowrap border-b border-gray-200 px-3 py-3 font-semibold text-gray-700"
                     >
-                      {column}
+                      {COLUMN_LABELS[column] ?? column}
                     </th>
                   ))}
                 </tr>
