@@ -399,7 +399,7 @@ const CampervanSchedule = () => {
                       return (
                         <td key={column} className={getCellClassName()}>
                           {highlightCustomer ? (
-                            <span className="inline-flex rounded-full border border-amber-200 bg-gradient-to-r from-amber-50 to-yellow-100 px-2.5 py-1 font-medium text-amber-800 shadow-sm">
+                            <span className="inline-flex rounded-full border border-amber-100 bg-gradient-to-r from-white to-amber-50 px-2.5 py-1 text-amber-700">
                               {cellValue}
                             </span>
                           ) : (
