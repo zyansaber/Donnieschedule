@@ -48,6 +48,23 @@ const normalizeChassisNumber = (value) =>
 
 const getColumnLabelLines = (column) => COLUMN_LABELS[column] ?? [column];
 
+const isNonStockCustomer = (row, column) => {
+  if (column !== 'customer') return false;
+
+  const customer = String(row.customer ?? '').trim();
+  return customer !== '' && customer.toUpperCase() !== 'STOCK';
+};
+
+const getCellClassName = (row, column) => {
+  const baseClassName = 'whitespace-nowrap border-b border-gray-100 px-3 py-2.5 text-center';
+
+  if (isNonStockCustomer(row, column)) {
+    return `${baseClassName} bg-amber-100 font-semibold text-amber-900 ring-1 ring-inset ring-amber-200`;
+  }
+
+  return `${baseClassName} text-gray-700`;
+};
+
 const parseCsv = (text) => {
   const rows = [];
   let row = [];
@@ -383,10 +400,7 @@ const CampervanSchedule = () => {
                     className="odd:bg-white even:bg-gray-50"
                   >
                     {columns.map((column) => (
-                      <td
-                        key={column}
-                        className="whitespace-nowrap border-b border-gray-100 px-3 py-2.5 text-center text-gray-700"
-                      >
+                      <td key={column} className={getCellClassName(row, column)}>
                         {String(row[column] ?? '')}
                       </td>
                     ))}
