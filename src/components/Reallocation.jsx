@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend, LineChart, Line, XAxis, YAxis, CartesianGrid, BarChart, Bar } from 'recharts';
 
 import { ref, set, get, push } from 'firebase/database';
@@ -141,6 +141,7 @@ const Reallocation = ({ data }) => {
 
   const [stats, setStats] = useState({ totalPending: 0, totalDone: 0, dealerStats: {} });
   const [showFilter, setShowFilter] = useState('all'); // 'all', 'pending', 'done'
+  const [requestsPage, setRequestsPage] = useState(1);
 
   const chassisRequestCounts = reallocationRequests.reduce((acc, req) => {
     const key = (req?.chassisNumber || '').toLowerCase();
@@ -750,11 +751,32 @@ const repetitionBadgeStyles = {
     );
   };
 
-  const filteredRequests = reallocationRequests.filter(request => {
+  const requestsPerPage = 20;
+
+  const filteredRequests = useMemo(() => reallocationRequests.filter(request => {
     if (showFilter === 'pending') return request.status !== 'completed';
     if (showFilter === 'done') return request.status === 'completed';
     return true; // 'all'
-  });
+  }), [reallocationRequests, showFilter]);
+
+  const totalRequestPages = Math.max(1, Math.ceil(filteredRequests.length / requestsPerPage));
+  const currentRequestsPage = Math.min(requestsPage, totalRequestPages);
+  const paginatedRequests = filteredRequests.slice(
+    (currentRequestsPage - 1) * requestsPerPage,
+    currentRequestsPage * requestsPerPage
+  );
+  const pageStartRequest = filteredRequests.length === 0 ? 0 : (currentRequestsPage - 1) * requestsPerPage + 1;
+  const pageEndRequest = Math.min(currentRequestsPage * requestsPerPage, filteredRequests.length);
+
+  useEffect(() => {
+    setRequestsPage(1);
+  }, [showFilter]);
+
+  useEffect(() => {
+    if (requestsPage > totalRequestPages) {
+      setRequestsPage(totalRequestPages);
+    }
+  }, [requestsPage, totalRequestPages]);
 
   const downloadCSV = () => {
     const headers = ['Chassis', 'From Dealer', 'To Dealer', 'Van Status', 'Signed Plans', 'Submit Time', 'Request Status', 'Issue Type', 'Issue Time'];
@@ -1253,11 +1275,11 @@ const repetitionBadgeStyles = {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {filteredRequests.map((request, index) => {
+                {paginatedRequests.map((request) => {
                   const chassisCount = chassisRequestCounts[(request.chassisNumber || '').toLowerCase()] || 0;
                   const rowBgColor = 'white';
                   return (
-                    <tr key={index} style={{ backgroundColor: rowBgColor }}>
+                    <tr key={request.id || `${request.chassisNumber}-${request.submitTime}`} style={{ backgroundColor: rowBgColor }}>
                       <td className="px-4 py-2 text-sm text-black font-bold">
                         <div className="flex items-center gap-2">
                           <span>{request.nzSpec ? `${request.chassisNumber} (NZspec)` : formatChassisWithNzSpec(request.chassisNumber, request.originalDealer)}</span>
@@ -1336,6 +1358,44 @@ const repetitionBadgeStyles = {
                 })}
               </tbody>
             </table>
+            <div className="mt-4 flex flex-col gap-3 border-t border-gray-100 pt-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-sm text-gray-600">
+                Showing {pageStartRequest}-{pageEndRequest} of {filteredRequests.length} requests · 20 per page
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setRequestsPage(1)}
+                  disabled={currentRequestsPage === 1}
+                  className="rounded border border-gray-300 px-3 py-1 text-sm text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 hover:bg-gray-50 disabled:hover:bg-white"
+                >
+                  First
+                </button>
+                <button
+                  onClick={() => setRequestsPage((page) => Math.max(1, page - 1))}
+                  disabled={currentRequestsPage === 1}
+                  className="rounded border border-gray-300 px-3 py-1 text-sm text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 hover:bg-gray-50 disabled:hover:bg-white"
+                >
+                  Previous
+                </button>
+                <span className="text-sm font-medium text-gray-700">
+                  Page {currentRequestsPage} / {totalRequestPages}
+                </span>
+                <button
+                  onClick={() => setRequestsPage((page) => Math.min(totalRequestPages, page + 1))}
+                  disabled={currentRequestsPage === totalRequestPages}
+                  className="rounded border border-gray-300 px-3 py-1 text-sm text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 hover:bg-gray-50 disabled:hover:bg-white"
+                >
+                  Next
+                </button>
+                <button
+                  onClick={() => setRequestsPage(totalRequestPages)}
+                  disabled={currentRequestsPage === totalRequestPages}
+                  className="rounded border border-gray-300 px-3 py-1 text-sm text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 hover:bg-gray-50 disabled:hover:bg-white"
+                >
+                  Last
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>
