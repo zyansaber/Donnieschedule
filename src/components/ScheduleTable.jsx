@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, useDeferredValue } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { fetchDealerColors } from '../data/scheduleData';
 import { isDateWithinNext20Weeks } from '../data/scheduleData';
 import LoadingOverlay from './LoadingOverlay';
@@ -45,19 +45,23 @@ const ScheduleTable = React.memo(({ data, filters, onCreateShuffleRequests }) =>
   const [startX, setStartX] = useState(0);
   const [startWidth, setStartWidth] = useState(0);
   const [isSorting, setIsSorting] = useState(false);
-  const [currentPage, setCurrentPage] = useState(1);
+  const [isTableLoading, setIsTableLoading] = useState(false);
   const tableRef = React.useRef(null);
-  const deferredChassisSearch = useDeferredValue(chassisSearch);
-  const PAGE_SIZE = 500;
 
-  // Debounce the expensive search filter so typing stays responsive on large schedules.
+  // Add debouncing for search input to improve performance
   useEffect(() => {
+    // Show loading state if the data is large enough
+    if (data && data.length > 50) {
+      setIsTableLoading(true);
+    }
+    
     const timer = setTimeout(() => {
-      setDebouncedChassisSearch(deferredChassisSearch);
-    }, 250);
+      setDebouncedChassisSearch(chassisSearch);
+      setIsTableLoading(false);
+    }, 300);
 
     return () => clearTimeout(timer);
-  }, [deferredChassisSearch]);
+  }, [chassisSearch, data]);
 
   // Column visibility state for the three specified columns
   const [columnVisibility, setColumnVisibility] = useState({
@@ -173,14 +177,35 @@ const ScheduleTable = React.memo(({ data, filters, onCreateShuffleRequests }) =>
   const baseFilteredData = useMemo(() => {
     if (!data) return [];
 
-    let result = data.filter(item => String(item?.["Chassis"] || '').trim());
+    // Only apply the filter if hideFinished is true and set loading state for UX
+    if (data.length > 300) {
+      setIsTableLoading(true);
+      
+      // Use setTimeout to avoid UI freeze
+      setTimeout(() => {
+        if (hideFinished) {
+          // We'll do the filtering in the outer setTimeout
+        } else {
+          setIsTableLoading(false);
+        }
+      }, 10);
+    }
 
     // Apply only the hide finished filter first for performance
     if (hideFinished) {
-      result = result.filter(item => !(item["Regent Production"] && 
-            item["Regent Production"].toLowerCase() === "finished"));
+      const filtered = data.filter(item => {
+        return !(item["Regent Production"] && 
+            item["Regent Production"].toLowerCase() === "finished");
+      });
+      
+      // Clear loading state after filter completes
+      if (data.length > 300) {
+        setTimeout(() => setIsTableLoading(false), 50);
+      }
+      
+      return filtered;
     }
-    return result;
+    return data;
   }, [data, hideFinished]);
   
   // Apply all other filters
@@ -309,19 +334,6 @@ const ScheduleTable = React.memo(({ data, filters, onCreateShuffleRequests }) =>
     return sortableData;
   }, [filteredData, sortConfig]);
 
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [filters, debouncedChassisSearch, hideFinished, showShuffleColumn, sortConfig]);
-
-  const totalPages = Math.max(1, Math.ceil(sortedData.length / PAGE_SIZE));
-  const safeCurrentPage = Math.min(currentPage, totalPages);
-  const pageStartIndex = sortedData.length === 0 ? 0 : (safeCurrentPage - 1) * PAGE_SIZE + 1;
-  const pageEndIndex = Math.min(sortedData.length, safeCurrentPage * PAGE_SIZE);
-  const pagedData = useMemo(() => {
-    const startIndex = (safeCurrentPage - 1) * PAGE_SIZE;
-    return sortedData.slice(startIndex, startIndex + PAGE_SIZE);
-  }, [sortedData, safeCurrentPage]);
-
   const exportToCSV = () => {
     if (!sortedData || sortedData.length === 0) return;
     
@@ -404,7 +416,7 @@ const ScheduleTable = React.memo(({ data, filters, onCreateShuffleRequests }) =>
 
   return (
     <div className="overflow-x-auto text-base relative">
-      <LoadingOverlay isLoading={isSorting} message={"Sorting data..."} />
+      <LoadingOverlay isLoading={isSorting || isTableLoading} message={isSorting ? "Sorting data..." : "Filtering data..."} />
       <div className="flex flex-wrap justify-between mb-4 gap-2">
         <div className="flex items-center space-x-4">
             <div className="flex items-center">
@@ -536,34 +548,9 @@ const ScheduleTable = React.memo(({ data, filters, onCreateShuffleRequests }) =>
           </button>
         </div>
       )}
+      
 
-      <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-sm text-gray-600">
-        <span>
-          Showing {pageStartIndex}-{pageEndIndex} of {sortedData.length} schedule rows ({PAGE_SIZE} per page)
-        </span>
-        {sortedData.length > PAGE_SIZE && (
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
-              disabled={safeCurrentPage === 1}
-              className="px-3 py-1.5 rounded border border-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Prev
-            </button>
-            <span>Page {safeCurrentPage} / {totalPages}</span>
-            <button
-              type="button"
-              onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
-              disabled={safeCurrentPage === totalPages}
-              className="px-3 py-1.5 rounded border border-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Next
-            </button>
-          </div>
-        )}
-      </div>
-
+      
       <div ref={tableRef} className="overflow-hidden">
         <table className="min-w-full bg-white border border-gray-200">
           <thead className="bg-gray-100">
@@ -604,8 +591,8 @@ const ScheduleTable = React.memo(({ data, filters, onCreateShuffleRequests }) =>
             </tr>
           </thead>
           <tbody>
-            {pagedData.length > 0 ? (
-              pagedData.map((row, index) => {
+            {sortedData.length > 0 ? (
+              sortedData.map((row, index) => {
                 const rowBgColor = getRowBackgroundColor(row["Forecast Production Date"]);
                 return (
                   <tr 

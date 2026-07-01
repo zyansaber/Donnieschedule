@@ -118,16 +118,9 @@ const ScheduleAdjustment = ({ data, shuffleRequests, setShuffleRequests, dealerS
       .map((item) => [String(item.Chassis).trim().toLowerCase(), item['Regent Production'] || '']),
   ), [data]);
 
-  const normalizedUrgentChassis = String(urgentChassis || '').trim().toLowerCase();
-  const urgentRequestExists = useMemo(() => (
-    Boolean(normalizedUrgentChassis) && urgentRecords.some((record) => (
-      String(record?.chassis || '').trim().toLowerCase() === normalizedUrgentChassis
-    ))
-  ), [urgentRecords, normalizedUrgentChassis]);
-
   const matchedRegentProduction = useMemo(() => (
-    chassisRegentMap.get(normalizedUrgentChassis) || ''
-  ), [chassisRegentMap, normalizedUrgentChassis]);
+    chassisRegentMap.get(String(urgentChassis || '').trim().toLowerCase()) || ''
+  ), [chassisRegentMap, urgentChassis]);
 
   const chassisInfoMap = useMemo(() => new Map(
     (data || [])
@@ -174,13 +167,13 @@ const ScheduleAdjustment = ({ data, shuffleRequests, setShuffleRequests, dealerS
 
   const submitUrgentRequest = async () => {
     const trimmedChassis = String(urgentChassis || '').trim();
-    if (!trimmedChassis || urgentSubmitting || urgentRequestExists) return;
+    if (!trimmedChassis || urgentSubmitting) return;
 
     const payload = {
       type: 'change-production-date',
       changeMode: 'expedite',
       chassis: trimmedChassis,
-      description: 'Urgent van request. Please complete as soon as possible.',
+      description: '加急车，尽快完成',
       approvals: { productionApproved: false },
       createdAt: Date.now(),
     };
@@ -390,17 +383,12 @@ const ScheduleAdjustment = ({ data, shuffleRequests, setShuffleRequests, dealerS
           <button
             type="button"
             onClick={submitUrgentRequest}
-            disabled={!String(urgentChassis || '').trim() || urgentSubmitting || urgentRequestExists}
+            disabled={!String(urgentChassis || '').trim() || urgentSubmitting}
             className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
           >
-            {urgentRequestExists ? 'Already Requested' : urgentSubmitting ? 'Submitting...' : 'Confirm Urgent Request'}
+            {urgentSubmitting ? 'Submitting...' : 'Confirm Urgent Request'}
           </button>
         </div>
-        {urgentRequestExists && (
-          <div className="mt-3 text-sm font-medium text-amber-700">
-            This chassis has already been requested.
-          </div>
-        )}
         <div className="mt-3 text-sm text-gray-700">
           <span className="font-medium">Regent Production: </span>
           {effectiveRegentProduction}
