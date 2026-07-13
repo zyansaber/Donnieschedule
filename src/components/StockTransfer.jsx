@@ -10,14 +10,11 @@ const initialForm = {
 
 const normalizeChassis = (value) => value.trim().toUpperCase();
 
-const getMelbourneTime = () => new Date().toLocaleString('en-AU', {
+const getMelbourneDate = () => new Date().toLocaleDateString('en-AU', {
   timeZone: 'Australia/Melbourne',
   year: 'numeric',
   month: '2-digit',
   day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
 });
 
 const StockTransfer = () => {
@@ -89,13 +86,22 @@ const StockTransfer = () => {
     setSaving(true);
     setMessage('');
 
-    const savedAt = getMelbourneTime();
+    const savedAt = getMelbourneDate();
     const transferData = {
+      'Company Stock Current Location': 'Not in company warehouse',
+      'Invoice BP Last Change Date': '',
+      'Invoice BP Last Changed By': '',
+      'Invoice-to Name': '',
+      'Last Invoice Date': '',
+      'Last Invoice Number': '',
+      'SO Is PGI': 'No_PGI',
+      'SO PGI Post Date': '',
+      'Sales Order Display': '',
       chassis,
       currentLocation,
+      savedAt,
       targetLocation,
       transferType: 'Yard stock to yard stock only',
-      savedAt,
     };
 
     try {
@@ -221,9 +227,15 @@ const StockTransfer = () => {
                 <tr>
                   <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Chassis</th>
                   <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Current Location</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Move To</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Allowed Use</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Target Location</th>
                   <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Saved At</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Company Stock Current Location</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Sales Order Display</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Invoice-to Name</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Last Invoice Date</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Last Invoice Number</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Invoice BP Last Changed By</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Invoice BP Last Change Date</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -232,8 +244,14 @@ const StockTransfer = () => {
                     <td className="px-4 py-2 text-sm font-semibold text-gray-900">{transfer.chassis || '-'}</td>
                     <td className="px-4 py-2 text-sm text-gray-600">{transfer.currentLocation || '-'}</td>
                     <td className="px-4 py-2 text-sm text-gray-600">{transfer.targetLocation || '-'}</td>
-                    <td className="px-4 py-2 text-sm text-gray-600">{transfer.transferType || 'Yard stock to yard stock only'}</td>
                     <td className="px-4 py-2 text-sm text-gray-600">{transfer.savedAt || '-'}</td>
+                    <td className="px-4 py-2 text-sm text-gray-600">{transfer['Company Stock Current Location'] || '-'}</td>
+                    <td className="px-4 py-2 text-sm text-gray-600">{transfer['Sales Order Display'] || '-'}</td>
+                    <td className="px-4 py-2 text-sm text-gray-600">{transfer['Invoice-to Name'] || '-'}</td>
+                    <td className="px-4 py-2 text-sm text-gray-600">{transfer['Last Invoice Date'] || '-'}</td>
+                    <td className="px-4 py-2 text-sm text-gray-600">{transfer['Last Invoice Number'] || '-'}</td>
+                    <td className="px-4 py-2 text-sm text-gray-600">{transfer['Invoice BP Last Changed By'] || '-'}</td>
+                    <td className="px-4 py-2 text-sm text-gray-600">{transfer['Invoice BP Last Change Date'] || '-'}</td>
                   </tr>
                 ))}
               </tbody>
