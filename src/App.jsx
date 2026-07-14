@@ -7,6 +7,7 @@ import ScheduleDashboard from './components/ScheduleDashboard';
 import LoadingOverlay from './components/LoadingOverlay';
 import StockReservation from './components/StockReservation';
 import StockTransfer from './components/StockTransfer';
+import StockTransferWorkflow from './components/StockTransferWorkflow';
 import UnfinishedVanTracking from './components/UnfinishedVanTracking';
 import Reallocation from './components/Reallocation';
 import CampervanSchedule from './pages/CampervanSchedule';
@@ -32,6 +33,11 @@ function App() {
     { id: 'schedule-adjustment', name: 'Schedule Adjustment', icon: 'M8 7h8m-8 5h8m-8 5h8M6 7h.01M6 12h.01M6 17h.01' },
     { id: 'stock-reservation', name: 'Stock Reservation', icon: 'M5 5a2 2 0 012-2h6l4 4v14l-7-3-7 3V5a2 2 0 012-2z' },
     { id: 'stock-transfer', name: 'Stock Transfer', icon: 'M7 7h10m0 0l-3-3m3 3l-3 3M17 17H7m0 0l3 3m-3-3l3-3' },
+    { id: 'stock-transfer-ceo', name: 'CEO Approval', icon: 'M9 12l2 2 4-4M7 20h10a2 2 0 002-2V8l-6-6H7a2 2 0 00-2 2v14a2 2 0 002 2z' },
+    { id: 'stock-transfer-finance', name: 'Finance Work', icon: 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.657 0 3-.895 3-2s-1.343-2-3-2-3-.895-3-2 1.343-2 3-2m0 12V4' },
+    { id: 'stock-transfer-planning', name: 'Planning Work', icon: 'M9 17v-2m3 2v-4m3 4v-6M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2h-3l-2-2h-4L8 5H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
+    { id: 'stock-transfer-transport', name: 'Transport Work', icon: 'M8 17a2 2 0 11-4 0 2 2 0 014 0zm12 0a2 2 0 11-4 0 2 2 0 014 0zM5 17H3V6a1 1 0 011-1h9v12H5zm8 0h2V9h3l3 4v4h-1' },
+    { id: 'stock-transfer-purchase', name: 'Purchase Work', icon: 'M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2 8h12m-8 0a1 1 0 100-2 1 1 0 000 2zm8 0a1 1 0 100-2 1 1 0 000 2z' },
     { id: 'van-tracking', name: 'Unfinished Van Date Tracking', icon: 'M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z' },
     { id: 'reallocation', name: 'Reallocation', icon: 'M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4' },
     { id: 'campervan-schedule', name: 'SRV/SRM Schedule', icon: 'M3 7h18M3 12h18M3 17h18M5 5h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2z' },
@@ -214,7 +220,12 @@ function App() {
               />
             )}
             {activeView === 'stock-reservation' && <StockReservation data={scheduleData} />}
-            {activeView === 'stock-transfer' && <StockTransfer />}
+            {activeView === 'stock-transfer' && <StockTransfer data={scheduleData} />}
+            {activeView === 'stock-transfer-ceo' && <StockTransferWorkflow role="ceo" />}
+            {activeView === 'stock-transfer-finance' && <StockTransferWorkflow role="finance" />}
+            {activeView === 'stock-transfer-planning' && <StockTransferWorkflow role="planning" />}
+            {activeView === 'stock-transfer-transport' && <StockTransferWorkflow role="transport" />}
+            {activeView === 'stock-transfer-purchase' && <StockTransferWorkflow role="purchase" />}
             {activeView === 'van-tracking' && <UnfinishedVanTracking />}
             {activeView === 'reallocation' && <Reallocation data={scheduleData} />}
             {activeView === 'campervan-schedule' && <CampervanSchedule />}
