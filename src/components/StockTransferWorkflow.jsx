@@ -381,19 +381,23 @@ const StockTransferWorkflow = ({ role = 'ceo', standalone = false }) => {
         <div className="text-xs font-semibold uppercase tracking-[0.25em] text-blue-100">Stock Transfer Workflow</div>
         <h2 className="mt-2 text-3xl font-bold sm:text-4xl">{role === 'settings' ? 'Email Settings' : roleLabels[role]}</h2>
         <p className="mt-2 max-w-2xl text-sm text-blue-50 sm:text-base">{role === 'settings' ? 'Edit one shared EmailJS template, recipients, subjects, and role-specific content for every workflow email.' : 'Standalone mobile task page for unfinished stock transfer workflow actions.'}</p>
-        <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
-          {[...Object.entries(roleLabels), ['settings', 'Email Settings']].map(([key, label]) => (
-            <a
-              key={key}
-              href={workflowPaths[key]}
-              className={`whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-semibold ${key === role ? 'bg-white text-indigo-700' : 'bg-white/15 text-white ring-1 ring-white/30'}`}
-            >
-              {label}
-            </a>
-          ))}
-        </div>
+        {role === 'settings' && (
+          <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+            {[...Object.entries(roleLabels), ['settings', 'Email Settings']].map(([key, label]) => (
+              <a
+                key={key}
+                href={workflowPaths[key]}
+                className={`whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-semibold ${key === role ? 'bg-white text-indigo-700' : 'bg-white/15 text-white ring-1 ring-white/30'}`}
+              >
+                {label}
+              </a>
+            ))}
+          </div>
+        )}
       </div>
-      <ConfigEditor config={config} onChange={setConfig} onSave={saveConfig} saving={savingConfig} />
+      {role === 'settings' && (
+        <ConfigEditor config={config} onChange={setConfig} onSave={saveConfig} saving={savingConfig} />
+      )}
       {role === 'settings' && (
         <div className="mb-4 rounded-2xl border border-indigo-100 bg-white p-4 text-sm text-gray-600 shadow-sm">
           Use one EmailJS template for all workflow emails. In EmailJS, set To Email to <span className="font-semibold">{'{{to_email}}'}</span>, Subject to <span className="font-semibold">{'{{title}}'}</span>, and the email body to <span className="font-semibold">{'{{{content}}}'}</span> (or {'{{content}}'} if your template does not support triple braces). Available variables: <span className="font-semibold">to_email, title, task_count, uncompleted_task_count, approve_link, message_note, content, message_html, workflow_url, chassis, model, current_location, target_location, sales_order_display, transfer_category</span>.
