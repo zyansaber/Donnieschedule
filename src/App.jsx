@@ -214,7 +214,7 @@ function App() {
               />
             )}
             {activeView === 'stock-reservation' && <StockReservation data={scheduleData} />}
-            {activeView === 'stock-transfer' && <StockTransfer data={scheduleData} />}
+            {activeView === 'stock-transfer' && <StockTransfer />}
             {activeView === 'van-tracking' && <UnfinishedVanTracking />}
             {activeView === 'reallocation' && <Reallocation data={scheduleData} />}
             {activeView === 'campervan-schedule' && <CampervanSchedule />}
