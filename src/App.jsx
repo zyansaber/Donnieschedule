@@ -7,6 +7,7 @@ import ScheduleDashboard from './components/ScheduleDashboard';
 import LoadingOverlay from './components/LoadingOverlay';
 import StockReservation from './components/StockReservation';
 import StockTransfer from './components/StockTransfer';
+import StockTransferWorkflow from './components/StockTransferWorkflow';
 import UnfinishedVanTracking from './components/UnfinishedVanTracking';
 import Reallocation from './components/Reallocation';
 import CampervanSchedule from './pages/CampervanSchedule';
@@ -25,7 +26,17 @@ function App() {
   const [dealerStockLevels, setDealerStockLevels] = useState({});
   const [dealerStockLevelsLoaded, setDealerStockLevelsLoaded] = useState(false);
   const internalSnowyPath = '/xxx/internal-snowy-2487';
+  const stockTransferWorkflowRoutes = {
+    '/stock-transfer-workflow/ceo': 'ceo',
+    '/stock-transfer-workflow/finance': 'finance',
+    '/stock-transfer-workflow/planning': 'planning',
+    '/stock-transfer-workflow/transport': 'transport',
+    '/stock-transfer-workflow/purchase': 'purchase',
+    '/stock-transfer-workflow/settings': 'settings',
+  };
   const isInternalSnowy = window.location.pathname === internalSnowyPath;
+  const stockTransferWorkflowPath = window.location.hash.replace(/^#/, '') || window.location.pathname;
+  const standaloneStockTransferWorkflowRole = stockTransferWorkflowRoutes[stockTransferWorkflowPath];
 
   const menuItems = [
     { id: 'schedule', name: 'Schedule', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
@@ -171,6 +182,10 @@ function App() {
   if (isInternalSnowy) {
     return <InternalSnowyPage />;
   }
+
+  if (standaloneStockTransferWorkflowRole) {
+    return <StockTransferWorkflow role={standaloneStockTransferWorkflowRole} standalone />;
+  }
   
   return (
     <div className="flex flex-col min-h-screen bg-gray-50">
@@ -214,7 +229,7 @@ function App() {
               />
             )}
             {activeView === 'stock-reservation' && <StockReservation data={scheduleData} />}
-            {activeView === 'stock-transfer' && <StockTransfer />}
+            {activeView === 'stock-transfer' && <StockTransfer data={scheduleData} />}
             {activeView === 'van-tracking' && <UnfinishedVanTracking />}
             {activeView === 'reallocation' && <Reallocation data={scheduleData} />}
             {activeView === 'campervan-schedule' && <CampervanSchedule />}
