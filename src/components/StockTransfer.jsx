@@ -8,19 +8,43 @@ const initialForm = {
   targetLocation: '',
 };
 
+const REQUIRED_STOCK_LOCATIONS = ['Frankston', 'Geelong', 'Launceston', 'Traralgon', 'Perth'];
+
 const normalizeChassis = (value) => value.trim().toUpperCase();
 
-const getMelbourneTime = () => new Date().toLocaleString('en-AU', {
+const normalizeValue = (value) => String(value || '').trim().toLowerCase();
+
+const isRequiredStockLocation = (value) => (
+  REQUIRED_STOCK_LOCATIONS.some((location) => normalizeValue(location) === normalizeValue(value))
+);
+
+const getTransferRowHighlight = (transfer) => {
+  const targetLocation = transfer?.targetLocation;
+  const companyStockLocation = transfer?.['Company Stock Current Location'];
+
+  return isRequiredStockLocation(targetLocation)
+    && normalizeValue(companyStockLocation) !== normalizeValue(targetLocation);
+};
+
+const getSOPGIPostDateDisplay = (transfer) => {
+  const pgiPostDate = String(transfer?.['SO PGI Post Date'] || '').trim();
+  const pgiStatus = String(transfer?.['SO Is PGI'] || '').trim().toLowerCase();
+
+  if (pgiPostDate && pgiStatus !== 'no_pgi') {
+    return pgiPostDate;
+  }
+
+  return 'nopgi';
+};
+
+const getMelbourneDate = () => new Date().toLocaleDateString('en-AU', {
   timeZone: 'Australia/Melbourne',
   year: 'numeric',
   month: '2-digit',
   day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
 });
 
-const StockTransfer = () => {
+const StockTransfer = ({ data = [] }) => {
   const [form, setForm] = useState(initialForm);
   const [transfers, setTransfers] = useState({});
   const [loadingTransfers, setLoadingTransfers] = useState(true);
@@ -47,6 +71,20 @@ const StockTransfer = () => {
   const transferList = useMemo(() => Object.entries(transfers || {})
     .map(([id, transfer]) => ({ id, ...transfer }))
     .sort((a, b) => (b?.savedAt || '').localeCompare(a?.savedAt || '')), [transfers]);
+
+  const scheduleByChassis = useMemo(() => new Map((data || [])
+    .map((row) => [normalizeChassis(String(row?.Chassis || '')), row])
+    .filter(([chassis]) => chassis)), [data]);
+
+  const selectedScheduleRow = scheduleByChassis.get(normalizeChassis(form.chassis));
+  const selectedScheduleStatus = String(
+    selectedScheduleRow?.['Regent Production'] || selectedScheduleRow?.Status || ''
+  ).trim();
+  const shouldReallocate = Boolean(
+    normalizeChassis(form.chassis)
+    && selectedScheduleStatus
+    && selectedScheduleStatus.toLowerCase() !== 'finished'
+  );
 
   const handleInputChange = (field, value) => {
     setMessage('');
@@ -86,16 +124,32 @@ const StockTransfer = () => {
       return;
     }
 
+    const scheduleRow = scheduleByChassis.get(chassis);
+    const scheduleStatus = String(scheduleRow?.['Regent Production'] || scheduleRow?.Status || '').trim();
+    if (scheduleStatus && scheduleStatus.toLowerCase() !== 'finished') {
+      setMessage('This chassis is not finished in Schedule. Please switch to the Reallocation page to do a reallocation.');
+      return;
+    }
+
     setSaving(true);
     setMessage('');
 
-    const savedAt = getMelbourneTime();
+    const savedAt = getMelbourneDate();
     const transferData = {
+      'Company Stock Current Location': 'Not in company warehouse',
+      'Invoice BP Last Change Date': '',
+      'Invoice BP Last Changed By': '',
+      'Invoice-to Name': '',
+      'Last Invoice Date': '',
+      'Last Invoice Number': '',
+      'SO Is PGI': 'No_PGI',
+      'SO PGI Post Date': '',
+      'Sales Order Display': '',
       chassis,
       currentLocation,
+      savedAt,
       targetLocation,
       transferType: 'Yard stock to yard stock only',
-      savedAt,
     };
 
     try {
@@ -125,7 +179,8 @@ const StockTransfer = () => {
 
       <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
         <span className="font-semibold">Important:</span> Only use this page for yard stock to yard stock transfers.
-        Do not use it for customer sold units, dealer transfers, or non-yard stock moves.
+        Do not use it for customer sold units, dealer transfers, or non-yard stock moves. Any stock transfer involving
+        Frankston, Geelong, Launceston, Traralgon, or Perth must use this page.
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 mb-5">
@@ -147,6 +202,11 @@ const StockTransfer = () => {
               className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
               placeholder="Enter chassis number"
             />
+            {shouldReallocate && (
+              <p className="mt-1 text-xs font-medium text-red-600">
+                This chassis is not finished in Schedule. Please switch to the Reallocation page to do a reallocation.
+              </p>
+            )}
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="stock-transfer-current-location">
@@ -221,19 +281,36 @@ const StockTransfer = () => {
                 <tr>
                   <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Chassis</th>
                   <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Current Location</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Move To</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Allowed Use</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Target Location</th>
                   <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Saved At</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">SO PGI Post Date</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Company Stock Current Location</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Sales Order Display</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Invoice-to Name</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Last Invoice Date</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Last Invoice Number</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Invoice BP Last Changed By</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Invoice BP Last Change Date</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {transferList.map((transfer) => (
-                  <tr key={transfer.id}>
+                  <tr
+                    key={transfer.id}
+                    className={getTransferRowHighlight(transfer) ? 'bg-red-100 text-red-900' : ''}
+                  >
                     <td className="px-4 py-2 text-sm font-semibold text-gray-900">{transfer.chassis || '-'}</td>
                     <td className="px-4 py-2 text-sm text-gray-600">{transfer.currentLocation || '-'}</td>
                     <td className="px-4 py-2 text-sm text-gray-600">{transfer.targetLocation || '-'}</td>
-                    <td className="px-4 py-2 text-sm text-gray-600">{transfer.transferType || 'Yard stock to yard stock only'}</td>
                     <td className="px-4 py-2 text-sm text-gray-600">{transfer.savedAt || '-'}</td>
+                    <td className="px-4 py-2 text-sm text-gray-600">{getSOPGIPostDateDisplay(transfer)}</td>
+                    <td className="px-4 py-2 text-sm text-gray-600">{transfer['Company Stock Current Location'] || '-'}</td>
+                    <td className="px-4 py-2 text-sm text-gray-600">{transfer['Sales Order Display'] || '-'}</td>
+                    <td className="px-4 py-2 text-sm text-gray-600">{transfer['Invoice-to Name'] || '-'}</td>
+                    <td className="px-4 py-2 text-sm text-gray-600">{transfer['Last Invoice Date'] || '-'}</td>
+                    <td className="px-4 py-2 text-sm text-gray-600">{transfer['Last Invoice Number'] || '-'}</td>
+                    <td className="px-4 py-2 text-sm text-gray-600">{transfer['Invoice BP Last Changed By'] || '-'}</td>
+                    <td className="px-4 py-2 text-sm text-gray-600">{transfer['Invoice BP Last Change Date'] || '-'}</td>
                   </tr>
                 ))}
               </tbody>
