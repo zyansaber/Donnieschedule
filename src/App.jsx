@@ -16,8 +16,13 @@ import ScheduleAdjustment, { buildShuffleRequests } from './components/ScheduleA
 import { fetchScheduleData, mockScheduleData } from './data/scheduleData';
 import { database } from './utils/firebase';
 
+const getCurrentRoutePath = () => (
+  (window.location.hash.replace(/^#/, '') || window.location.pathname).split('?')[0]
+);
+
 function App() {
   const [activeView, setActiveView] = useState('schedule');
+  const [routePath, setRoutePath] = useState(getCurrentRoutePath);
   const [scheduleData, setScheduleData] = useState([]);
   const [shuffleRequests, setShuffleRequests] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -36,8 +41,7 @@ function App() {
     '/stock-transfer-workflow/settings': 'settings',
   };
   const isInternalSnowy = window.location.pathname === internalSnowyPath;
-  const stockTransferWorkflowPath = (window.location.hash.replace(/^#/, '') || window.location.pathname).split('?')[0];
-  const standaloneStockTransferWorkflowRole = stockTransferWorkflowRoutes[stockTransferWorkflowPath];
+  const standaloneStockTransferWorkflowRole = stockTransferWorkflowRoutes[routePath];
 
   const menuItems = [
     { id: 'schedule', name: 'Schedule', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
@@ -77,6 +81,16 @@ function App() {
     document.body.style.zoom = "125%";
     return () => {
       document.body.style.zoom = "100%";
+    };
+  }, []);
+
+  useEffect(() => {
+    const syncRoutePath = () => setRoutePath(getCurrentRoutePath());
+    window.addEventListener('hashchange', syncRoutePath);
+    window.addEventListener('popstate', syncRoutePath);
+    return () => {
+      window.removeEventListener('hashchange', syncRoutePath);
+      window.removeEventListener('popstate', syncRoutePath);
     };
   }, []);
 

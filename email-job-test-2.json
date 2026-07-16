@@ -1,0 +1,11 @@
+{
+  "status": "pending",
+  "transferId": "manual-test",
+  "step": "ceo_approval",
+  "role": "ceo",
+  "to": "leo.li@regentrv.com.au",
+  "title": "Stock Transfer Cloud Function EmailJS Test",
+  "content": "<h2>Cloud Function EmailJS test OK</h2><p>This email was sent by Firebase Cloud Functions from email_jobs.</p>",
+  "attempts": 0,
+  "createdAt": "2026-07-15T00:00:00.000Z"
+}

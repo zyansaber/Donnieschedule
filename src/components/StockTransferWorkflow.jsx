@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import emailjs from '@emailjs/browser';
 import { off, onValue, ref, runTransaction, update } from 'firebase/database';
 import { database } from '../utils/firebase';
 
 const TRANSFERS_PATH = 'stock_transfer';
 const CONFIG_PATH = 'stockTransferWorkflowConfig';
+const EMAIL_JOBS_PATH = 'email_jobs';
+const ACTIVE_EMAIL_JOB_STATUSES = ['pending', 'sending', 'sent'];
 
 const LOCATION_WORKFLOW_LOCATIONS = [
   ['frankston', 'Frankston'],
@@ -153,6 +154,26 @@ const getNextEmailRole = (completedRole, transfer) => {
   return '';
 };
 
+const getEmailStep = (role, transfer = {}) => {
+  if (role === 'ceo') return 'ceo_approval';
+  if (role === 'location') return 'location_dms';
+  if (role === 'planning') return 'planning_bp_change';
+  if (role === 'transport') return 'transport_booking';
+  if (role === 'purchase') return 'purchase_po';
+  if (role === 'finance') {
+    return isExternalTransfer(transfer) && !getWorkflow(transfer).redoInvoiceDoneAt
+      ? 'finance_redo_invoice'
+      : 'finance_reverse_pgi';
+  }
+  return role || 'unknown';
+};
+
+const getSafeFirebaseKey = (value) => String(value || '').replace(/[.#$\[\]/]/g, '_');
+
+const getEmailJobId = (transfer, role) => (
+  `${getSafeFirebaseKey(transfer?.id)}_${getEmailStep(role, transfer)}`
+);
+
 const getApproveLink = (transferId) => `${window.location.origin}/#/stock-transfer-workflow/ceo?approveTransfer=${encodeURIComponent(transferId)}`;
 
 const emailJsTemplateExample = `<div style="font-family:Arial,sans-serif;background:#f6f7fb;padding:24px;">
@@ -223,8 +244,6 @@ const buildEmailHtml = (role, transfer, title, note, taskCount) => {
   `;
 };
 
-const getTemplateId = (config, role) => config?.templateId || config?.templates?.[role] || '';
-
 const getRecipient = (config, role, transfer) => {
   if (role === 'location') {
     return config?.locationRecipients?.[normalizeWorkflowLocation(transfer?.currentLocation)] || '';
@@ -234,7 +253,7 @@ const getRecipient = (config, role, transfer) => {
 };
 
 const canSendEmail = (config, role, transfer = {}) => (
-  config?.serviceId && config?.publicKey && getTemplateId(config, role) && getRecipient(config, role, transfer)
+  Boolean(getRecipient(config, role, transfer))
 );
 
 const getWorkflowUrl = (role, transfer = {}) => {
@@ -246,33 +265,51 @@ const getWorkflowUrl = (role, transfer = {}) => {
 };
 
 const sendWorkflowEmail = async (role, transfer, config, taskCount = 1) => {
-  if (!canSendEmail(config, role)) return false;
+  if (!canSendEmail(config, role, transfer)) return false;
   const emailTitle = config.subjects?.[role] || (role === 'ceo' ? 'Stock Transfer CEO Approval Required' : `${roleLabels[role]} Task`);
   const emailNote = config.bodyNotes?.[role] || '';
   const content = buildEmailHtml(role, transfer, emailTitle, emailNote, taskCount);
-  await emailjs.send(
-    config.serviceId,
-    getTemplateId(config, role),
-    {
-      to_email: getRecipient(config, role, transfer),
-      title: emailTitle,
-      chassis: transfer.chassis || '',
-      model: transfer.Model || '',
-      current_location: transfer.currentLocation || '',
-      target_location: transfer.targetLocation || '',
-      sales_order_display: transfer['Sales Order Display'] || '',
-      transfer_category: transfer['Stock Transfer Category'] || '',
-      task_count: taskCount,
-      uncompleted_task_count: taskCount,
-      message_note: emailNote,
-      content,
-      message_html: content,
-      workflow_url: getWorkflowUrl(role, transfer),
-      approve_link: role === 'ceo' ? getApproveLink(transfer.id) : '',
-    },
-    config.publicKey,
-  );
-  return true;
+  const now = new Date().toISOString();
+  const jobId = getEmailJobId(transfer, role);
+  const jobRef = ref(database, `${EMAIL_JOBS_PATH}/${jobId}`);
+  const recipient = getRecipient(config, role, transfer);
+  const jobData = {
+    status: 'pending',
+    transferId: transfer.id,
+    step: getEmailStep(role, transfer),
+    role,
+    to: recipient,
+    title: emailTitle,
+    content,
+    taskCount,
+    attempts: 0,
+    createdAt: now,
+    updatedAt: now,
+    source: 'stock_transfer_workflow',
+    workflowUrl: getWorkflowUrl(role, transfer),
+    approveLink: role === 'ceo' ? getApproveLink(transfer.id) : '',
+    chassis: transfer.chassis || '',
+    model: transfer.Model || '',
+    currentLocation: transfer.currentLocation || '',
+    targetLocation: transfer.targetLocation || '',
+    salesOrderDisplay: transfer['Sales Order Display'] || '',
+    transferCategory: transfer['Stock Transfer Category'] || '',
+  };
+
+  const result = await runTransaction(jobRef, (existingJob) => {
+    if (existingJob && ACTIVE_EMAIL_JOB_STATUSES.includes(existingJob.status)) return;
+    return {
+      ...(existingJob || {}),
+      ...jobData,
+      attempts: Number(existingJob?.attempts) || 0,
+      lastError: null,
+      failedAt: null,
+    };
+  });
+
+  if (result.committed) return true;
+  const existingJob = result.snapshot.val();
+  return Boolean(existingJob && ACTIVE_EMAIL_JOB_STATUSES.includes(existingJob.status));
 };
 
 const ConfigEditor = ({ config, onChange, onSave, saving }) => {
@@ -287,11 +324,8 @@ const ConfigEditor = ({ config, onChange, onSave, saving }) => {
 
   return (
     <details className="mb-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-      <summary className="cursor-pointer text-sm font-semibold text-gray-700">EmailJS and recipient settings</summary>
+      <summary className="cursor-pointer text-sm font-semibold text-gray-700">Backend email recipients and content</summary>
       <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
-        <input className="rounded border px-3 py-2 text-sm" placeholder="EmailJS Service ID" value={config.serviceId || ''} onChange={(e) => updateConfig('serviceId', e.target.value)} />
-        <input className="rounded border px-3 py-2 text-sm" placeholder="EmailJS Public Key" value={config.publicKey || ''} onChange={(e) => updateConfig('publicKey', e.target.value)} />
-        <input className="rounded border px-3 py-2 text-sm" placeholder="Shared EmailJS Template ID" value={config.templateId || ''} onChange={(e) => updateConfig('templateId', e.target.value)} />
         <button type="button" onClick={onSave} disabled={saving} className="rounded bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-gray-400">
           {saving ? 'Saving...' : 'Save email settings'}
         </button>
@@ -429,7 +463,7 @@ const StockTransferWorkflow = ({ role = 'ceo', standalone = false }) => {
           return {
             ...workflow,
             ceoEmailSendingAt: claimTime,
-            ceoStatus: 'Sending CEO email',
+            ceoStatus: 'Queueing CEO email',
           };
         });
 
@@ -438,6 +472,9 @@ const StockTransferWorkflow = ({ role = 'ceo', standalone = false }) => {
         await sendWorkflowEmail('ceo', pendingTransfer, config, getTaskList('ceo', transfers).length);
         await update(workflowRef, {
           ceoEmailSentAt: new Date().toISOString(),
+          ceoEmailQueuedAt: new Date().toISOString(),
+          ceoEmailJobId: getEmailJobId(pendingTransfer, 'ceo'),
+          ceoEmailStep: getEmailStep('ceo', pendingTransfer),
           ceoEmailSendingAt: null,
           ceoEmailError: null,
           ceoStatus: 'Pending approval',
@@ -446,9 +483,9 @@ const StockTransferWorkflow = ({ role = 'ceo', standalone = false }) => {
         ceoEmailSendLocks.current.delete(pendingTransfer.id);
         await update(workflowRef, {
           ceoEmailSendingAt: null,
-          ceoEmailError: error instanceof Error ? error.message : 'Failed to send CEO email',
+          ceoEmailError: error instanceof Error ? error.message : 'Failed to queue CEO email',
         }).catch(() => {});
-        console.error('Failed to send CEO stock transfer email:', error);
+        console.error('Failed to queue CEO stock transfer email:', error);
       } finally {
         ceoEmailQueueRunning.current = false;
       }
@@ -514,17 +551,22 @@ const StockTransferWorkflow = ({ role = 'ceo', standalone = false }) => {
         const nextLocationKey = nextRole === 'location' ? normalizeWorkflowLocation(updatedTransfer.currentLocation) : '';
         const recipient = getRecipient(config, nextRole, updatedTransfer);
         if (canSendEmail(config, nextRole, updatedTransfer)) {
+          const emailJobId = getEmailJobId(updatedTransfer, nextRole);
+          const emailStep = getEmailStep(nextRole, updatedTransfer);
           await sendWorkflowEmail(nextRole, updatedTransfer, config, getTaskList(nextRole, nextTransfers, nextLocationKey).length);
           await update(ref(database, `${TRANSFERS_PATH}/${transfer.id}/workflow`), {
             [`${nextRole}EmailSentAt`]: new Date().toISOString(),
+            [`${nextRole}EmailQueuedAt`]: new Date().toISOString(),
+            [`${nextRole}EmailJobId`]: emailJobId,
+            [`${nextRole}EmailStep`]: emailStep,
             [`${nextRole}EmailRecipient`]: recipient,
             [`${nextRole}EmailError`]: null,
           });
         } else {
           await update(ref(database, `${TRANSFERS_PATH}/${transfer.id}/workflow`), {
             [`${nextRole}EmailError`]: nextRole === 'location'
-              ? `Missing EmailJS config or location recipient for ${getLocationLabel(nextLocationKey)} (${nextLocationKey})`
-              : `Missing EmailJS config or recipient for ${nextRole}`,
+              ? `Missing location recipient for ${getLocationLabel(nextLocationKey)} (${nextLocationKey})`
+              : `Missing recipient for ${nextRole}`,
           });
         }
       }
@@ -551,7 +593,7 @@ const StockTransferWorkflow = ({ role = 'ceo', standalone = false }) => {
       <div className="mb-5 overflow-hidden rounded-3xl bg-gradient-to-br from-indigo-600 via-blue-600 to-sky-500 p-5 text-white shadow-xl sm:p-7">
         <div className="text-xs font-semibold uppercase tracking-[0.25em] text-blue-100">Stock Transfer Workflow</div>
         <h2 className="mt-2 text-3xl font-bold sm:text-4xl">{role === 'settings' ? 'Email Settings' : role === 'location' ? `${getLocationLabel(locationKey)} DMS Work` : roleLabels[role]}</h2>
-        <p className="mt-2 max-w-2xl text-sm text-blue-50 sm:text-base">{role === 'settings' ? 'Edit one shared EmailJS template, recipients, subjects, and role-specific content for every workflow email.' : 'Standalone mobile task page for unfinished stock transfer workflow actions.'}</p>
+        <p className="mt-2 max-w-2xl text-sm text-blue-50 sm:text-base">{role === 'settings' ? 'Edit backend email recipients, subjects, and role-specific content for every workflow email.' : 'Standalone mobile task page for unfinished stock transfer workflow actions.'}</p>
         {role === 'settings' && (
           <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
             {[...Object.entries(roleLabels), ['settings', 'Email Settings']].map(([key, label]) => (
