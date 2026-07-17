@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import emailjs from '@emailjs/browser';
 import { get, ref, set } from 'firebase/database';
 import ReminderChecker from './components/ReminderChecker';
 import Header from './components/Header';
@@ -7,7 +6,7 @@ import ScheduleDashboard from './components/ScheduleDashboard';
 import LoadingOverlay from './components/LoadingOverlay';
 import StockReservation from './components/StockReservation';
 import StockTransfer from './components/StockTransfer';
-import StockTransferWorkflow from './components/StockTransferWorkflow';
+import StockTransferWorkflow, { StockTransferConfirmCenter } from './components/StockTransferWorkflow';
 import UnfinishedVanTracking from './components/UnfinishedVanTracking';
 import Reallocation from './components/Reallocation';
 import CampervanSchedule from './pages/CampervanSchedule';
@@ -15,6 +14,7 @@ import InternalSnowyPage from './pages/InternalSnowy';
 import ScheduleAdjustment, { buildShuffleRequests } from './components/ScheduleAdjustment';
 import { fetchScheduleData, mockScheduleData } from './data/scheduleData';
 import { database } from './utils/firebase';
+import { queueEmailJob } from './utils/emailJobs';
 
 const getCurrentRoutePath = () => (
   (window.location.hash.replace(/^#/, '') || window.location.pathname).split('?')[0]
@@ -48,12 +48,13 @@ function App() {
     { id: 'schedule-adjustment', name: 'Schedule Adjustment', icon: 'M8 7h8m-8 5h8m-8 5h8M6 7h.01M6 12h.01M6 17h.01' },
     { id: 'stock-reservation', name: 'Stock Reservation', icon: 'M5 5a2 2 0 012-2h6l4 4v14l-7-3-7 3V5a2 2 0 012-2z' },
     { id: 'stock-transfer', name: 'Stock Transfer', icon: 'M7 7h10m0 0l-3-3m3 3l-3 3M17 17H7m0 0l3 3m-3-3l3-3' },
+    { id: 'stock-transfer-confirm', name: 'Stock Transfer Confirm', icon: 'M9 12l2 2 4-4M7 4h10a2 2 0 012 2v12a2 2 0 01-2 2H7a2 2 0 01-2-2V6a2 2 0 012-2z' },
     { id: 'van-tracking', name: 'Unfinished Van Date Tracking', icon: 'M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z' },
     { id: 'reallocation', name: 'Reallocation', icon: 'M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4' },
     { id: 'campervan-schedule', name: 'SRV/SRM Schedule', icon: 'M3 7h18M3 12h18M3 17h18M5 5h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2z' },
   ];
 
-  const handleCreateShuffleRequests = (selectedRows, targetMonth) => {
+  const handleCreateShuffleRequests = async (selectedRows, targetMonth) => {
     if (!selectedRows || selectedRows.length === 0 || !targetMonth) return;
     const newRequests = buildShuffleRequests(selectedRows, targetMonth, scheduleData);
     setShuffleRequests((prev) => [...newRequests, ...prev]);
@@ -61,18 +62,23 @@ function App() {
       `${item.chassis || ''}, ${item.adjustedTime || ''}, ${item.monthVin || ''}`
     ));
 
-    emailjs.send(
-      'service_d39k2lv',
-      'template_gdxbyhg',
-      {
-        title: 'Schedule Shuffling Requests',
-        total_count: newRequests.length,
-        request_table: requestRows.join('\n'),
-        generated_at: new Date().toISOString(),
+    await queueEmailJob({
+      step: 'schedule_shuffle_requests',
+      role: 'schedule',
+      to: 'leo.li@regentrv.com.au',
+      title: 'Schedule Shuffling Requests',
+      content: `
+        <h2>Schedule Shuffling Requests</h2>
+        <p>Total requests: ${newRequests.length}</p>
+        <pre style="font-family:Arial,sans-serif;white-space:pre-wrap;">${requestRows.join('\n')}</pre>
+      `,
+      metadata: {
+        source: 'schedule_shuffling_requests',
+        totalCount: newRequests.length,
+        generatedAt: new Date().toISOString(),
       },
-      'Ox1_IwykSClDMOhqz',
-    ).catch((error) => {
-      console.error('Failed to auto-send schedule shuffling email:', error);
+    }).catch((error) => {
+      console.error('Failed to queue schedule shuffling email:', error);
     });
     setActiveView('schedule-adjustment');
   };
@@ -203,15 +209,15 @@ function App() {
   }
   
   return (
-    <div className="flex flex-col min-h-screen bg-gray-50">
+    <div className="flex min-h-screen flex-col bg-slate-50">
       <Header />
-      <div className="bg-white shadow-sm p-2 flex flex-wrap justify-center">
-        <nav className="flex">
-          <ul className="flex space-x-2">
+      <div className="border-b border-slate-200 bg-white/95 px-3 py-2 shadow-sm">
+        <nav className="overflow-x-auto">
+          <ul className="mx-auto flex w-max gap-1">
             {menuItems.map((item) => (
               <li key={item.id}>
                 <button
-                  className={`flex items-center px-4 py-2 text-sm rounded-md ${activeView === item.id ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50'}`}
+                  className={`flex items-center whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium ${activeView === item.id ? 'bg-slate-950 text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'}`}
                   onClick={() => handleMenuClick(item.id)}
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -245,6 +251,7 @@ function App() {
             )}
             {activeView === 'stock-reservation' && <StockReservation data={scheduleData} />}
             {activeView === 'stock-transfer' && <StockTransfer data={scheduleData} />}
+            {activeView === 'stock-transfer-confirm' && <StockTransferConfirmCenter />}
             {activeView === 'van-tracking' && <UnfinishedVanTracking />}
             {activeView === 'reallocation' && <Reallocation data={scheduleData} />}
             {activeView === 'campervan-schedule' && <CampervanSchedule />}

@@ -14,6 +14,13 @@ const EMAILJS_SECRETS = [
 ];
 
 const EMAILJS_SEND_URL = "https://api.emailjs.com/api/v1.0/email/send";
+const MAX_SEND_ATTEMPTS = 3;
+const RETRY_DELAYS_MS = [5000, 15000];
+const STUCK_JOB_MS = 10 * 60 * 1000;
+
+const sleep = (ms) => new Promise((resolve) => {
+  setTimeout(resolve, ms);
+});
 
 const buildEmailJsPayload = (job) => ({
   service_id: process.env.EMAILJS_SERVICE_ID,
@@ -22,6 +29,7 @@ const buildEmailJsPayload = (job) => ({
   accessToken: process.env.EMAILJS_PRIVATE_KEY,
   template_params: {
     to_email: job.to,
+    cc_email: job.cc || "",
     title: job.title,
     content: job.content,
     transfer_id: job.transferId || "",
@@ -30,25 +38,32 @@ const buildEmailJsPayload = (job) => ({
   },
 });
 
-const claimPendingJob = async (jobRef, job) => {
-  if (!job || job.status !== "pending") return null;
+const claimJobForSend = async (jobRef, expectedStatus = "pending", triggerJob = null) => {
+  const sendingAt = new Date().toISOString();
+  const statusResult = await jobRef.child("status").transaction((status) => {
+    if (status === expectedStatus) return "sending";
+    if ((status === null || status === undefined) && triggerJob?.status === expectedStatus) return "sending";
+    return;
+  }, undefined, false);
 
-  const claimedJob = {
-    ...job,
-    status: "sending",
-    attempts: (Number(job.attempts) || 0) + 1,
-    sendingAt: new Date().toISOString(),
+  if (!statusResult.committed) return null;
+
+  const snapshot = await jobRef.once("value");
+  const job = snapshot.val();
+  if (!job || job.status !== "sending") return null;
+
+  const attempts = (Number(job.attempts) || 0) + 1;
+  const updates = {
+    attempts,
+    sendingAt,
+    updatedAt: sendingAt,
     lastError: null,
   };
-
-  await jobRef.update({
-    status: claimedJob.status,
-    attempts: claimedJob.attempts,
-    sendingAt: claimedJob.sendingAt,
-    lastError: claimedJob.lastError,
-  });
-
-  return claimedJob;
+  await jobRef.update(updates);
+  return {
+    ...job,
+    ...updates,
+  };
 };
 
 const validateJob = (job) => {
@@ -81,6 +96,61 @@ const sendEmailJsEmail = async (job) => {
   }
 
   return responseText;
+};
+
+const sendEmailWithRetries = async (jobRef, jobId, firstClaimedJob) => {
+  let claimedJob = firstClaimedJob;
+
+  while (claimedJob) {
+    try {
+      const emailJsResponse = await sendEmailJsEmail(claimedJob);
+      await jobRef.update({
+        status: "sent",
+        sentAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        emailJsResponse,
+        lastError: null,
+      });
+      logger.info("Email job sent", {
+        jobId,
+        step: claimedJob.step || "",
+        to: claimedJob.to,
+        attempts: claimedJob.attempts || 0,
+      });
+      return;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const attempts = Number(claimedJob.attempts) || 0;
+
+      if (attempts >= MAX_SEND_ATTEMPTS) {
+        await jobRef.update({
+          status: "failed",
+          failedAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          lastError: message,
+        });
+        logger.error("Email job failed", {jobId, attempts, error: message});
+        return;
+      }
+
+      const retryDelay = RETRY_DELAYS_MS[Math.min(attempts - 1, RETRY_DELAYS_MS.length - 1)];
+      const retryAt = new Date(Date.now() + retryDelay).toISOString();
+      await jobRef.update({
+        status: "retrying",
+        retryAt,
+        updatedAt: new Date().toISOString(),
+        lastError: message,
+      });
+      logger.warn("Email job retry scheduled", {
+        jobId,
+        attempts,
+        retryDelay,
+        error: message,
+      });
+      await sleep(retryDelay);
+      claimedJob = await claimJobForSend(jobRef, "retrying", claimedJob);
+    }
+  }
 };
 
 const getJobId = (context) => {
@@ -118,32 +188,60 @@ exports.sendPendingEmailJob = functions
       }
 
       const jobRef = change.after.ref;
-      const claimedJob = await claimPendingJob(jobRef, job);
+      const claimedJob = await claimJobForSend(jobRef, "pending", job);
       if (!claimedJob) {
         logger.info("Email job was not claimed", {jobId});
         return;
       }
 
-      try {
-        const emailJsResponse = await sendEmailJsEmail(claimedJob);
-        await jobRef.update({
-          status: "sent",
-          sentAt: new Date().toISOString(),
-          emailJsResponse,
-          lastError: null,
-        });
-        logger.info("Email job sent", {
-          jobId,
-          step: claimedJob.step || "",
-          to: claimedJob.to,
-        });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        await jobRef.update({
-          status: "failed",
-          failedAt: new Date().toISOString(),
-          lastError: message,
-        });
-        logger.error("Email job failed", {jobId, error: message});
-      }
+      await sendEmailWithRetries(jobRef, jobId, claimedJob);
+    });
+
+const recoverStuckJobsForStatus = async (status) => {
+  const snapshot = await admin.database()
+      .ref("/email_jobs")
+      .orderByChild("status")
+      .equalTo(status)
+      .once("value");
+
+  const updates = {};
+  const now = Date.now();
+  snapshot.forEach((child) => {
+    const job = child.val() || {};
+    const marker = Date.parse(job.sendingAt || job.retryAt || job.updatedAt || "");
+    if (!marker || now - marker < STUCK_JOB_MS) return;
+
+    const attempts = Number(job.attempts) || 0;
+    if (attempts >= MAX_SEND_ATTEMPTS) {
+      updates[`${child.key}/status`] = "failed";
+      updates[`${child.key}/failedAt`] = new Date().toISOString();
+      updates[`${child.key}/lastError`] = job.lastError || "Email job exceeded retry limit during recovery";
+    } else {
+      updates[`${child.key}/status`] = "pending";
+      updates[`${child.key}/recoveredAt`] = new Date().toISOString();
+      updates[`${child.key}/lastError`] = job.lastError || `Recovered stuck ${status} email job`;
+    }
+    updates[`${child.key}/updatedAt`] = new Date().toISOString();
+  });
+
+  if (Object.keys(updates).length) {
+    await admin.database().ref("/email_jobs").update(updates);
+  }
+
+  return Object.keys(updates).length;
+};
+
+exports.recoverStuckEmailJobs = functions
+    .region("asia-southeast1")
+    .runWith({maxInstances: 1})
+    .pubsub
+    .schedule("every 10 minutes")
+    .timeZone("Australia/Sydney")
+    .onRun(async () => {
+      const recoveredSending = await recoverStuckJobsForStatus("sending");
+      const recoveredRetrying = await recoverStuckJobsForStatus("retrying");
+      logger.info("Recovered stuck email jobs", {
+        recoveredSending,
+        recoveredRetrying,
+      });
     });

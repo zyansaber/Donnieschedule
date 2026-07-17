@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import emailjs from '@emailjs/browser';
+import { queueEmailJob } from '../utils/emailJobs';
 
 const ReminderModal = ({ selectedChassis = [], onClose }) => {
   const [email, setEmail] = useState('');
@@ -12,20 +12,25 @@ const ReminderModal = ({ selectedChassis = [], onClose }) => {
 
     setLoading(true);
     try {
-      await emailjs.send(
-        'service_zjcpaps',
-        'template_barjtqgp',
-        {
-          from_name: 'Schedule Dashboard',
-          to_email: email,
-          selected_chassis: selectedChassis.join(', '),
-          chassis_count: selectedChassis.length,
+      await queueEmailJob({
+        step: 'schedule_dashboard_reminder',
+        role: 'schedule',
+        to: email,
+        title: 'Schedule Dashboard Reminder',
+        content: `
+          <h2>Schedule Dashboard Reminder</h2>
+          <p>Selected chassis count: ${selectedChassis.length}</p>
+          <p>${selectedChassis.join(', ')}</p>
+        `,
+        metadata: {
+          source: 'schedule_dashboard_reminder',
+          selectedChassis,
+          chassisCount: selectedChassis.length,
         },
-        'rAEsoMfySq9l5mXvz'
-      );
-      console.log('Reminder email sent successfully');
+      });
+      console.log('Reminder email queued successfully');
     } catch (error) {
-      console.error('Error sending email reminder:', error);
+      console.error('Error queueing email reminder:', error);
     } finally {
       setLoading(false);
       onClose();

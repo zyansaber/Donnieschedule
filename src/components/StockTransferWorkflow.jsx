@@ -1,11 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { off, onValue, ref, runTransaction, update } from 'firebase/database';
 import { database } from '../utils/firebase';
+import { getSafeFirebaseKey, queueEmailJob } from '../utils/emailJobs';
 
 const TRANSFERS_PATH = 'stock_transfer';
 const CONFIG_PATH = 'stockTransferWorkflowConfig';
-const EMAIL_JOBS_PATH = 'email_jobs';
-const ACTIVE_EMAIL_JOB_STATUSES = ['pending', 'sending', 'sent'];
 
 const LOCATION_WORKFLOW_LOCATIONS = [
   ['frankston', 'Frankston'],
@@ -30,6 +29,7 @@ const getLocationLabel = (locationKey) => (
 );
 
 const defaultConfig = {
+  appBaseUrl: 'https://schedule-final-tyn6.onrender.com',
   serviceId: '',
   publicKey: '',
   templateId: '',
@@ -42,17 +42,17 @@ const defaultConfig = {
     purchase: '',
   },
   subjects: {
-    ceo: 'Stock Transfer CEO Approval Required',
-    planning: 'Stock Transfer Planning Task',
-    finance: 'Stock Transfer Finance Task',
+    ceo: 'Stock Transfer NSM Approval Required',
+    planning: 'Stock Transfer Planning Change SO BP Task',
+    finance: 'Stock Transfer Finance Acctg/AP - Floorplan Check Task',
     transport: 'Stock Transfer Transport Task',
     purchase: 'Stock Transfer Purchase Task',
   },
   bodyNotes: {
     ceo: 'Please review and approve this stock transfer.',
     location: 'Please complete the DMS stock transfer task for your location.',
-    planning: 'Please confirm DMS is done for this stock transfer.',
-    finance: 'External transfers use Finance twice: first redo the invoice, then after Location DMS reverse goods receiving, reverse PGI.',
+    planning: 'Please confirm Planning Change SO BP is done for this stock transfer.',
+    finance: 'Please complete the required Finance check for this stock transfer.',
     transport: 'Please book transport and enter vendor/time.',
     purchase: 'Please raise and confirm the Transport PO.',
   },
@@ -71,10 +71,19 @@ const defaultConfig = {
     transport: '',
     purchase: '',
   },
+  ccRecipients: {
+    ceo: '',
+    location: '',
+    planning: '',
+    finance: '',
+    transport: '',
+    purchase: '',
+  },
 };
 
 const workflowPaths = {
   ceo: '#/stock-transfer-workflow/ceo',
+  location: '#/stock-transfer-workflow/location',
   planning: '#/stock-transfer-workflow/planning',
   finance: '#/stock-transfer-workflow/finance',
   transport: '#/stock-transfer-workflow/transport',
@@ -82,8 +91,14 @@ const workflowPaths = {
   settings: '#/stock-transfer-workflow/settings',
 };
 
+const getConfiguredBaseUrl = (config = {}) => (
+  String(config.appBaseUrl || defaultConfig.appBaseUrl || window.location.origin)
+    .trim()
+    .replace(/\/+$/, '')
+);
+
 const roleLabels = {
-  ceo: 'CEO Approval',
+  ceo: 'NSM Approval',
   location: 'Location DMS Work',
   planning: 'Planning Work',
   finance: 'Finance Work',
@@ -93,17 +108,18 @@ const roleLabels = {
 
 const workflowFlowSummaries = {
   internal: [
-    'CEO Approval',
+    'NSM Approval',
+    'Finance Acctg/AP - Floorplan Check',
     'Current Location confirms DMS transfer done',
     'Transport books transport',
     'Purchase raises Transport PO',
   ],
   external: [
-    'CEO Approval',
-    'Finance confirms redo invoice',
+    'NSM Approval',
+    'Finance Acctg/AP - Floorplan Check',
     'Current Location confirms DMS reverse goods receiving',
-    'Finance confirms Reverse PGI',
-    'Planning confirms BP changed',
+    'Finance AR - Reverse Invoice and PGI',
+    'Planning Change SO BP',
     'Transport books transport',
     'Purchase raises Transport PO',
   ],
@@ -124,16 +140,15 @@ const getTaskList = (role, transfers, locationKey = '') => buildRows(transfers).
   if (!workflow.ceoApprovedAt) return false;
   if (role === 'location') {
     const transferLocationKey = normalizeWorkflowLocation(transfer.currentLocation);
-    const readyForLocation = isExternalTransfer(transfer) ? workflow.redoInvoiceDoneAt : workflow.ceoApprovedAt;
+    const readyForLocation = workflow.redoInvoiceDoneAt;
     return readyForLocation
       && !workflow.locationDmsDoneAt
       && (!locationKey || transferLocationKey === locationKey);
   }
   if (role === 'planning') return isExternalTransfer(transfer) && workflow.financeDoneAt && !workflow.planningBpDoneAt;
   if (role === 'finance') {
-    if (!isExternalTransfer(transfer)) return false;
     if (!workflow.redoInvoiceDoneAt) return true;
-    return workflow.locationDmsDoneAt && !workflow.financeDoneAt;
+    return isExternalTransfer(transfer) && workflow.locationDmsDoneAt && !workflow.financeDoneAt;
   }
   if (role === 'transport') {
     if (isExternalTransfer(transfer) && !workflow.planningBpDoneAt) return false;
@@ -146,7 +161,7 @@ const getTaskList = (role, transfers, locationKey = '') => buildRows(transfers).
 
 const getNextEmailRole = (completedRole, transfer) => {
   const workflow = getWorkflow(transfer);
-  if (completedRole === 'ceo') return isExternalTransfer(transfer) ? 'finance' : 'location';
+  if (completedRole === 'ceo') return 'finance';
   if (completedRole === 'location') return isExternalTransfer(transfer) ? 'finance' : 'transport';
   if (completedRole === 'finance') return workflow.financeDoneAt ? 'planning' : 'location';
   if (completedRole === 'planning') return 'transport';
@@ -154,27 +169,71 @@ const getNextEmailRole = (completedRole, transfer) => {
   return '';
 };
 
+const legacyDefaultSubjects = {
+  ceo: 'Stock Transfer CEO Approval Required',
+  planning: 'Stock Transfer Planning Task',
+  finance: 'Stock Transfer Finance Task',
+};
+
+const legacyDefaultBodyNotes = {
+  planning: 'Please confirm DMS is done for this stock transfer.',
+  finance: 'External transfers use Finance twice: first redo the invoice, then after Location DMS reverse goods receiving, reverse PGI.',
+};
+
+const normalizeWorkflowConfig = (config = {}) => {
+  const merged = {
+    ...defaultConfig,
+    ...config,
+    templates: { ...defaultConfig.templates, ...(config.templates || {}) },
+    subjects: { ...defaultConfig.subjects, ...(config.subjects || {}) },
+    bodyNotes: { ...defaultConfig.bodyNotes, ...(config.bodyNotes || {}) },
+    locationRecipients: { ...defaultConfig.locationRecipients, ...(config.locationRecipients || {}) },
+    recipients: { ...defaultConfig.recipients, ...(config.recipients || {}) },
+    ccRecipients: { ...defaultConfig.ccRecipients, ...(config.ccRecipients || {}) },
+  };
+
+  Object.entries(legacyDefaultSubjects).forEach(([role, oldValue]) => {
+    if (merged.subjects[role] === oldValue) merged.subjects[role] = defaultConfig.subjects[role];
+  });
+  Object.entries(legacyDefaultBodyNotes).forEach(([role, oldValue]) => {
+    if (merged.bodyNotes[role] === oldValue) merged.bodyNotes[role] = defaultConfig.bodyNotes[role];
+  });
+
+  return merged;
+};
+
 const getEmailStep = (role, transfer = {}) => {
-  if (role === 'ceo') return 'ceo_approval';
+  if (role === 'ceo') return 'nsm_approval';
   if (role === 'location') return 'location_dms';
-  if (role === 'planning') return 'planning_bp_change';
+  if (role === 'planning') return 'planning_change_so_bp';
   if (role === 'transport') return 'transport_booking';
   if (role === 'purchase') return 'purchase_po';
   if (role === 'finance') {
-    return isExternalTransfer(transfer) && !getWorkflow(transfer).redoInvoiceDoneAt
-      ? 'finance_redo_invoice'
-      : 'finance_reverse_pgi';
+    return !getWorkflow(transfer).redoInvoiceDoneAt
+      ? 'finance_acctg_ap_floorplan_check'
+      : 'finance_ar_reverse_invoice_pgi';
   }
   return role || 'unknown';
 };
-
-const getSafeFirebaseKey = (value) => String(value || '').replace(/[.#$\[\]/]/g, '_');
 
 const getEmailJobId = (transfer, role) => (
   `${getSafeFirebaseKey(transfer?.id)}_${getEmailStep(role, transfer)}`
 );
 
-const getApproveLink = (transferId) => `${window.location.origin}/#/stock-transfer-workflow/ceo?approveTransfer=${encodeURIComponent(transferId)}`;
+const isFinanceFloorplanStep = (transfer) => !getWorkflow(transfer).redoInvoiceDoneAt;
+
+const getFinanceTaskLabel = (transfer) => (
+  isFinanceFloorplanStep(transfer)
+    ? 'Finance Acctg/AP - Floorplan Check'
+    : 'Finance AR - Reverse Invoice and PGI'
+);
+
+const getEmailTitle = (config, role, transfer) => {
+  if (role === 'finance') return `Stock Transfer ${getFinanceTaskLabel(transfer)} Task`;
+  return config.subjects?.[role] || (role === 'ceo' ? 'Stock Transfer NSM Approval Required' : `${roleLabels[role]} Task`);
+};
+
+const getApproveLink = (config, transferId) => `${getConfiguredBaseUrl(config)}/#/stock-transfer-workflow/ceo?approveTransfer=${encodeURIComponent(transferId)}`;
 
 const emailJsTemplateExample = `<div style="font-family:Arial,sans-serif;background:#f6f7fb;padding:24px;">
   <div style="max-width:720px;margin:0 auto;background:white;border-radius:18px;overflow:hidden;">
@@ -187,12 +246,12 @@ const emailJsTemplateExample = `<div style="font-family:Arial,sans-serif;backgro
       <p style="margin-top:20px;">
         <a href="{{workflow_url}}" style="color:#4f46e5;font-weight:bold;">Open workflow page</a>
       </p>
-      <p>CEO approve link, if this email is for CEO: <a href="{{approve_link}}">{{approve_link}}</a></p>
+      <p>NSM approve link, if this email is for NSM Approval: <a href="{{approve_link}}">{{approve_link}}</a></p>
     </div>
   </div>
 </div>`;
 
-const buildEmailHtml = (role, transfer, title, note, taskCount) => {
+const buildEmailHtml = (role, transfer, title, note, taskCount, workflowUrl, approveLinkUrl) => {
   const details = role === 'ceo'
     ? [
       ['Chassis', transfer.chassis],
@@ -222,9 +281,26 @@ const buildEmailHtml = (role, transfer, title, note, taskCount) => {
     </tr>
   `).join('');
 
+  const taskButton = workflowUrl ? `
+    <div style="margin-top:20px;text-align:center;">
+      <a href="${workflowUrl}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:999px;font-weight:700;">Open stock transfer task</a>
+    </div>
+  ` : '';
+
   const approveButton = role === 'ceo' ? `
     <div style="margin-top:20px;text-align:center;">
-      <a href="${getApproveLink(transfer.id)}" style="display:inline-block;background:#16a34a;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:999px;font-weight:700;">Approve stock transfer</a>
+      <a href="${approveLinkUrl}" style="display:inline-block;background:#16a34a;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:999px;font-weight:700;">Approve stock transfer</a>
+    </div>
+  ` : '';
+
+  const financeChecklist = role === 'finance' && isFinanceFloorplanStep(transfer) ? `
+    <div style="margin-top:18px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px 16px;">
+      <div style="font-weight:700;color:#0f172a;margin-bottom:8px;">Finance subtasks</div>
+      <ul style="margin:0;padding-left:20px;color:#334155;line-height:1.6;">
+        <li>Check floorplan status.</li>
+        <li>Confirm Accounting/AP requirements.</li>
+        <li>Confirm finance clearance before Location DMS work.</li>
+      </ul>
     </div>
   ` : '';
 
@@ -237,6 +313,8 @@ const buildEmailHtml = (role, transfer, title, note, taskCount) => {
       </div>
       <div style="padding:22px 26px;">
         <table style="width:100%;border-collapse:collapse;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;">${rows}</table>
+        ${financeChecklist}
+        ${taskButton}
         ${approveButton}
         <p style="margin-top:18px;color:#6b7280;font-size:13px;">Open the scheduling system workflow page to complete this task.</p>
       </div>
@@ -252,64 +330,52 @@ const getRecipient = (config, role, transfer) => {
   return config?.recipients?.[role] || '';
 };
 
+const getCcRecipient = (config, role) => config?.ccRecipients?.[role] || '';
+
 const canSendEmail = (config, role, transfer = {}) => (
   Boolean(getRecipient(config, role, transfer))
 );
 
-const getWorkflowUrl = (role, transfer = {}) => {
+const getWorkflowUrl = (config, role, transfer = {}) => {
   const basePath = workflowPaths[role] || '#/stock-transfer-workflow/ceo';
   const locationQuery = role === 'location'
     ? `?location=${encodeURIComponent(normalizeWorkflowLocation(transfer.currentLocation))}`
     : '';
-  return `${window.location.origin}/${basePath}${locationQuery}`;
+  return `${getConfiguredBaseUrl(config)}/${basePath}${locationQuery}`;
 };
 
 const sendWorkflowEmail = async (role, transfer, config, taskCount = 1) => {
   if (!canSendEmail(config, role, transfer)) return false;
-  const emailTitle = config.subjects?.[role] || (role === 'ceo' ? 'Stock Transfer CEO Approval Required' : `${roleLabels[role]} Task`);
+  const emailTitle = getEmailTitle(config, role, transfer);
   const emailNote = config.bodyNotes?.[role] || '';
-  const content = buildEmailHtml(role, transfer, emailTitle, emailNote, taskCount);
-  const now = new Date().toISOString();
+  const workflowUrl = getWorkflowUrl(config, role, transfer);
+  const approveLink = role === 'ceo' ? getApproveLink(config, transfer.id) : '';
+  const content = buildEmailHtml(role, transfer, emailTitle, emailNote, taskCount, workflowUrl, approveLink);
   const jobId = getEmailJobId(transfer, role);
-  const jobRef = ref(database, `${EMAIL_JOBS_PATH}/${jobId}`);
   const recipient = getRecipient(config, role, transfer);
-  const jobData = {
-    status: 'pending',
-    transferId: transfer.id,
+  await queueEmailJob({
+    jobId,
     step: getEmailStep(role, transfer),
     role,
     to: recipient,
+    cc: getCcRecipient(config, role),
     title: emailTitle,
     content,
-    taskCount,
-    attempts: 0,
-    createdAt: now,
-    updatedAt: now,
-    source: 'stock_transfer_workflow',
-    workflowUrl: getWorkflowUrl(role, transfer),
-    approveLink: role === 'ceo' ? getApproveLink(transfer.id) : '',
-    chassis: transfer.chassis || '',
-    model: transfer.Model || '',
-    currentLocation: transfer.currentLocation || '',
-    targetLocation: transfer.targetLocation || '',
-    salesOrderDisplay: transfer['Sales Order Display'] || '',
-    transferCategory: transfer['Stock Transfer Category'] || '',
-  };
-
-  const result = await runTransaction(jobRef, (existingJob) => {
-    if (existingJob && ACTIVE_EMAIL_JOB_STATUSES.includes(existingJob.status)) return;
-    return {
-      ...(existingJob || {}),
-      ...jobData,
-      attempts: Number(existingJob?.attempts) || 0,
-      lastError: null,
-      failedAt: null,
-    };
+    metadata: {
+      transferId: transfer.id,
+      taskCount,
+      source: 'stock_transfer_workflow',
+      workflowUrl,
+      approveLink,
+      chassis: transfer.chassis || '',
+      model: transfer.Model || '',
+      currentLocation: transfer.currentLocation || '',
+      targetLocation: transfer.targetLocation || '',
+      salesOrderDisplay: transfer['Sales Order Display'] || '',
+      transferCategory: transfer['Stock Transfer Category'] || '',
+    },
   });
-
-  if (result.committed) return true;
-  const existingJob = result.snapshot.val();
-  return Boolean(existingJob && ACTIVE_EMAIL_JOB_STATUSES.includes(existingJob.status));
+  return true;
 };
 
 const ConfigEditor = ({ config, onChange, onSave, saving }) => {
@@ -326,6 +392,12 @@ const ConfigEditor = ({ config, onChange, onSave, saving }) => {
     <details className="mb-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
       <summary className="cursor-pointer text-sm font-semibold text-gray-700">Backend email recipients and content</summary>
       <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+        <input
+          className="rounded border px-3 py-2 text-sm md:col-span-2"
+          placeholder="Public workflow website URL"
+          value={config.appBaseUrl || ''}
+          onChange={(e) => updateConfig('appBaseUrl', e.target.value)}
+        />
         <button type="button" onClick={onSave} disabled={saving} className="rounded bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-gray-400">
           {saving ? 'Saving...' : 'Save email settings'}
         </button>
@@ -343,7 +415,8 @@ const ConfigEditor = ({ config, onChange, onSave, saving }) => {
         {Object.keys(roleLabels).filter((role) => role !== 'location').map((role) => (
           <React.Fragment key={role}>
             <input className="rounded border px-3 py-2 text-sm" placeholder={`${roleLabels[role]} recipient email`} value={config.recipients?.[role] || ''} onChange={(e) => updateConfig(`recipients.${role}`, e.target.value)} />
-            <input className="rounded border px-3 py-2 text-sm md:col-span-2" placeholder={`${roleLabels[role]} email subject`} value={config.subjects?.[role] || ''} onChange={(e) => updateConfig(`subjects.${role}`, e.target.value)} />
+            <input className="rounded border px-3 py-2 text-sm" placeholder={`${roleLabels[role]} CC email`} value={config.ccRecipients?.[role] || ''} onChange={(e) => updateConfig(`ccRecipients.${role}`, e.target.value)} />
+            <input className="rounded border px-3 py-2 text-sm" placeholder={`${roleLabels[role]} email subject`} value={config.subjects?.[role] || ''} onChange={(e) => updateConfig(`subjects.${role}`, e.target.value)} />
             <textarea className="rounded border px-3 py-2 text-sm md:col-span-3" rows="2" placeholder={`${roleLabels[role]} email content / note`} value={config.bodyNotes?.[role] || ''} onChange={(e) => updateConfig(`bodyNotes.${role}`, e.target.value)} />
           </React.Fragment>
         ))}
@@ -352,6 +425,8 @@ const ConfigEditor = ({ config, onChange, onSave, saving }) => {
   );
 };
 
+// Kept temporarily to avoid touching older workflow markup while the redesigned panel settles.
+// eslint-disable-next-line no-unused-vars
 const TaskCard = ({ role, transfer, onComplete }) => {
   const [vendor, setVendor] = useState('');
   const [bookingTime, setBookingTime] = useState('');
@@ -359,8 +434,8 @@ const TaskCard = ({ role, transfer, onComplete }) => {
   const actionText = {
     ceo: 'Approve',
     location: isExternalTransfer(transfer) ? 'Confirm DMS reverse goods receiving' : 'Confirm DMS transfer done',
-    planning: 'Confirm BP changed',
-    finance: isExternalTransfer(transfer) && !getWorkflow(transfer).redoInvoiceDoneAt ? 'Confirm redo invoice' : 'Confirm reverse PGI',
+    planning: 'Confirm SO BP changed',
+    finance: isFinanceFloorplanStep(transfer) ? 'Confirm floorplan check' : 'Confirm reverse invoice and PGI',
     transport: 'Confirm transport booking',
     purchase: 'Confirm Transport PO',
   }[role];
@@ -372,9 +447,9 @@ const TaskCard = ({ role, transfer, onComplete }) => {
           <div className="text-lg font-semibold text-gray-900">{transfer.chassis || '-'}</div>
           <div className="text-sm text-gray-600">{transfer.Model || '-'} · {transfer.currentLocation || '-'} → {transfer.targetLocation || '-'}</div>
           <div className="mt-2 text-xs font-medium text-indigo-700">{transfer['Stock Transfer Category'] || '-'}</div>
-          {role === 'finance' && isExternalTransfer(transfer) && (
+          {role === 'finance' && (
             <div className="mt-1 text-xs font-semibold text-amber-700">
-              {!getWorkflow(transfer).redoInvoiceDoneAt ? 'Step: Redo Invoice' : 'Step: Reverse PGI'}
+              Step: {getFinanceTaskLabel(transfer)}
             </div>
           )}
         </div>
@@ -416,6 +491,77 @@ const TaskCard = ({ role, transfer, onComplete }) => {
   );
 };
 
+const TaskCardPanel = ({ role, transfer, onComplete }) => {
+  const [vendor, setVendor] = useState('');
+  const [bookingTime, setBookingTime] = useState('');
+  const [purchasePoNumber, setPurchasePoNumber] = useState('');
+  const actionText = {
+    ceo: 'Approve',
+    location: isExternalTransfer(transfer) ? 'Confirm DMS reverse goods receiving' : 'Confirm DMS transfer done',
+    planning: 'Confirm SO BP changed',
+    finance: isFinanceFloorplanStep(transfer) ? 'Confirm floorplan check' : 'Confirm reverse invoice and PGI',
+    transport: 'Confirm transport booking',
+    purchase: 'Confirm Transport PO',
+  }[role];
+
+  const detailRows = [
+    ['SO PGI Post Date', transfer['SO PGI Post Date'] || 'nopgi'],
+    ['Company Stock Current Location', transfer['Company Stock Current Location']],
+    ['Sales Order Display', transfer['Sales Order Display']],
+    ['Invoice-to Name', transfer['Invoice-to Name']],
+    ['Last Invoice Date', transfer['Last Invoice Date']],
+    ['Last Invoice Number', transfer['Last Invoice Number']],
+    ['Invoice BP Last Changed By', transfer['Invoice BP Last Changed By']],
+    ['Invoice BP Last Change Date', transfer['Invoice BP Last Change Date']],
+  ];
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <div className="text-lg font-semibold text-slate-950">{transfer.chassis || '-'}</div>
+          <div className="text-sm text-slate-500">{transfer.Model || '-'} / {transfer.currentLocation || '-'} to {transfer.targetLocation || '-'}</div>
+          <div className="mt-2 text-xs font-semibold text-slate-500">{transfer['Stock Transfer Category'] || '-'}</div>
+          {role === 'finance' && (
+            <div className="mt-1 text-xs font-semibold text-amber-700">Step: {getFinanceTaskLabel(transfer)}</div>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={() => onComplete(transfer, { vendor, bookingTime, purchasePoNumber })}
+          className="rounded-md bg-slate-950 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+        >
+          {actionText}
+        </button>
+      </div>
+
+      {role !== 'ceo' && (
+        <div className="mt-4 grid grid-cols-1 gap-2 text-sm md:grid-cols-4">
+          {detailRows.map(([label, value]) => (
+            <div key={label} className="rounded-md border border-slate-100 bg-slate-50 p-2">
+              <div className="text-xs font-semibold uppercase text-slate-500">{label}</div>
+              <div className="text-slate-800">{value || '-'}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {role === 'transport' && (
+        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <input className="rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100" placeholder="Transport vendor" value={vendor} onChange={(e) => setVendor(e.target.value)} />
+          <input className="rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100" type="datetime-local" value={bookingTime} onChange={(e) => setBookingTime(e.target.value)} />
+        </div>
+      )}
+
+      {role === 'purchase' && (
+        <div className="mt-4">
+          <input className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100" placeholder="Transport PO number" value={purchasePoNumber} onChange={(e) => setPurchasePoNumber(e.target.value)} />
+        </div>
+      )}
+    </div>
+  );
+};
+
 const StockTransferWorkflow = ({ role = 'ceo', standalone = false }) => {
   const [transfers, setTransfers] = useState({});
   const [config, setConfig] = useState(defaultConfig);
@@ -428,7 +574,7 @@ const StockTransferWorkflow = ({ role = 'ceo', standalone = false }) => {
     const transfersRef = ref(database, TRANSFERS_PATH);
     const configRef = ref(database, CONFIG_PATH);
     const handleTransfers = (snapshot) => setTransfers(snapshot.exists() ? snapshot.val() || {} : {});
-    const handleConfig = (snapshot) => setConfig({ ...defaultConfig, ...(snapshot.exists() ? snapshot.val() || {} : {}) });
+    const handleConfig = (snapshot) => setConfig(normalizeWorkflowConfig(snapshot.exists() ? snapshot.val() || {} : {}));
     onValue(transfersRef, handleTransfers);
     onValue(configRef, handleConfig);
     return () => {
@@ -442,6 +588,8 @@ const StockTransferWorkflow = ({ role = 'ceo', standalone = false }) => {
     const pendingTransfer = buildRows(transfers).find((transfer) => {
       const workflow = getWorkflow(transfer);
       return !workflow.ceoEmailSentAt
+        && !workflow.ceoEmailQueuedAt
+        && !workflow.ceoEmailJobId
         && hasSalesOrder(transfer)
         && !ceoEmailSendLocks.current.has(transfer.id);
     });
@@ -463,7 +611,7 @@ const StockTransferWorkflow = ({ role = 'ceo', standalone = false }) => {
           return {
             ...workflow,
             ceoEmailSendingAt: claimTime,
-            ceoStatus: 'Queueing CEO email',
+            ceoStatus: 'Queueing NSM approval email',
           };
         });
 
@@ -471,21 +619,20 @@ const StockTransferWorkflow = ({ role = 'ceo', standalone = false }) => {
 
         await sendWorkflowEmail('ceo', pendingTransfer, config, getTaskList('ceo', transfers).length);
         await update(workflowRef, {
-          ceoEmailSentAt: new Date().toISOString(),
           ceoEmailQueuedAt: new Date().toISOString(),
           ceoEmailJobId: getEmailJobId(pendingTransfer, 'ceo'),
           ceoEmailStep: getEmailStep('ceo', pendingTransfer),
           ceoEmailSendingAt: null,
           ceoEmailError: null,
-          ceoStatus: 'Pending approval',
+          ceoStatus: 'Pending NSM approval',
         });
       } catch (error) {
         ceoEmailSendLocks.current.delete(pendingTransfer.id);
         await update(workflowRef, {
           ceoEmailSendingAt: null,
-          ceoEmailError: error instanceof Error ? error.message : 'Failed to queue CEO email',
+          ceoEmailError: error instanceof Error ? error.message : 'Failed to queue NSM approval email',
         }).catch(() => {});
-        console.error('Failed to queue CEO stock transfer email:', error);
+        console.error('Failed to queue NSM stock transfer email:', error);
       } finally {
         ceoEmailQueueRunning.current = false;
       }
@@ -516,7 +663,7 @@ const StockTransferWorkflow = ({ role = 'ceo', standalone = false }) => {
   const completeTask = async (transfer, extra = {}) => {
     const now = new Date().toISOString();
     const updates = {};
-    if (role === 'ceo') updates.workflow = { ...getWorkflow(transfer), ceoApprovedAt: now, ceoStatus: 'CEO approved' };
+    if (role === 'ceo') updates.workflow = { ...getWorkflow(transfer), ceoApprovedAt: now, ceoStatus: 'NSM approved' };
     if (role === 'location') {
       updates.workflow = {
         ...getWorkflow(transfer),
@@ -525,12 +672,12 @@ const StockTransferWorkflow = ({ role = 'ceo', standalone = false }) => {
         locationDmsOwner: getLocationLabel(normalizeWorkflowLocation(transfer.currentLocation)),
       };
     }
-    if (role === 'planning') updates.workflow = { ...getWorkflow(transfer), planningBpDoneAt: now, planningBpStatus: 'BP changed' };
+    if (role === 'planning') updates.workflow = { ...getWorkflow(transfer), planningBpDoneAt: now, planningBpStatus: 'SO BP changed' };
     if (role === 'finance') {
       const workflow = getWorkflow(transfer);
-      updates.workflow = isExternalTransfer(transfer) && !workflow.redoInvoiceDoneAt
-        ? { ...workflow, redoInvoiceDoneAt: now, redoInvoiceStatus: 'Redo invoice confirmed' }
-        : { ...workflow, financeDoneAt: now, financeStatus: 'Reverse PGI confirmed' };
+      updates.workflow = !workflow.redoInvoiceDoneAt
+        ? { ...workflow, redoInvoiceDoneAt: now, redoInvoiceStatus: 'Floorplan check confirmed' }
+        : { ...workflow, financeDoneAt: now, financeStatus: 'Reverse invoice and PGI confirmed' };
     }
     if (role === 'transport') {
       updates.workflow = { ...getWorkflow(transfer), transportDoneAt: now, transportStatus: 'Transport booked', transportVendor: extra.vendor || '', transportBookingTime: extra.bookingTime || '' };
@@ -555,7 +702,6 @@ const StockTransferWorkflow = ({ role = 'ceo', standalone = false }) => {
           const emailStep = getEmailStep(nextRole, updatedTransfer);
           await sendWorkflowEmail(nextRole, updatedTransfer, config, getTaskList(nextRole, nextTransfers, nextLocationKey).length);
           await update(ref(database, `${TRANSFERS_PATH}/${transfer.id}/workflow`), {
-            [`${nextRole}EmailSentAt`]: new Date().toISOString(),
             [`${nextRole}EmailQueuedAt`]: new Date().toISOString(),
             [`${nextRole}EmailJobId`]: emailJobId,
             [`${nextRole}EmailStep`]: emailStep,
@@ -589,27 +735,20 @@ const StockTransferWorkflow = ({ role = 'ceo', standalone = false }) => {
   }, [role, transfers]);
 
   const content = (
-    <div className="mx-auto w-full max-w-5xl px-4 py-5 sm:px-6">
-      <div className="mb-5 overflow-hidden rounded-3xl bg-gradient-to-br from-indigo-600 via-blue-600 to-sky-500 p-5 text-white shadow-xl sm:p-7">
-        <div className="text-xs font-semibold uppercase tracking-[0.25em] text-blue-100">Stock Transfer Workflow</div>
-        <h2 className="mt-2 text-3xl font-bold sm:text-4xl">{role === 'settings' ? 'Email Settings' : role === 'location' ? `${getLocationLabel(locationKey)} DMS Work` : roleLabels[role]}</h2>
-        <p className="mt-2 max-w-2xl text-sm text-blue-50 sm:text-base">{role === 'settings' ? 'Edit backend email recipients, subjects, and role-specific content for every workflow email.' : 'Standalone mobile task page for unfinished stock transfer workflow actions.'}</p>
-        {role === 'settings' && (
-          <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
-            {[...Object.entries(roleLabels), ['settings', 'Email Settings']].map(([key, label]) => (
-              <a
-                key={key}
-                href={workflowPaths[key]}
-                className={`whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-semibold ${key === role ? 'bg-white text-indigo-700' : 'bg-white/15 text-white ring-1 ring-white/30'}`}
-              >
-                {label}
-              </a>
-            ))}
+    <div className="mx-auto w-full max-w-5xl px-4 py-5 text-slate-900 sm:px-6">
+      <div className="mb-5 rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Stock Transfer Workflow</div>
+            <h2 className="mt-1 text-2xl font-semibold text-slate-950">{role === 'settings' ? 'Email Settings' : role === 'location' ? `${getLocationLabel(locationKey)} DMS Work` : roleLabels[role]}</h2>
           </div>
-        )}
+          {role !== 'settings' && (
+            <span className="w-fit rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">{tasks.length} pending</span>
+          )}
+        </div>
       </div>
       {role === 'location' && (
-        <div className="mb-4 rounded-2xl border border-blue-100 bg-white p-4 text-sm text-gray-600 shadow-sm">
+        <div className="mb-4 rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
           Internal stock transfer: confirm the DMS transfer is completed. External stock transfer: confirm DMS reverse goods receiving is completed.
         </div>
       )}
@@ -617,7 +756,7 @@ const StockTransferWorkflow = ({ role = 'ceo', standalone = false }) => {
         <ConfigEditor config={config} onChange={setConfig} onSave={saveConfig} saving={savingConfig} />
       )}
       {role === 'settings' && (
-        <div className="mb-4 rounded-2xl border border-indigo-100 bg-white p-4 text-sm text-gray-600 shadow-sm">
+        <div className="mb-4 rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
           Use one EmailJS template for all workflow emails. In EmailJS, set To Email to <span className="font-semibold">{'{{to_email}}'}</span>, Subject to <span className="font-semibold">{'{{title}}'}</span>, and the email body to <span className="font-semibold">{'{{{content}}}'}</span> (or {'{{content}}'} if your template does not support triple braces). Available variables: <span className="font-semibold">to_email, title, task_count, uncompleted_task_count, approve_link, message_note, content, message_html, workflow_url, chassis, model, current_location, target_location, sales_order_display, transfer_category</span>.
           <pre className="mt-4 overflow-x-auto rounded-xl bg-slate-900 p-4 text-xs text-slate-100">{emailJsTemplateExample}</pre>
           <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -632,24 +771,55 @@ const StockTransferWorkflow = ({ role = 'ceo', standalone = false }) => {
               <ol className="mt-2 list-decimal space-y-1 pl-5">
                 {workflowFlowSummaries.external.map((step) => <li key={step}>{step}</li>)}
               </ol>
-              <div className="mt-2 text-xs text-amber-700">Finance receives two separate emails for external transfers: Redo Invoice first, then Reverse PGI after Location DMS is done.</div>
+              <div className="mt-2 text-xs text-amber-700">Finance receives two separate emails for external transfers: Floorplan Check first, then Reverse Invoice and PGI after Location DMS is done.</div>
             </div>
           </div>
         </div>
       )}
-      {message && <div className="mb-4 rounded-2xl bg-blue-50 p-3 text-sm text-blue-700 shadow-sm">{message}</div>}
+      {message && <div className="mb-4 rounded-lg bg-slate-100 p-3 text-sm font-medium text-slate-700 shadow-sm">{message}</div>}
       <div className="grid grid-cols-1 gap-4">
-        {role !== 'settings' && tasks.map((transfer) => <TaskCard key={transfer.id} role={role} transfer={transfer} onComplete={completeTask} />)}
-        {role !== 'settings' && tasks.length === 0 && <div className="rounded-2xl border border-dashed border-blue-200 bg-white/90 p-8 text-center text-sm text-gray-500 shadow-sm">No unfinished tasks.</div>}
+        {role !== 'settings' && tasks.map((transfer) => <TaskCardPanel key={transfer.id} role={role} transfer={transfer} onComplete={completeTask} />)}
+        {role !== 'settings' && tasks.length === 0 && <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500 shadow-sm">No unfinished tasks.</div>}
       </div>
     </div>
   );
 
   if (standalone) {
-    return <div className="min-h-screen bg-gradient-to-b from-slate-100 via-blue-50 to-white">{content}</div>;
+    return <div className="min-h-screen bg-slate-50">{content}</div>;
   }
 
   return content;
 };
 
 export default StockTransferWorkflow;
+
+export const StockTransferConfirmCenter = () => {
+  const [selectedRole, setSelectedRole] = useState('ceo');
+  const confirmRoles = ['ceo', 'finance', 'location', 'planning', 'transport', 'purchase'];
+
+  return (
+    <div className="mx-auto w-full max-w-6xl text-slate-900">
+      <div className="mb-5 rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Workflow</div>
+            <h2 className="mt-1 text-2xl font-semibold text-slate-950">Stock Transfer Confirm</h2>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {confirmRoles.map((roleKey) => (
+            <button
+              key={roleKey}
+              type="button"
+              onClick={() => setSelectedRole(roleKey)}
+              className={`rounded-md px-3 py-2 text-sm font-semibold ${selectedRole === roleKey ? 'bg-slate-950 text-white' : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}
+            >
+              {roleLabels[roleKey]}
+            </button>
+          ))}
+        </div>
+      </div>
+      <StockTransferWorkflow role={selectedRole} />
+    </div>
+  );
+};
