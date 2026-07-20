@@ -39,6 +39,12 @@ if errorlevel 1 (
 echo Running stock_transfer SAP sync once...
 echo.
 "%VENV_PY%" stock_transfer.py --once --limit 50
+if errorlevel 1 (
+  echo.
+  echo Stock transfer SAP sync failed.
+  pause
+  exit /b 1
+)
 
 echo.
 echo Done. This window can be closed.

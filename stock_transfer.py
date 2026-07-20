@@ -24,6 +24,8 @@ Regent RV - Firebase stock_transfer -> SAP validation report
 import logging
 import os
 import argparse
+import json
+import re
 import socket
 import time
 import uuid
@@ -34,6 +36,7 @@ import firebase_admin
 import pandas as pd
 import pyodbc
 from firebase_admin import credentials, db
+from google.auth.exceptions import RefreshError
 from openpyxl.styles import Alignment, Font, PatternFill
 
 
@@ -100,6 +103,10 @@ LOG_FILE = os.path.join(
 )
 
 
+class FirebaseCredentialError(RuntimeError):
+    """Raised when the Firebase service-account file cannot authenticate."""
+
+
 # ============================================================
 # Logging
 # ============================================================
@@ -150,7 +157,23 @@ def chunk_list(values: List[str], size: int = 300):
         yield values[index:index + size]
 
 
+SAP_WRITE_KEYWORD_PATTERN = re.compile(
+    r"\b(INSERT|UPDATE|DELETE|MERGE|UPSERT|CALL|EXEC|TRUNCATE|DROP|ALTER|CREATE|REPLACE|GRANT|REVOKE)\b",
+    re.IGNORECASE,
+)
+
+
+def assert_sap_read_only_sql(sql: str) -> None:
+    normalized = sql.strip()
+    if not normalized.upper().startswith(("SELECT", "WITH")):
+        raise RuntimeError("Blocked non-read-only SAP SQL. Only SELECT/WITH queries are allowed.")
+    blocked_keyword = SAP_WRITE_KEYWORD_PATTERN.search(normalized)
+    if blocked_keyword:
+        raise RuntimeError(f"Blocked SAP SQL containing write keyword: {blocked_keyword.group(1).upper()}")
+
+
 def hana_query(sql: str) -> pd.DataFrame:
+    assert_sap_read_only_sql(sql)
     with pyodbc.connect(DSN) as connection:
         return pd.read_sql(sql, connection)
 
@@ -203,6 +226,74 @@ def get_worker_id() -> str:
     return f"{socket.gethostname()}:{os.getpid()}"
 
 
+def resolve_firebase_cred_path() -> str:
+    cred_path = os.environ.get("FIREBASE_CRED_PATH", FIREBASE_CRED_PATH)
+    if not os.path.isabs(cred_path):
+        script_relative_path = os.path.join(SCRIPT_DIR, cred_path)
+        cred_path = (
+            script_relative_path
+            if os.path.exists(script_relative_path)
+            else os.path.abspath(cred_path)
+        )
+    return cred_path
+
+
+def get_firebase_credential_summary() -> Dict[str, str]:
+    cred_path = resolve_firebase_cred_path()
+    try:
+        with open(cred_path, "r", encoding="utf-8") as cred_file:
+            data = json.load(cred_file)
+    except (OSError, json.JSONDecodeError):
+        return {"path": cred_path}
+
+    return {
+        "path": cred_path,
+        "project_id": clean_text(data.get("project_id")),
+        "client_email": clean_text(data.get("client_email")),
+        "private_key_id": clean_text(data.get("private_key_id")),
+    }
+
+
+def format_firebase_auth_error(error: Exception) -> str:
+    summary = get_firebase_credential_summary()
+    lines = [
+        "Firebase authentication failed before the SAP sync could start.",
+        f"Credential file: {summary.get('path', resolve_firebase_cred_path())}",
+    ]
+
+    if summary.get("project_id"):
+        lines.append(f"Project: {summary['project_id']}")
+    if summary.get("client_email"):
+        lines.append(f"Service account: {summary['client_email']}")
+    if summary.get("private_key_id"):
+        lines.append(f"Private key ID: {summary['private_key_id']}")
+
+    message = str(error)
+    if "Invalid JWT Signature" in message:
+        lines.extend(
+            [
+                "",
+                "Google rejected the service-account JWT signature. The local",
+                "firebase-adminsdk.json key is probably stale, revoked, or edited.",
+                "Download a fresh service-account JSON key for this Firebase",
+                "project and replace the credential file above.",
+            ]
+        )
+    elif "invalid_grant" in message:
+        lines.extend(
+            [
+                "",
+                "Google rejected the service-account token grant. Replace the",
+                "credential JSON, and also check that this computer's date/time",
+                "is correct.",
+            ]
+        )
+    else:
+        lines.extend(["", f"Firebase auth error: {message}"])
+
+    return "\n".join(lines)
+
+
 def is_transfer_active(record: dict) -> bool:
     workflow = record.get("workflow") if isinstance(record.get("workflow"), dict) else {}
     return not (
@@ -227,15 +318,11 @@ def is_processing_stale(record: dict, now_dt: datetime) -> bool:
 # ============================================================
 def initialize_firebase() -> None:
     if not firebase_admin._apps:
-        cred_path = os.environ.get("FIREBASE_CRED_PATH", FIREBASE_CRED_PATH)
-        if not os.path.isabs(cred_path):
-            script_relative_path = os.path.join(SCRIPT_DIR, cred_path)
-            cred_path = (
-                script_relative_path
-                if os.path.exists(script_relative_path)
-                else os.path.abspath(cred_path)
-            )
-        cred = credentials.Certificate(cred_path)
+        cred_path = resolve_firebase_cred_path()
+        try:
+            cred = credentials.Certificate(cred_path)
+        except (OSError, ValueError) as error:
+            raise FirebaseCredentialError(format_firebase_auth_error(error)) from error
         firebase_admin.initialize_app(
             cred,
             {"databaseURL": FIREBASE_DB_URL},
@@ -1470,4 +1557,12 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except RefreshError as error:
+        error_report = format_firebase_auth_error(error)
+        logger.error("%s", error_report)
+        raise SystemExit(1) from error
+    except FirebaseCredentialError as error:
+        logger.error("%s", error)
+        raise SystemExit(1) from error

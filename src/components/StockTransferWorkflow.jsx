@@ -235,6 +235,17 @@ const getEmailTitle = (config, role, transfer) => {
 
 const getApproveLink = (config, transferId) => `${getConfiguredBaseUrl(config)}/#/stock-transfer-workflow/ceo?approveTransfer=${encodeURIComponent(transferId)}`;
 
+const getWorkflowUrl = (config, role, transfer = {}) => {
+  const basePath = workflowPaths[role] || '#/stock-transfer-workflow/ceo';
+  const params = new URLSearchParams();
+  if (transfer.id) params.set('taskTransfer', transfer.id);
+  if (role === 'location') {
+    params.set('location', normalizeWorkflowLocation(transfer.currentLocation));
+  }
+  const query = params.toString();
+  return `${getConfiguredBaseUrl(config)}/${basePath}${query ? `?${query}` : ''}`;
+};
+
 const emailJsTemplateExample = `<div style="font-family:Arial,sans-serif;background:#f6f7fb;padding:24px;">
   <div style="max-width:720px;margin:0 auto;background:white;border-radius:18px;overflow:hidden;">
     <div style="background:#4f46e5;color:white;padding:20px 24px;">
@@ -244,7 +255,7 @@ const emailJsTemplateExample = `<div style="font-family:Arial,sans-serif;backgro
     <div style="padding:24px;">
       {{{content}}}
       <p style="margin-top:20px;">
-        <a href="{{workflow_url}}" style="color:#4f46e5;font-weight:bold;">Open workflow page</a>
+        <a href="{{workflow_url}}" style="color:#4f46e5;font-weight:bold;">Open this stock transfer task</a>
       </p>
       <p>NSM approve link, if this email is for NSM Approval: <a href="{{approve_link}}">{{approve_link}}</a></p>
     </div>
@@ -316,7 +327,7 @@ const buildEmailHtml = (role, transfer, title, note, taskCount, workflowUrl, app
         ${financeChecklist}
         ${taskButton}
         ${approveButton}
-        <p style="margin-top:18px;color:#6b7280;font-size:13px;">Open the scheduling system workflow page to complete this task.</p>
+        <p style="margin-top:18px;color:#6b7280;font-size:13px;">Use the email link above to complete only this stock transfer task.</p>
       </div>
     </div>
   `;
@@ -335,14 +346,6 @@ const getCcRecipient = (config, role) => config?.ccRecipients?.[role] || '';
 const canSendEmail = (config, role, transfer = {}) => (
   Boolean(getRecipient(config, role, transfer))
 );
-
-const getWorkflowUrl = (config, role, transfer = {}) => {
-  const basePath = workflowPaths[role] || '#/stock-transfer-workflow/ceo';
-  const locationQuery = role === 'location'
-    ? `?location=${encodeURIComponent(normalizeWorkflowLocation(transfer.currentLocation))}`
-    : '';
-  return `${getConfiguredBaseUrl(config)}/${basePath}${locationQuery}`;
-};
 
 const sendWorkflowEmail = async (role, transfer, config, taskCount = 1) => {
   if (!canSendEmail(config, role, transfer)) return false;
@@ -367,6 +370,7 @@ const sendWorkflowEmail = async (role, transfer, config, taskCount = 1) => {
       source: 'stock_transfer_workflow',
       workflowUrl,
       approveLink,
+      taskTransferId: transfer.id,
       chassis: transfer.chassis || '',
       model: transfer.Model || '',
       currentLocation: transfer.currentLocation || '',
@@ -642,9 +646,29 @@ const StockTransferWorkflow = ({ role = 'ceo', standalone = false }) => {
   }, [transfers, config]);
 
   const hashQuery = window.location.hash.split('?')[1] || '';
-  const locationFilter = new URLSearchParams(hashQuery).get('location') || '';
+  const queryParams = new URLSearchParams(hashQuery);
+  const approveTransferId = queryParams.get('approveTransfer') || '';
+  const taskTransferId = queryParams.get('taskTransfer') || '';
+  const emailTransferId = approveTransferId || taskTransferId;
+  const locationFilter = queryParams.get('location') || '';
   const locationKey = normalizeWorkflowLocation(locationFilter);
-  const tasks = useMemo(() => (role === 'settings' ? [] : getTaskList(role, transfers, locationKey)), [role, transfers, locationKey]);
+  const allRoleTasks = useMemo(() => (
+    role === 'settings' ? [] : getTaskList(role, transfers, locationKey)
+  ), [role, transfers, locationKey]);
+  const tasks = useMemo(() => {
+    if (role === 'settings') return [];
+    if (emailTransferId) return allRoleTasks.filter((transfer) => transfer.id === emailTransferId);
+    return standalone ? [] : allRoleTasks;
+  }, [allRoleTasks, emailTransferId, role, standalone]);
+  const needsEmailLink = standalone && role !== 'settings' && !emailTransferId;
+  const linkedTransferExists = emailTransferId ? Boolean(transfers?.[emailTransferId]) : true;
+  const linkedTaskUnavailable = Boolean(
+    standalone
+    && role !== 'settings'
+    && emailTransferId
+    && linkedTransferExists
+    && tasks.length === 0
+  );
 
   const saveConfig = async () => {
     setSavingConfig(true);
@@ -723,17 +747,6 @@ const StockTransferWorkflow = ({ role = 'ceo', standalone = false }) => {
     }
   };
 
-
-  useEffect(() => {
-    if (role !== 'ceo') return;
-    const hashQuery = window.location.hash.split('?')[1] || '';
-    const approveTransferId = new URLSearchParams(hashQuery).get('approveTransfer');
-    if (!approveTransferId || !transfers?.[approveTransferId]) return;
-    const transfer = { id: approveTransferId, ...transfers[approveTransferId] };
-    if (getWorkflow(transfer).ceoApprovedAt) return;
-    completeTask(transfer);
-  }, [role, transfers]);
-
   const content = (
     <div className="mx-auto w-full max-w-5xl px-4 py-5 text-slate-900 sm:px-6">
       <div className="mb-5 rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
@@ -777,9 +790,24 @@ const StockTransferWorkflow = ({ role = 'ceo', standalone = false }) => {
         </div>
       )}
       {message && <div className="mb-4 rounded-lg bg-slate-100 p-3 text-sm font-medium text-slate-700 shadow-sm">{message}</div>}
+      {needsEmailLink && (
+        <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500 shadow-sm">
+          Please open this stock transfer task from the email link.
+        </div>
+      )}
+      {emailTransferId && !linkedTransferExists && (
+        <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500 shadow-sm">
+          This stock transfer task link is no longer available.
+        </div>
+      )}
+      {linkedTaskUnavailable && (
+        <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500 shadow-sm">
+          This stock transfer task is already completed or is not ready for this step.
+        </div>
+      )}
       <div className="grid grid-cols-1 gap-4">
-        {role !== 'settings' && tasks.map((transfer) => <TaskCardPanel key={transfer.id} role={role} transfer={transfer} onComplete={completeTask} />)}
-        {role !== 'settings' && tasks.length === 0 && <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500 shadow-sm">No unfinished tasks.</div>}
+        {role !== 'settings' && !needsEmailLink && tasks.map((transfer) => <TaskCardPanel key={transfer.id} role={role} transfer={transfer} onComplete={completeTask} />)}
+        {role !== 'settings' && !needsEmailLink && !emailTransferId && tasks.length === 0 && <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500 shadow-sm">No unfinished tasks.</div>}
       </div>
     </div>
   );
@@ -793,33 +821,82 @@ const StockTransferWorkflow = ({ role = 'ceo', standalone = false }) => {
 
 export default StockTransferWorkflow;
 
-export const StockTransferConfirmCenter = () => {
-  const [selectedRole, setSelectedRole] = useState('ceo');
-  const confirmRoles = ['ceo', 'finance', 'location', 'planning', 'transport', 'purchase'];
+export const StockTransferEmailDispatcher = () => {
+  const [transfers, setTransfers] = useState({});
+  const [config, setConfig] = useState(defaultConfig);
+  const ceoEmailSendLocks = useRef(new Set());
+  const ceoEmailQueueRunning = useRef(false);
 
-  return (
-    <div className="mx-auto w-full max-w-6xl text-slate-900">
-      <div className="mb-5 rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Workflow</div>
-            <h2 className="mt-1 text-2xl font-semibold text-slate-950">Stock Transfer Confirm</h2>
-          </div>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {confirmRoles.map((roleKey) => (
-            <button
-              key={roleKey}
-              type="button"
-              onClick={() => setSelectedRole(roleKey)}
-              className={`rounded-md px-3 py-2 text-sm font-semibold ${selectedRole === roleKey ? 'bg-slate-950 text-white' : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}
-            >
-              {roleLabels[roleKey]}
-            </button>
-          ))}
-        </div>
-      </div>
-      <StockTransferWorkflow role={selectedRole} />
-    </div>
-  );
+  useEffect(() => {
+    const transfersRef = ref(database, TRANSFERS_PATH);
+    const configRef = ref(database, CONFIG_PATH);
+    const handleTransfers = (snapshot) => setTransfers(snapshot.exists() ? snapshot.val() || {} : {});
+    const handleConfig = (snapshot) => setConfig(normalizeWorkflowConfig(snapshot.exists() ? snapshot.val() || {} : {}));
+    onValue(transfersRef, handleTransfers);
+    onValue(configRef, handleConfig);
+    return () => {
+      off(transfersRef, 'value', handleTransfers);
+      off(configRef, 'value', handleConfig);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (ceoEmailQueueRunning.current || !canSendEmail(config, 'ceo')) return;
+    const pendingTransfer = buildRows(transfers).find((transfer) => {
+      const workflow = getWorkflow(transfer);
+      return !workflow.ceoEmailSentAt
+        && !workflow.ceoEmailQueuedAt
+        && !workflow.ceoEmailJobId
+        && hasSalesOrder(transfer)
+        && !ceoEmailSendLocks.current.has(transfer.id);
+    });
+
+    if (!pendingTransfer) return;
+    ceoEmailQueueRunning.current = true;
+    ceoEmailSendLocks.current.add(pendingTransfer.id);
+
+    const sendTimer = window.setTimeout(async () => {
+      const claimTime = new Date().toISOString();
+      const workflowRef = ref(database, `${TRANSFERS_PATH}/${pendingTransfer.id}/workflow`);
+
+      try {
+        const claimResult = await runTransaction(workflowRef, (workflow = {}) => {
+          if (workflow.ceoEmailSentAt) return;
+          const sendingAt = workflow.ceoEmailSendingAt ? Date.parse(workflow.ceoEmailSendingAt) : 0;
+          const sendingIsFresh = sendingAt && Date.now() - sendingAt < 120000;
+          if (sendingIsFresh) return;
+          return {
+            ...workflow,
+            ceoEmailSendingAt: claimTime,
+            ceoStatus: 'Queueing NSM approval email',
+          };
+        });
+
+        if (!claimResult.committed) return;
+
+        await sendWorkflowEmail('ceo', pendingTransfer, config, getTaskList('ceo', transfers).length);
+        await update(workflowRef, {
+          ceoEmailQueuedAt: new Date().toISOString(),
+          ceoEmailJobId: getEmailJobId(pendingTransfer, 'ceo'),
+          ceoEmailStep: getEmailStep('ceo', pendingTransfer),
+          ceoEmailSendingAt: null,
+          ceoEmailError: null,
+          ceoStatus: 'Pending NSM approval',
+        });
+      } catch (error) {
+        ceoEmailSendLocks.current.delete(pendingTransfer.id);
+        await update(workflowRef, {
+          ceoEmailSendingAt: null,
+          ceoEmailError: error instanceof Error ? error.message : 'Failed to queue NSM approval email',
+        }).catch(() => {});
+        console.error('Failed to queue NSM stock transfer email:', error);
+      } finally {
+        ceoEmailQueueRunning.current = false;
+      }
+    }, 4000);
+
+    return () => window.clearTimeout(sendTimer);
+  }, [transfers, config]);
+
+  return null;
 };
