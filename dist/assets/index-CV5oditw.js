@@ -56741,6 +56741,76 @@ const isTransferActive = (transfer) => {
   var _a;
   return !(transfer == null ? void 0 : transfer.deletedAt) && !(transfer == null ? void 0 : transfer.cancelledAt) && !((_a = transfer == null ? void 0 : transfer.workflow) == null ? void 0 : _a.purchaseDoneAt);
 };
+const getWorkflowSteps = (transfer) => {
+  const category = (transfer == null ? void 0 : transfer["Stock Transfer Category"]) || getStockTransferCategory(transfer == null ? void 0 : transfer.currentLocation, transfer == null ? void 0 : transfer.targetLocation);
+  const isExternal = normalizeValue(category).includes("external");
+  const steps = [
+    {
+      label: "NSM approval",
+      contact: "NSM",
+      statusKey: "ceoStatus",
+      doneAtKey: "ceoApprovedAt"
+    },
+    {
+      label: "Finance Acctg/AP floorplan check",
+      contact: "Finance Acctg/AP",
+      statusKey: "redoInvoiceStatus",
+      doneAtKey: "redoInvoiceDoneAt"
+    }
+  ];
+  if (isExternal) {
+    steps.push(
+      {
+        label: "Location DMS reverse goods receiving",
+        contact: "Location DMS",
+        statusKey: "locationDmsStatus",
+        doneAtKey: "locationDmsDoneAt"
+      },
+      {
+        label: "Finance AR reverse invoice and PGI",
+        contact: "Finance AR",
+        statusKey: "financeStatus",
+        doneAtKey: "financeDoneAt"
+      },
+      {
+        label: "Planning change SO BP",
+        contact: "Planning",
+        statusKey: "planningBpStatus",
+        doneAtKey: "planningBpDoneAt"
+      }
+    );
+  } else {
+    steps.push({
+      label: "Location DMS transfer done",
+      contact: "Location DMS",
+      statusKey: "locationDmsStatus",
+      doneAtKey: "locationDmsDoneAt"
+    });
+  }
+  steps.push(
+    {
+      label: "Transport booking",
+      contact: "Transport",
+      statusKey: "transportStatus",
+      doneAtKey: "transportDoneAt"
+    },
+    {
+      label: "Purchase transport PO",
+      contact: "Purchase",
+      statusKey: "purchaseStatus",
+      doneAtKey: "purchaseDoneAt"
+    }
+  );
+  return steps;
+};
+const getWorkflowStepStatus = (workflow, step) => {
+  const rawStatus = String((workflow == null ? void 0 : workflow[step.statusKey]) || "").trim();
+  const normalizedStatus = rawStatus.toLowerCase();
+  if ((workflow == null ? void 0 : workflow[step.doneAtKey]) || ["done", "approved", "completed"].includes(normalizedStatus)) {
+    return "Done";
+  }
+  return rawStatus || "Pending";
+};
 const getActorPayload = (actor) => ({
   name: String((actor == null ? void 0 : actor.name) || "").trim(),
   email: String((actor == null ? void 0 : actor.email) || "").trim(),
@@ -56807,6 +56877,7 @@ const StockTransfer = ({ data = [], showEmailSettings = false }) => {
   const [loadingTransfers, setLoadingTransfers] = reactExports.useState(true);
   const [saving, setSaving] = reactExports.useState(false);
   const [message, setMessage] = reactExports.useState("");
+  const [expandedTransferIds, setExpandedTransferIds] = reactExports.useState({});
   reactExports.useEffect(() => {
     const transfersRef = ref(database, "stock_transfer");
     const handleValue = (snapshot) => {
@@ -56825,13 +56896,6 @@ const StockTransfer = ({ data = [], showEmailSettings = false }) => {
     var _a;
     return !((_a = transfer.workflow) == null ? void 0 : _a.purchaseDoneAt);
   }).sort((a2, b2) => ((b2 == null ? void 0 : b2.savedAt) || "").localeCompare((a2 == null ? void 0 : a2.savedAt) || "")), [transfers]);
-  const historicalTransferList = reactExports.useMemo(() => Object.entries(transfers || {}).map(([id2, transfer]) => ({ id: id2, ...transfer })).filter((transfer) => {
-    var _a;
-    return transfer.deletedAt || transfer.cancelledAt || ((_a = transfer.workflow) == null ? void 0 : _a.purchaseDoneAt);
-  }).sort((a2, b2) => {
-    var _a, _b;
-    return (b2.deletedAt || b2.cancelledAt || ((_a = b2.workflow) == null ? void 0 : _a.purchaseDoneAt) || b2.savedAt || "").localeCompare(a2.deletedAt || a2.cancelledAt || ((_b = a2.workflow) == null ? void 0 : _b.purchaseDoneAt) || a2.savedAt || "");
-  }), [transfers]);
   const scheduleByChassis = reactExports.useMemo(() => new Map((data || []).map((row) => [normalizeChassis(String((row == null ? void 0 : row.Chassis) || "")), row]).filter(([chassis]) => chassis)), [data]);
   const stockLocationOptions = reactExports.useMemo(() => [
     .../* @__PURE__ */ new Set([
@@ -56948,6 +57012,12 @@ const StockTransfer = ({ data = [], showEmailSettings = false }) => {
     var _a;
     return (transfer == null ? void 0 : transfer.Model) || (transfer == null ? void 0 : transfer.model) || ((_a = scheduleByChassis.get(normalizeChassis(String((transfer == null ? void 0 : transfer.chassis) || "")))) == null ? void 0 : _a.Model) || "-";
   };
+  const toggleTransferExpanded = (transferId) => {
+    setExpandedTransferIds((current) => ({
+      ...current,
+      [transferId]: !current[transferId]
+    }));
+  };
   const isErrorMessage = message.includes("Error") || message.includes("Please") || message.includes("must") || message.includes("should not");
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "w-full space-y-5 px-4 py-5 text-slate-900", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "rounded-lg border border-slate-200 bg-white px-5 py-4 shadow-sm", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between", children: [
@@ -57054,60 +57124,92 @@ const StockTransfer = ({ data = [], showEmailSettings = false }) => {
           /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500", children: "Invoice Date" }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500", children: "Invoice No." }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500", children: "BP Changed By" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500", children: "BP Changed" })
+          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500", children: "BP Changed" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500", children: "Tasks" })
         ] }) }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("tbody", { className: "divide-y divide-slate-100 bg-white", children: transferList.map((transfer) => /* @__PURE__ */ jsxRuntimeExports.jsxs("tr", { className: getTransferRowHighlight(transfer) ? "bg-rose-50 text-rose-950" : "hover:bg-slate-50/70", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm font-semibold text-gray-900", children: transfer.chassis || "-" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: getTransferModel(transfer) }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: transfer.currentLocation || "-" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: transfer.targetLocation || "-" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: transfer.savedAt || "-" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: transfer["Stock Transfer Category"] || "-" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: getSOPGIPostDateDisplay(transfer) }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: transfer["Company Stock Current Location"] || "-" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: transfer["Sales Order Display"] || "-" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: transfer["Invoice-to Name"] || "-" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: transfer["Last Invoice Date"] || "-" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: transfer["Last Invoice Number"] || "-" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: transfer["Invoice BP Last Changed By"] || "-" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: transfer["Invoice BP Last Change Date"] || "-" })
-        ] }, transfer.id)) })
-      ] }) })
-    ] }),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "rounded-lg border border-slate-200 bg-white p-5 shadow-sm", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mb-4 flex items-center justify-between", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { className: "text-lg font-semibold text-slate-950", children: "History" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600", children: historicalTransferList.length })
-      ] }),
-      historicalTransferList.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-center text-gray-500 py-6", children: "No completed, deleted, or cancelled stock transfers yet." }) : /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "overflow-x-auto", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("table", { className: "min-w-full divide-y divide-gray-200", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("thead", { className: "bg-gray-50", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("tr", { children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase", children: "Chassis" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase", children: "Status" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase", children: "Current Location" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase", children: "Target Location" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase", children: "Date" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase", children: "By" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase", children: "Reason" })
-        ] }) }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("tbody", { className: "bg-white divide-y divide-gray-200", children: historicalTransferList.map((transfer) => {
-          var _a;
-          const isDeleted = Boolean(transfer.deletedAt);
-          const isCancelled = Boolean(transfer.cancelledAt);
-          const status = isDeleted ? "Deleted" : isCancelled ? "Cancelled" : "Completed";
-          const statusDate = transfer.deletedAt || transfer.cancelledAt || ((_a = transfer.workflow) == null ? void 0 : _a.purchaseDoneAt) || "-";
-          const actorInfo = isDeleted ? transfer.deletedBy : isCancelled ? transfer.cancelledBy : transfer.createdBy;
-          const reason = isDeleted ? transfer.deleteReason : isCancelled ? transfer.cancelReason : "";
-          return /* @__PURE__ */ jsxRuntimeExports.jsxs("tr", { children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm font-semibold text-gray-900", children: transfer.chassis || "-" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: status }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: transfer.currentLocation || "-" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: transfer.targetLocation || "-" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: statusDate }),
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("td", { className: "px-4 py-2 text-sm text-gray-600", children: [
-              (actorInfo == null ? void 0 : actorInfo.name) || "-",
-              (actorInfo == null ? void 0 : actorInfo.company) ? ` / ${actorInfo.company}` : ""
+        /* @__PURE__ */ jsxRuntimeExports.jsx("tbody", { className: "divide-y divide-slate-100 bg-white", children: transferList.map((transfer) => {
+          const workflow = transfer.workflow || {};
+          const workflowSteps = getWorkflowSteps(transfer);
+          const expanded = Boolean(expandedTransferIds[transfer.id]);
+          const firstPendingStep = workflowSteps.find((step) => getWorkflowStepStatus(workflow, step) !== "Done");
+          return /* @__PURE__ */ jsxRuntimeExports.jsxs(React.Fragment, { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("tr", { className: getTransferRowHighlight(transfer) ? "bg-rose-50 text-rose-950" : "hover:bg-slate-50/70", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm font-semibold text-gray-900", children: transfer.chassis || "-" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: getTransferModel(transfer) }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: transfer.currentLocation || "-" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: transfer.targetLocation || "-" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: transfer.savedAt || "-" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: transfer["Stock Transfer Category"] || "-" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: getSOPGIPostDateDisplay(transfer) }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: transfer["Company Stock Current Location"] || "-" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: transfer["Sales Order Display"] || "-" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: transfer["Invoice-to Name"] || "-" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: transfer["Last Invoice Date"] || "-" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: transfer["Last Invoice Number"] || "-" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: transfer["Invoice BP Last Changed By"] || "-" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: transfer["Invoice BP Last Change Date"] || "-" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "button",
+                {
+                  type: "button",
+                  onClick: () => toggleTransferExpanded(transfer.id),
+                  className: "whitespace-nowrap rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50",
+                  children: expanded ? "Hide tasks" : "Show tasks"
+                }
+              ) })
             ] }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: reason || "-" })
+            expanded && /* @__PURE__ */ jsxRuntimeExports.jsx("tr", { children: /* @__PURE__ */ jsxRuntimeExports.jsxs("td", { colSpan: 15, className: "bg-slate-50 px-4 py-4", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mb-3 flex flex-wrap items-center gap-2 text-sm text-slate-700", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-semibold text-slate-950", children: "Current task:" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: (firstPendingStep == null ? void 0 : firstPendingStep.label) || "All tasks done" }),
+                firstPendingStep && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800", children: [
+                  "Contact ",
+                  firstPendingStep.contact
+                ] })
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "grid gap-3 md:grid-cols-2 xl:grid-cols-3", children: workflowSteps.map((step) => {
+                const status = getWorkflowStepStatus(workflow, step);
+                const isDone = status === "Done";
+                return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "rounded-md border border-slate-200 bg-white p-3", children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-start justify-between gap-3", children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-sm font-semibold text-slate-950", children: step.label }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mt-1 text-xs text-slate-500", children: [
+                        "Contact: ",
+                        step.contact
+                      ] })
+                    ] }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx(
+                      "span",
+                      {
+                        className: `whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ${isDone ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`,
+                        children: status
+                      }
+                    )
+                  ] }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mt-2 space-y-1 text-xs text-slate-500", children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+                      "Completed: ",
+                      (workflow == null ? void 0 : workflow[step.doneAtKey]) || "-"
+                    ] }),
+                    step.statusKey === "transportStatus" && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+                        "Vendor: ",
+                        workflow.transportVendor || "-"
+                      ] }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+                        "Pickup: ",
+                        workflow.transportPickupAt || "-"
+                      ] })
+                    ] }),
+                    step.statusKey === "purchaseStatus" && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+                      "PO: ",
+                      workflow.purchasePoNumber || "-"
+                    ] })
+                  ] })
+                ] }, step.statusKey);
+              }) })
+            ] }) })
           ] }, transfer.id);
         }) })
       ] }) })
@@ -57355,10 +57457,64 @@ const getEmailStep = (role, transfer = {}) => {
 const getEmailJobId = (transfer, role) => `${getSafeFirebaseKey(transfer == null ? void 0 : transfer.id)}_${getEmailStep(role, transfer)}`;
 const isFinanceFloorplanStep = (transfer) => !getWorkflow(transfer).redoInvoiceDoneAt;
 const getFinanceTaskLabel = (transfer) => isFinanceFloorplanStep(transfer) ? "Finance Acctg/AP - Floorplan Check" : "Finance AR - Reverse Invoice and PGI";
-const getEmailTitle = (config2, role, transfer) => {
-  var _a;
-  if (role === "finance") return `Stock Transfer ${getFinanceTaskLabel(transfer)} Task`;
-  return ((_a = config2.subjects) == null ? void 0 : _a[role]) || (role === "ceo" ? "Stock Transfer NSM Approval Required" : `${roleLabels[role]} Task`);
+const escapeHtml = (value) => String(value || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+const getTaskLabel = (role, transfer) => {
+  if (role === "finance") return getFinanceTaskLabel(transfer);
+  return roleLabels[role] || "Stock Transfer Task";
+};
+const getTaskSubtasks = (role, transfer) => {
+  if (role === "ceo") {
+    return [
+      "Review the stock transfer request.",
+      "Confirm NSM approval can proceed."
+    ];
+  }
+  if (role === "location") {
+    return isExternalTransfer(transfer) ? [
+      "Confirm the unit is ready for Location DMS work.",
+      "Complete DMS reverse goods receiving.",
+      "Confirm when Location DMS work is done."
+    ] : [
+      "Confirm the unit is ready for Location DMS work.",
+      "Complete the DMS stock transfer.",
+      "Confirm when Location DMS transfer is done."
+    ];
+  }
+  if (role === "planning") {
+    return [
+      "Change the Sales Order BP as required.",
+      "Confirm the Planning update is complete."
+    ];
+  }
+  if (role === "finance") {
+    return isFinanceFloorplanStep(transfer) ? [
+      "Check floorplan status.",
+      "Confirm Accounting/AP requirements.",
+      "Confirm finance clearance before Location DMS work."
+    ] : [
+      "Confirm Location DMS reverse goods receiving is done.",
+      "Reverse invoice as required.",
+      "Confirm PGI reversal / finance clearance before Planning work."
+    ];
+  }
+  if (role === "transport") {
+    return [
+      "Book transport for this stock transfer.",
+      "Enter the transport vendor.",
+      "Enter the pickup / booking time before confirming."
+    ];
+  }
+  if (role === "purchase") {
+    return [
+      "Raise the Transport PO.",
+      "Enter the PO number before confirming."
+    ];
+  }
+  return [];
+};
+const getEmailTitle = (role, transfer) => {
+  const chassis = String((transfer == null ? void 0 : transfer.chassis) || "").trim();
+  return `Action Required: Stock Transfer${chassis ? ` ${chassis}` : ""}`;
 };
 const getApproveLink = (config2, transferId) => `${getConfiguredBaseUrl(config2)}/#/stock-transfer-workflow/ceo?approveTransfer=${encodeURIComponent(transferId)}`;
 const getWorkflowUrl = (config2, role, transfer = {}) => {
@@ -57386,65 +57542,50 @@ const emailJsTemplateExample = `<div style="font-family:Arial,sans-serif;backgro
     </div>
   </div>
 </div>`;
-const buildEmailHtml = (role, transfer, title, note, taskCount, workflowUrl, approveLinkUrl) => {
-  const details = role === "ceo" ? [
-    ["Chassis", transfer.chassis],
-    ["Model", transfer.Model],
-    ["Current Location", transfer.currentLocation],
-    ["Target Location", transfer.targetLocation]
-  ] : [
-    ["Chassis", transfer.chassis],
-    ["Model", transfer.Model],
-    ["SO PGI Post Date", transfer["SO PGI Post Date"] || "nopgi"],
-    ["Company Stock Current Location", transfer["Company Stock Current Location"]],
-    ["Sales Order Display", transfer["Sales Order Display"]],
-    ["Invoice-to Name", transfer["Invoice-to Name"]],
-    ["Last Invoice Date", transfer["Last Invoice Date"]],
-    ["Last Invoice Number", transfer["Last Invoice Number"]],
-    ["Invoice BP Last Changed By", transfer["Invoice BP Last Changed By"]],
-    ["Invoice BP Last Change Date", transfer["Invoice BP Last Change Date"]],
-    ["Current Location", transfer.currentLocation],
-    ["Target Location", transfer.targetLocation]
-  ];
-  const rows = details.map(([label, value]) => `
-    <tr>
-      <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;color:#6b7280;font-weight:600;">${label}</td>
-      <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;color:#111827;">${value || "-"}</td>
-    </tr>
-  `).join("");
+const buildEmailHtml = (role, transfer, title, workflowUrl) => {
   const taskButton = workflowUrl ? `
     <div style="margin-top:20px;text-align:center;">
-      <a href="${workflowUrl}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:999px;font-weight:700;">Open stock transfer task</a>
+      <a href="${escapeHtml(workflowUrl)}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:999px;font-weight:700;">Open and Confirm</a>
     </div>
   ` : "";
-  const approveButton = role === "ceo" ? `
-    <div style="margin-top:20px;text-align:center;">
-      <a href="${approveLinkUrl}" style="display:inline-block;background:#16a34a;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:999px;font-weight:700;">Approve stock transfer</a>
-    </div>
-  ` : "";
-  const financeChecklist = role === "finance" && isFinanceFloorplanStep(transfer) ? `
-    <div style="margin-top:18px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px 16px;">
-      <div style="font-weight:700;color:#0f172a;margin-bottom:8px;">Finance subtasks</div>
-      <ul style="margin:0;padding-left:20px;color:#334155;line-height:1.6;">
-        <li>Check floorplan status.</li>
-        <li>Confirm Accounting/AP requirements.</li>
-        <li>Confirm finance clearance before Location DMS work.</li>
+  const taskLabel = getTaskLabel(role, transfer);
+  const subtasks = getTaskSubtasks(role, transfer);
+  const subtasksBlock = subtasks.length ? `
+    <div style="margin-top:16px;border:1px solid #e5e7eb;border-radius:12px;padding:14px 16px;background:#f8fafc;">
+      <div style="font-weight:700;color:#111827;margin-bottom:8px;">${escapeHtml(role === "finance" ? "Finance subtasks" : "Subtasks")}</div>
+      <ul style="margin:0;padding-left:20px;color:#334155;line-height:1.55;">
+        ${subtasks.map((subtask) => `<li>${escapeHtml(subtask)}</li>`).join("")}
       </ul>
     </div>
   ` : "";
   return `
-    <div style="font-family:Arial,sans-serif;max-width:680px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:16px;overflow:hidden;">
-      <div style="background:#4f46e5;color:#ffffff;padding:22px 26px;">
-        <h2 style="margin:0;font-size:22px;">${title}</h2>
-        <p style="margin:8px 0 0;opacity:0.9;">${note || "Stock Transfer Workflow"}</p>
-        <p style="margin:12px 0 0;background:rgba(255,255,255,0.16);display:inline-block;padding:6px 10px;border-radius:999px;font-size:13px;">Unfinished tasks: ${taskCount || 0}</p>
+    <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:14px;overflow:hidden;">
+      <div style="background:#0f172a;color:#ffffff;padding:20px 24px;">
+        <h2 style="margin:0;font-size:20px;">${escapeHtml(title)}</h2>
+        <p style="margin:8px 0 0;opacity:0.88;">Please confirm this stock transfer task.</p>
       </div>
-      <div style="padding:22px 26px;">
-        <table style="width:100%;border-collapse:collapse;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;">${rows}</table>
-        ${financeChecklist}
+      <div style="padding:22px 24px;">
+        <table style="width:100%;border-collapse:collapse;border:1px solid #e5e7eb;">
+          <tr>
+            <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#64748b;font-weight:700;width:34%;">Chassis</td>
+            <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#111827;">${escapeHtml(transfer.chassis || "-")}</td>
+          </tr>
+          <tr>
+            <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#64748b;font-weight:700;">From</td>
+            <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#111827;">${escapeHtml(transfer.currentLocation || "-")}</td>
+          </tr>
+          <tr>
+            <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#64748b;font-weight:700;">To</td>
+            <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#111827;">${escapeHtml(transfer.targetLocation || "-")}</td>
+          </tr>
+          <tr>
+            <td style="padding:10px 12px;color:#64748b;font-weight:700;">Current task</td>
+            <td style="padding:10px 12px;color:#111827;">${escapeHtml(taskLabel)}</td>
+          </tr>
+        </table>
+        ${subtasksBlock}
         ${taskButton}
-        ${approveButton}
-        <p style="margin-top:18px;color:#6b7280;font-size:13px;">Use the email link above to complete only this stock transfer task.</p>
+        <p style="margin-top:16px;color:#64748b;font-size:13px;">Open the link and confirm once your part is done.</p>
       </div>
     </div>
   `;
@@ -57462,13 +57603,11 @@ const getCcRecipient = (config2, role) => {
 };
 const canSendEmail = (config2, role, transfer = {}) => Boolean(getRecipient(config2, role, transfer));
 const sendWorkflowEmail = async (role, transfer, config2, taskCount = 1) => {
-  var _a;
   if (!canSendEmail(config2, role, transfer)) return false;
-  const emailTitle = getEmailTitle(config2, role, transfer);
-  const emailNote = ((_a = config2.bodyNotes) == null ? void 0 : _a[role]) || "";
+  const emailTitle = getEmailTitle(role, transfer);
   const workflowUrl = getWorkflowUrl(config2, role, transfer);
   const approveLink = role === "ceo" ? getApproveLink(config2, transfer.id) : "";
-  const content = buildEmailHtml(role, transfer, emailTitle, emailNote, taskCount, workflowUrl, approveLink);
+  const content = buildEmailHtml(role, transfer, emailTitle, workflowUrl);
   const jobId = getEmailJobId(transfer, role);
   const recipient = getRecipient(config2, role, transfer);
   await queueEmailJob({

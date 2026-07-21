@@ -73,6 +73,87 @@ const isTransferActive = (transfer) => (
   && !transfer?.workflow?.purchaseDoneAt
 );
 
+const getWorkflowSteps = (transfer) => {
+  const category = transfer?.['Stock Transfer Category']
+    || getStockTransferCategory(transfer?.currentLocation, transfer?.targetLocation);
+  const isExternal = normalizeValue(category).includes('external');
+  const steps = [
+    {
+      label: 'NSM approval',
+      contact: 'NSM',
+      statusKey: 'ceoStatus',
+      doneAtKey: 'ceoApprovedAt',
+    },
+    {
+      label: 'Finance Acctg/AP floorplan check',
+      contact: 'Finance Acctg/AP',
+      statusKey: 'redoInvoiceStatus',
+      doneAtKey: 'redoInvoiceDoneAt',
+    },
+  ];
+
+  if (isExternal) {
+    steps.push(
+      {
+        label: 'Location DMS reverse goods receiving',
+        contact: 'Location DMS',
+        statusKey: 'locationDmsStatus',
+        doneAtKey: 'locationDmsDoneAt',
+      },
+      {
+        label: 'Finance AR reverse invoice and PGI',
+        contact: 'Finance AR',
+        statusKey: 'financeStatus',
+        doneAtKey: 'financeDoneAt',
+      },
+      {
+        label: 'Planning change SO BP',
+        contact: 'Planning',
+        statusKey: 'planningBpStatus',
+        doneAtKey: 'planningBpDoneAt',
+      },
+    );
+  } else {
+    steps.push({
+      label: 'Location DMS transfer done',
+      contact: 'Location DMS',
+      statusKey: 'locationDmsStatus',
+      doneAtKey: 'locationDmsDoneAt',
+    });
+  }
+
+  steps.push(
+    {
+      label: 'Transport booking',
+      contact: 'Transport',
+      statusKey: 'transportStatus',
+      doneAtKey: 'transportDoneAt',
+    },
+    {
+      label: 'Purchase transport PO',
+      contact: 'Purchase',
+      statusKey: 'purchaseStatus',
+      doneAtKey: 'purchaseDoneAt',
+    },
+  );
+
+  return steps;
+};
+
+const getWorkflowStepStatus = (workflow, step) => {
+  const rawStatus = String(workflow?.[step.statusKey] || '').trim();
+  const normalizedStatus = rawStatus.toLowerCase();
+
+  if (
+    workflow?.[step.doneAtKey]
+    || ['done', 'approved', 'completed'].includes(normalizedStatus)
+  ) {
+    return 'Done';
+  }
+
+  return rawStatus || 'Pending';
+};
+
 const getActorPayload = (actor) => ({
   name: String(actor?.name || '').trim(),
   email: String(actor?.email || '').trim(),
@@ -152,6 +233,7 @@ const StockTransfer = ({ data = [], showEmailSettings = false }) => {
   const [loadingTransfers, setLoadingTransfers] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
+  const [expandedTransferIds, setExpandedTransferIds] = useState({});
 
   useEffect(() => {
     const transfersRef = ref(database, 'stock_transfer');
@@ -175,14 +257,6 @@ const StockTransfer = ({ data = [], showEmailSettings = false }) => {
     .filter((transfer) => !transfer.deletedAt && !transfer.cancelledAt)
     .filter((transfer) => !transfer.workflow?.purchaseDoneAt)
     .sort((a, b) => (b?.savedAt || '').localeCompare(a?.savedAt || '')), [transfers]);
-
-  const historicalTransferList = useMemo(() => Object.entries(transfers || {})
-    .map(([id, transfer]) => ({ id, ...transfer }))
-    .filter((transfer) => transfer.deletedAt || transfer.cancelledAt || transfer.workflow?.purchaseDoneAt)
-    .sort((a, b) => (
-      (b.deletedAt || b.cancelledAt || b.workflow?.purchaseDoneAt || b.savedAt || '')
-        .localeCompare(a.deletedAt || a.cancelledAt || a.workflow?.purchaseDoneAt || a.savedAt || '')
-    )), [transfers]);
 
   const scheduleByChassis = useMemo(() => new Map((data || [])
     .map((row) => [normalizeChassis(String(row?.Chassis || '')), row])
@@ -329,6 +403,13 @@ const StockTransfer = ({ data = [], showEmailSettings = false }) => {
     || '-'
   );
 
+  const toggleTransferExpanded = (transferId) => {
+    setExpandedTransferIds((current) => ({
+      ...current,
+      [transferId]: !current[transferId],
+    }));
+  };
+
   const isErrorMessage = message.includes('Error') || message.includes('Please') || message.includes('must') || message.includes('should not');
 
   return (
@@ -459,72 +540,93 @@ const StockTransfer = ({ data = [], showEmailSettings = false }) => {
                   <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">Invoice No.</th>
                   <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">BP Changed By</th>
                   <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">BP Changed</th>
+                  <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">Tasks</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 bg-white">
-                {transferList.map((transfer) => (
-                  <tr key={transfer.id} className={getTransferRowHighlight(transfer) ? 'bg-rose-50 text-rose-950' : 'hover:bg-slate-50/70'}>
-                    <td className="px-4 py-2 text-sm font-semibold text-gray-900">{transfer.chassis || '-'}</td>
-                    <td className="px-4 py-2 text-sm text-gray-600">{getTransferModel(transfer)}</td>
-                    <td className="px-4 py-2 text-sm text-gray-600">{transfer.currentLocation || '-'}</td>
-                    <td className="px-4 py-2 text-sm text-gray-600">{transfer.targetLocation || '-'}</td>
-                    <td className="px-4 py-2 text-sm text-gray-600">{transfer.savedAt || '-'}</td>
-                    <td className="px-4 py-2 text-sm text-gray-600">{transfer['Stock Transfer Category'] || '-'}</td>
-                    <td className="px-4 py-2 text-sm text-gray-600">{getSOPGIPostDateDisplay(transfer)}</td>
-                    <td className="px-4 py-2 text-sm text-gray-600">{transfer['Company Stock Current Location'] || '-'}</td>
-                    <td className="px-4 py-2 text-sm text-gray-600">{transfer['Sales Order Display'] || '-'}</td>
-                    <td className="px-4 py-2 text-sm text-gray-600">{transfer['Invoice-to Name'] || '-'}</td>
-                    <td className="px-4 py-2 text-sm text-gray-600">{transfer['Last Invoice Date'] || '-'}</td>
-                    <td className="px-4 py-2 text-sm text-gray-600">{transfer['Last Invoice Number'] || '-'}</td>
-                    <td className="px-4 py-2 text-sm text-gray-600">{transfer['Invoice BP Last Changed By'] || '-'}</td>
-                    <td className="px-4 py-2 text-sm text-gray-600">{transfer['Invoice BP Last Change Date'] || '-'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-      <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-slate-950">History</h3>
-          <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">{historicalTransferList.length}</span>
-        </div>
-        {historicalTransferList.length === 0 ? (
-          <div className="text-center text-gray-500 py-6">No completed, deleted, or cancelled stock transfers yet.</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Chassis</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Current Location</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Target Location</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">By</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Reason</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {historicalTransferList.map((transfer) => {
-                  const isDeleted = Boolean(transfer.deletedAt);
-                  const isCancelled = Boolean(transfer.cancelledAt);
-                  const status = isDeleted ? 'Deleted' : isCancelled ? 'Cancelled' : 'Completed';
-                  const statusDate = transfer.deletedAt || transfer.cancelledAt || transfer.workflow?.purchaseDoneAt || '-';
-                  const actorInfo = isDeleted ? transfer.deletedBy : isCancelled ? transfer.cancelledBy : transfer.createdBy;
-                  const reason = isDeleted ? transfer.deleteReason : isCancelled ? transfer.cancelReason : '';
+                {transferList.map((transfer) => {
+                  const workflow = transfer.workflow || {};
+                  const workflowSteps = getWorkflowSteps(transfer);
+                  const expanded = Boolean(expandedTransferIds[transfer.id]);
+                  const firstPendingStep = workflowSteps.find((step) => getWorkflowStepStatus(workflow, step) !== 'Done');
 
                   return (
-                    <tr key={transfer.id}>
-                      <td className="px-4 py-2 text-sm font-semibold text-gray-900">{transfer.chassis || '-'}</td>
-                      <td className="px-4 py-2 text-sm text-gray-600">{status}</td>
-                      <td className="px-4 py-2 text-sm text-gray-600">{transfer.currentLocation || '-'}</td>
-                      <td className="px-4 py-2 text-sm text-gray-600">{transfer.targetLocation || '-'}</td>
-                      <td className="px-4 py-2 text-sm text-gray-600">{statusDate}</td>
-                      <td className="px-4 py-2 text-sm text-gray-600">{actorInfo?.name || '-'}{actorInfo?.company ? ` / ${actorInfo.company}` : ''}</td>
-                      <td className="px-4 py-2 text-sm text-gray-600">{reason || '-'}</td>
-                    </tr>
+                    <React.Fragment key={transfer.id}>
+                      <tr className={getTransferRowHighlight(transfer) ? 'bg-rose-50 text-rose-950' : 'hover:bg-slate-50/70'}>
+                        <td className="px-4 py-2 text-sm font-semibold text-gray-900">{transfer.chassis || '-'}</td>
+                        <td className="px-4 py-2 text-sm text-gray-600">{getTransferModel(transfer)}</td>
+                        <td className="px-4 py-2 text-sm text-gray-600">{transfer.currentLocation || '-'}</td>
+                        <td className="px-4 py-2 text-sm text-gray-600">{transfer.targetLocation || '-'}</td>
+                        <td className="px-4 py-2 text-sm text-gray-600">{transfer.savedAt || '-'}</td>
+                        <td className="px-4 py-2 text-sm text-gray-600">{transfer['Stock Transfer Category'] || '-'}</td>
+                        <td className="px-4 py-2 text-sm text-gray-600">{getSOPGIPostDateDisplay(transfer)}</td>
+                        <td className="px-4 py-2 text-sm text-gray-600">{transfer['Company Stock Current Location'] || '-'}</td>
+                        <td className="px-4 py-2 text-sm text-gray-600">{transfer['Sales Order Display'] || '-'}</td>
+                        <td className="px-4 py-2 text-sm text-gray-600">{transfer['Invoice-to Name'] || '-'}</td>
+                        <td className="px-4 py-2 text-sm text-gray-600">{transfer['Last Invoice Date'] || '-'}</td>
+                        <td className="px-4 py-2 text-sm text-gray-600">{transfer['Last Invoice Number'] || '-'}</td>
+                        <td className="px-4 py-2 text-sm text-gray-600">{transfer['Invoice BP Last Changed By'] || '-'}</td>
+                        <td className="px-4 py-2 text-sm text-gray-600">{transfer['Invoice BP Last Change Date'] || '-'}</td>
+                        <td className="px-4 py-2 text-sm">
+                          <button
+                            type="button"
+                            onClick={() => toggleTransferExpanded(transfer.id)}
+                            className="whitespace-nowrap rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                          >
+                            {expanded ? 'Hide tasks' : 'Show tasks'}
+                          </button>
+                        </td>
+                      </tr>
+                      {expanded && (
+                        <tr>
+                          <td colSpan={15} className="bg-slate-50 px-4 py-4">
+                            <div className="mb-3 flex flex-wrap items-center gap-2 text-sm text-slate-700">
+                              <span className="font-semibold text-slate-950">Current task:</span>
+                              <span>{firstPendingStep?.label || 'All tasks done'}</span>
+                              {firstPendingStep && (
+                                <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">
+                                  Contact {firstPendingStep.contact}
+                                </span>
+                              )}
+                            </div>
+                            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                              {workflowSteps.map((step) => {
+                                const status = getWorkflowStepStatus(workflow, step);
+                                const isDone = status === 'Done';
+                                return (
+                                  <div key={step.statusKey} className="rounded-md border border-slate-200 bg-white p-3">
+                                    <div className="flex items-start justify-between gap-3">
+                                      <div>
+                                        <div className="text-sm font-semibold text-slate-950">{step.label}</div>
+                                        <div className="mt-1 text-xs text-slate-500">Contact: {step.contact}</div>
+                                      </div>
+                                      <span className={`whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ${
+                                        isDone ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
+                                      }`}
+                                      >
+                                        {status}
+                                      </span>
+                                    </div>
+                                    <div className="mt-2 space-y-1 text-xs text-slate-500">
+                                      <div>Completed: {workflow?.[step.doneAtKey] || '-'}</div>
+                                      {step.statusKey === 'transportStatus' && (
+                                        <>
+                                          <div>Vendor: {workflow.transportVendor || '-'}</div>
+                                          <div>Pickup: {workflow.transportPickupAt || '-'}</div>
+                                        </>
+                                      )}
+                                      {step.statusKey === 'purchaseStatus' && (
+                                        <div>PO: {workflow.purchasePoNumber || '-'}</div>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
                   );
                 })}
               </tbody>

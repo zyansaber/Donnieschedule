@@ -228,9 +228,76 @@ const getFinanceTaskLabel = (transfer) => (
     : 'Finance AR - Reverse Invoice and PGI'
 );
 
-const getEmailTitle = (config, role, transfer) => {
-  if (role === 'finance') return `Stock Transfer ${getFinanceTaskLabel(transfer)} Task`;
-  return config.subjects?.[role] || (role === 'ceo' ? 'Stock Transfer NSM Approval Required' : `${roleLabels[role]} Task`);
+const escapeHtml = (value) => String(value || '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;');
+
+const getTaskLabel = (role, transfer) => {
+  if (role === 'finance') return getFinanceTaskLabel(transfer);
+  return roleLabels[role] || 'Stock Transfer Task';
+};
+
+const getTaskSubtasks = (role, transfer) => {
+  if (role === 'ceo') {
+    return [
+      'Review the stock transfer request.',
+      'Confirm NSM approval can proceed.',
+    ];
+  }
+  if (role === 'location') {
+    return isExternalTransfer(transfer)
+      ? [
+        'Confirm the unit is ready for Location DMS work.',
+        'Complete DMS reverse goods receiving.',
+        'Confirm when Location DMS work is done.',
+      ]
+      : [
+        'Confirm the unit is ready for Location DMS work.',
+        'Complete the DMS stock transfer.',
+        'Confirm when Location DMS transfer is done.',
+      ];
+  }
+  if (role === 'planning') {
+    return [
+      'Change the Sales Order BP as required.',
+      'Confirm the Planning update is complete.',
+    ];
+  }
+  if (role === 'finance') {
+    return isFinanceFloorplanStep(transfer)
+      ? [
+        'Check floorplan status.',
+        'Confirm Accounting/AP requirements.',
+        'Confirm finance clearance before Location DMS work.',
+      ]
+      : [
+        'Confirm Location DMS reverse goods receiving is done.',
+        'Reverse invoice as required.',
+        'Confirm PGI reversal / finance clearance before Planning work.',
+      ];
+  }
+  if (role === 'transport') {
+    return [
+      'Book transport for this stock transfer.',
+      'Enter the transport vendor.',
+      'Enter the pickup / booking time before confirming.',
+    ];
+  }
+  if (role === 'purchase') {
+    return [
+      'Raise the Transport PO.',
+      'Enter the PO number before confirming.',
+    ];
+  }
+  return [];
+};
+
+const getEmailTitle = (role, transfer) => {
+  const chassis = String(transfer?.chassis || '').trim();
+  return `Action Required: Stock Transfer${chassis ? ` ${chassis}` : ''}`;
 };
 
 const getApproveLink = (config, transferId) => `${getConfiguredBaseUrl(config)}/#/stock-transfer-workflow/ceo?approveTransfer=${encodeURIComponent(transferId)}`;
@@ -262,72 +329,52 @@ const emailJsTemplateExample = `<div style="font-family:Arial,sans-serif;backgro
   </div>
 </div>`;
 
-const buildEmailHtml = (role, transfer, title, note, taskCount, workflowUrl, approveLinkUrl) => {
-  const details = role === 'ceo'
-    ? [
-      ['Chassis', transfer.chassis],
-      ['Model', transfer.Model],
-      ['Current Location', transfer.currentLocation],
-      ['Target Location', transfer.targetLocation],
-    ]
-    : [
-      ['Chassis', transfer.chassis],
-      ['Model', transfer.Model],
-      ['SO PGI Post Date', transfer['SO PGI Post Date'] || 'nopgi'],
-      ['Company Stock Current Location', transfer['Company Stock Current Location']],
-      ['Sales Order Display', transfer['Sales Order Display']],
-      ['Invoice-to Name', transfer['Invoice-to Name']],
-      ['Last Invoice Date', transfer['Last Invoice Date']],
-      ['Last Invoice Number', transfer['Last Invoice Number']],
-      ['Invoice BP Last Changed By', transfer['Invoice BP Last Changed By']],
-      ['Invoice BP Last Change Date', transfer['Invoice BP Last Change Date']],
-      ['Current Location', transfer.currentLocation],
-      ['Target Location', transfer.targetLocation],
-    ];
-
-  const rows = details.map(([label, value]) => `
-    <tr>
-      <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;color:#6b7280;font-weight:600;">${label}</td>
-      <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;color:#111827;">${value || '-'}</td>
-    </tr>
-  `).join('');
-
+const buildEmailHtml = (role, transfer, title, workflowUrl) => {
   const taskButton = workflowUrl ? `
     <div style="margin-top:20px;text-align:center;">
-      <a href="${workflowUrl}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:999px;font-weight:700;">Open stock transfer task</a>
+      <a href="${escapeHtml(workflowUrl)}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:999px;font-weight:700;">Open and Confirm</a>
     </div>
   ` : '';
 
-  const approveButton = role === 'ceo' ? `
-    <div style="margin-top:20px;text-align:center;">
-      <a href="${approveLinkUrl}" style="display:inline-block;background:#16a34a;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:999px;font-weight:700;">Approve stock transfer</a>
-    </div>
-  ` : '';
-
-  const financeChecklist = role === 'finance' && isFinanceFloorplanStep(transfer) ? `
-    <div style="margin-top:18px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px 16px;">
-      <div style="font-weight:700;color:#0f172a;margin-bottom:8px;">Finance subtasks</div>
-      <ul style="margin:0;padding-left:20px;color:#334155;line-height:1.6;">
-        <li>Check floorplan status.</li>
-        <li>Confirm Accounting/AP requirements.</li>
-        <li>Confirm finance clearance before Location DMS work.</li>
+  const taskLabel = getTaskLabel(role, transfer);
+  const subtasks = getTaskSubtasks(role, transfer);
+  const subtasksBlock = subtasks.length ? `
+    <div style="margin-top:16px;border:1px solid #e5e7eb;border-radius:12px;padding:14px 16px;background:#f8fafc;">
+      <div style="font-weight:700;color:#111827;margin-bottom:8px;">${escapeHtml(role === 'finance' ? 'Finance subtasks' : 'Subtasks')}</div>
+      <ul style="margin:0;padding-left:20px;color:#334155;line-height:1.55;">
+        ${subtasks.map((subtask) => `<li>${escapeHtml(subtask)}</li>`).join('')}
       </ul>
     </div>
   ` : '';
 
   return `
-    <div style="font-family:Arial,sans-serif;max-width:680px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:16px;overflow:hidden;">
-      <div style="background:#4f46e5;color:#ffffff;padding:22px 26px;">
-        <h2 style="margin:0;font-size:22px;">${title}</h2>
-        <p style="margin:8px 0 0;opacity:0.9;">${note || 'Stock Transfer Workflow'}</p>
-        <p style="margin:12px 0 0;background:rgba(255,255,255,0.16);display:inline-block;padding:6px 10px;border-radius:999px;font-size:13px;">Unfinished tasks: ${taskCount || 0}</p>
+    <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:14px;overflow:hidden;">
+      <div style="background:#0f172a;color:#ffffff;padding:20px 24px;">
+        <h2 style="margin:0;font-size:20px;">${escapeHtml(title)}</h2>
+        <p style="margin:8px 0 0;opacity:0.88;">Please confirm this stock transfer task.</p>
       </div>
-      <div style="padding:22px 26px;">
-        <table style="width:100%;border-collapse:collapse;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;">${rows}</table>
-        ${financeChecklist}
+      <div style="padding:22px 24px;">
+        <table style="width:100%;border-collapse:collapse;border:1px solid #e5e7eb;">
+          <tr>
+            <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#64748b;font-weight:700;width:34%;">Chassis</td>
+            <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#111827;">${escapeHtml(transfer.chassis || '-')}</td>
+          </tr>
+          <tr>
+            <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#64748b;font-weight:700;">From</td>
+            <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#111827;">${escapeHtml(transfer.currentLocation || '-')}</td>
+          </tr>
+          <tr>
+            <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#64748b;font-weight:700;">To</td>
+            <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#111827;">${escapeHtml(transfer.targetLocation || '-')}</td>
+          </tr>
+          <tr>
+            <td style="padding:10px 12px;color:#64748b;font-weight:700;">Current task</td>
+            <td style="padding:10px 12px;color:#111827;">${escapeHtml(taskLabel)}</td>
+          </tr>
+        </table>
+        ${subtasksBlock}
         ${taskButton}
-        ${approveButton}
-        <p style="margin-top:18px;color:#6b7280;font-size:13px;">Use the email link above to complete only this stock transfer task.</p>
+        <p style="margin-top:16px;color:#64748b;font-size:13px;">Open the link and confirm once your part is done.</p>
       </div>
     </div>
   `;
@@ -349,11 +396,10 @@ const canSendEmail = (config, role, transfer = {}) => (
 
 const sendWorkflowEmail = async (role, transfer, config, taskCount = 1) => {
   if (!canSendEmail(config, role, transfer)) return false;
-  const emailTitle = getEmailTitle(config, role, transfer);
-  const emailNote = config.bodyNotes?.[role] || '';
+  const emailTitle = getEmailTitle(role, transfer);
   const workflowUrl = getWorkflowUrl(config, role, transfer);
   const approveLink = role === 'ceo' ? getApproveLink(config, transfer.id) : '';
-  const content = buildEmailHtml(role, transfer, emailTitle, emailNote, taskCount, workflowUrl, approveLink);
+  const content = buildEmailHtml(role, transfer, emailTitle, workflowUrl);
   const jobId = getEmailJobId(transfer, role);
   const recipient = getRecipient(config, role, transfer);
   await queueEmailJob({
