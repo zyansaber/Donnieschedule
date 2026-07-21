@@ -24,6 +24,7 @@ Regent RV - Firebase stock_transfer -> SAP validation report
 import logging
 import os
 import argparse
+import html
 import json
 import re
 import socket
@@ -31,6 +32,7 @@ import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Iterable, List, Tuple
+from urllib.parse import urlencode
 
 import firebase_admin
 import pandas as pd
@@ -51,6 +53,8 @@ FIREBASE_NODE = "stock_transfer"
 FIREBASE_ABNORMAL_NODE = "stock_transfer_abnormal"
 FIREBASE_AUDIT_NODE = "stock_transfer_audit"
 FIREBASE_SYNC_LOCK_NODE = "sap_sync_locks/stock_transfer_worker"
+FIREBASE_CONFIG_NODE = "stockTransferWorkflowConfig"
+FIREBASE_EMAIL_JOBS_NODE = "email_jobs"
 
 
 # ============================================================
@@ -76,6 +80,8 @@ WORKER_BATCH_LIMIT = 500
 WORKER_LOCK_TTL_SECONDS = 10 * 60
 PROCESSING_STALE_SECONDS = 10 * 60
 ERROR_RETRY_SECONDS = 10 * 60
+ACTIVE_EMAIL_JOB_STATUSES = {"pending", "sending", "retrying", "sent"}
+DEFAULT_APP_BASE_URL = "https://schedule-final-tyn6.onrender.com"
 
 
 # ============================================================
@@ -1396,6 +1402,210 @@ def update_stock_transfer_with_sap(result_df: pd.DataFrame) -> None:
     )
 
 
+def get_safe_firebase_key(value) -> str:
+    return re.sub(r"[.#$\[\]/]", "_", str(value or ""))
+
+
+def get_configured_base_url(config: dict) -> str:
+    base_url = clean_text(config.get("appBaseUrl")) or DEFAULT_APP_BASE_URL
+    return base_url.rstrip("/")
+
+
+def has_sales_order(transfer: dict) -> bool:
+    return bool(clean_text(transfer.get("Sales Order Display")))
+
+
+def get_workflow(transfer: dict) -> dict:
+    workflow = transfer.get("workflow")
+    return workflow if isinstance(workflow, dict) else {}
+
+
+def is_stock_transfer_email_active(transfer: dict) -> bool:
+    workflow = get_workflow(transfer)
+    return not (
+        transfer.get("deletedAt")
+        or transfer.get("cancelledAt")
+        or workflow.get("purchaseDoneAt")
+    )
+
+
+def get_nsm_recipient(config: dict) -> str:
+    recipients = config.get("recipients") if isinstance(config.get("recipients"), dict) else {}
+    return clean_text(recipients.get("ceo"))
+
+
+def get_nsm_cc_recipient(config: dict) -> str:
+    cc_recipients = (
+        config.get("ccRecipients")
+        if isinstance(config.get("ccRecipients"), dict)
+        else {}
+    )
+    return clean_text(cc_recipients.get("ceo"))
+
+
+def get_stock_transfer_workflow_url(config: dict, transfer_id: str) -> str:
+    query = urlencode({"taskTransfer": transfer_id})
+    return f"{get_configured_base_url(config)}/#/stock-transfer-workflow/ceo?{query}"
+
+
+def build_stock_transfer_task_email_html(transfer: dict, title: str, workflow_url: str) -> str:
+    chassis = html.escape(clean_text(transfer.get("chassis")) or "-")
+    current_location = html.escape(clean_text(transfer.get("currentLocation")) or "-")
+    target_location = html.escape(clean_text(transfer.get("targetLocation")) or "-")
+    escaped_url = html.escape(workflow_url)
+
+    return f"""
+    <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;color:#172554;">
+      <div style="border-left:4px solid #2563eb;background:#eff6ff;padding:14px 16px;border-radius:10px;">
+        <div style="font-weight:700;color:#1d4ed8;margin-bottom:4px;">Please confirm this stock transfer task.</div>
+        <div style="color:#1e40af;font-size:13px;">Open the link and confirm once your part is done.</div>
+      </div>
+      <div style="margin-top:16px;border:1px solid #bfdbfe;border-radius:12px;overflow:hidden;">
+        <div style="padding:10px 14px;border-bottom:1px solid #dbeafe;"><span style="display:inline-block;width:120px;color:#1d4ed8;font-weight:700;">Chassis</span><span style="color:#172554;">{chassis}</span></div>
+        <div style="padding:10px 14px;border-bottom:1px solid #dbeafe;"><span style="display:inline-block;width:120px;color:#1d4ed8;font-weight:700;">From</span><span style="color:#172554;">{current_location}</span></div>
+        <div style="padding:10px 14px;border-bottom:1px solid #dbeafe;"><span style="display:inline-block;width:120px;color:#1d4ed8;font-weight:700;">To</span><span style="color:#172554;">{target_location}</span></div>
+        <div style="padding:10px 14px;"><span style="display:inline-block;width:120px;color:#1d4ed8;font-weight:700;">Current task</span><span style="color:#172554;">NSM Approval</span></div>
+      </div>
+      <div style="margin-top:16px;border:1px solid #bfdbfe;border-radius:12px;padding:14px 16px;background:#eff6ff;">
+        <div style="font-weight:700;color:#1d4ed8;margin-bottom:8px;">Subtasks</div>
+        <ul style="margin:0;padding-left:20px;color:#1e3a8a;line-height:1.55;">
+          <li>Review the stock transfer request.</li>
+          <li>Confirm NSM approval can proceed.</li>
+        </ul>
+      </div>
+      <div style="margin-top:20px;text-align:center;">
+        <a href="{escaped_url}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:999px;font-weight:700;">Open and Confirm</a>
+      </div>
+    </div>
+    """
+
+
+def should_queue_nsm_email(transfer: dict) -> bool:
+    workflow = get_workflow(transfer)
+    return (
+        isinstance(transfer, dict)
+        and is_stock_transfer_email_active(transfer)
+        and has_sales_order(transfer)
+        and not workflow.get("ceoApprovedAt")
+        and not workflow.get("ceoEmailQueuedAt")
+        and not workflow.get("ceoEmailJobId")
+        and not workflow.get("ceoEmailSendingAt")
+    )
+
+
+def queue_nsm_email_jobs_after_sap_sync(result_df: pd.DataFrame) -> None:
+    if result_df.empty or "Firebase Key" not in result_df.columns:
+        return
+
+    initialize_firebase()
+    config = db.reference(f"/{FIREBASE_CONFIG_NODE}").get() or {}
+    config = config if isinstance(config, dict) else {}
+    recipient = get_nsm_recipient(config)
+    cc_recipient = get_nsm_cc_recipient(config)
+    unique_keys = [
+        clean_text(firebase_key)
+        for firebase_key in result_df["Firebase Key"].dropna().unique()
+        if clean_text(firebase_key)
+    ]
+
+    queued_count = 0
+    skipped_count = 0
+    now_iso = utc_now_iso()
+
+    for firebase_key in unique_keys:
+        transfer_ref = db.reference(f"/{FIREBASE_NODE}/{firebase_key}")
+        transfer = transfer_ref.get() or {}
+        if not isinstance(transfer, dict) or not should_queue_nsm_email(transfer):
+            skipped_count += 1
+            continue
+
+        if not recipient:
+            transfer_ref.child("workflow").update(
+                {
+                    "ceoEmailError": "Missing recipient for ceo",
+                    "ceoStatus": "Missing NSM approval recipient",
+                }
+            )
+            skipped_count += 1
+            continue
+
+        workflow_url = get_stock_transfer_workflow_url(config, firebase_key)
+        chassis = clean_text(transfer.get("chassis"))
+        title = f"Action Required: Stock Transfer{f' {chassis}' if chassis else ''}"
+        email_step = "nsm_approval"
+        job_id = f"{get_safe_firebase_key(firebase_key)}_{email_step}"
+        job_ref = db.reference(f"/{FIREBASE_EMAIL_JOBS_NODE}/{job_id}")
+        existing_job = job_ref.get()
+
+        if (
+            isinstance(existing_job, dict)
+            and clean_text(existing_job.get("status")).lower()
+            in ACTIVE_EMAIL_JOB_STATUSES
+        ):
+            transfer_ref.child("workflow").update(
+                {
+                    "ceoEmailQueuedAt": now_iso,
+                    "ceoEmailJobId": job_id,
+                    "ceoEmailStep": email_step,
+                    "ceoEmailRecipient": recipient,
+                    "ceoEmailError": "",
+                    "ceoStatus": "Pending NSM approval",
+                }
+            )
+            skipped_count += 1
+            continue
+
+        job_ref.set(
+            {
+                "status": "pending",
+                "step": email_step,
+                "role": "ceo",
+                "to": recipient,
+                "cc": cc_recipient,
+                "title": title,
+                "content": build_stock_transfer_task_email_html(
+                    transfer,
+                    title,
+                    workflow_url,
+                ),
+                "attempts": int(existing_job.get("attempts") or 0)
+                if isinstance(existing_job, dict)
+                else 0,
+                "createdAt": now_iso,
+                "updatedAt": now_iso,
+                "lastError": None,
+                "failedAt": None,
+                "transferId": firebase_key,
+                "source": "stock_transfer_sap_sync",
+                "taskTransferId": firebase_key,
+                "workflowUrl": workflow_url,
+                "approveLink": workflow_url,
+                "chassis": transfer.get("chassis") or "",
+                "currentLocation": transfer.get("currentLocation") or "",
+                "targetLocation": transfer.get("targetLocation") or "",
+                "salesOrderDisplay": transfer.get("Sales Order Display") or "",
+                "transferCategory": transfer.get("Stock Transfer Category") or "",
+            }
+        )
+        transfer_ref.child("workflow").update(
+            {
+                "ceoEmailQueuedAt": now_iso,
+                "ceoEmailJobId": job_id,
+                "ceoEmailStep": email_step,
+                "ceoEmailRecipient": recipient,
+                "ceoEmailError": "",
+                "ceoStatus": "Pending NSM approval",
+            }
+        )
+        queued_count += 1
+
+    logger.info(
+        "SAP sync NSM email queue checked: queued=%s skipped=%s",
+        queued_count,
+        skipped_count,
+    )
+
+
 def get_multiple_sales_order_abnormal_rows(result_df: pd.DataFrame) -> pd.DataFrame:
     if result_df.empty:
         return pd.DataFrame()
@@ -1543,6 +1753,7 @@ def process_pending_stock_transfer_once(limit: int = WORKER_BATCH_LIMIT) -> int:
         result, _stock_detail_df = build_sap_enrichment(firebase_df)
         write_abnormal_chassis(result)
         update_stock_transfer_with_sap(result)
+        queue_nsm_email_jobs_after_sap_sync(result)
         mark_sync_done(claimed_keys)
         logger.info("SAP sync worker processed records: %s", len(claimed_keys))
         return len(claimed_keys)
@@ -1614,6 +1825,7 @@ def main() -> None:
     write_abnormal_chassis(result)
     write_excel(result, firebase_df, stock_detail_df)
     update_stock_transfer_with_sap(result)
+    queue_nsm_email_jobs_after_sap_sync(result)
 
     logger.info("Excel generated: %s", OUTPUT_FILE)
     print(f"Done. Excel generated: {OUTPUT_FILE}")
