@@ -49,6 +49,7 @@ FIREBASE_DB_URL = (
 )
 FIREBASE_NODE = "stock_transfer"
 FIREBASE_ABNORMAL_NODE = "stock_transfer_abnormal"
+FIREBASE_AUDIT_NODE = "stock_transfer_audit"
 FIREBASE_SYNC_LOCK_NODE = "sap_sync_locks/stock_transfer_worker"
 
 
@@ -71,7 +72,7 @@ SALES_ORDER_ITEM = "000010"
 # Worker mode
 # ============================================================
 WORKER_INTERVAL_SECONDS = 60
-WORKER_BATCH_LIMIT = 50
+WORKER_BATCH_LIMIT = 500
 WORKER_LOCK_TTL_SECONDS = 10 * 60
 PROCESSING_STALE_SECONDS = 10 * 60
 ERROR_RETRY_SECONDS = 10 * 60
@@ -294,12 +295,10 @@ def format_firebase_auth_error(error: Exception) -> str:
     return "\n".join(lines)
 
 
-def is_transfer_active(record: dict) -> bool:
-    workflow = record.get("workflow") if isinstance(record.get("workflow"), dict) else {}
+def is_transfer_syncable(record: dict) -> bool:
     return not (
         record.get("deletedAt")
         or record.get("cancelledAt")
-        or workflow.get("purchaseDoneAt")
     )
 
 
@@ -381,7 +380,7 @@ def fetch_stock_transfer() -> pd.DataFrame:
 
 
 def should_sync_stock_transfer(record: dict, now_dt: datetime) -> bool:
-    if not isinstance(record, dict) or not is_transfer_active(record):
+    if not isinstance(record, dict) or not is_transfer_syncable(record):
         return False
 
     chassis = normalize_chassis(record.get("chassis"))
@@ -389,38 +388,61 @@ def should_sync_stock_transfer(record: dict, now_dt: datetime) -> bool:
         return False
 
     status = clean_text(record.get("sapSyncStatus")).lower()
+    if status == "processing" and not is_processing_stale(record, now_dt):
+        return False
+    if status == "error" and not is_retry_due(record, now_dt):
+        return False
+
+    # SAP is the source of truth. Re-sync every non-deleted/non-cancelled
+    # stock transfer, including older records that were previously marked done
+    # or completed in the workflow, because SAP fields can still change later.
+    return True
+
+
+def get_sync_sort_key(item: tuple, now_dt: datetime) -> tuple:
+    _firebase_key, record = item
+    status = clean_text(record.get("sapSyncStatus")).lower()
+
     if status == "pending":
-        return True
-    if status == "error" and is_retry_due(record, now_dt):
-        return True
-    if status == "processing" and is_processing_stale(record, now_dt):
-        return True
+        priority = 0
+        date_value = clean_text(record.get("sapSyncRequestedAt"))
+    elif status == "error":
+        priority = 1
+        date_value = clean_text(record.get("sapSyncRetryAfter"))
+    elif status == "processing":
+        priority = 2
+        date_value = clean_text(record.get("sapSyncStartedAt"))
+    elif not clean_text(record.get("Sales Order Display")):
+        priority = 3
+        date_value = clean_text(record.get("createdAt")) or clean_text(record.get("savedAt"))
+    else:
+        priority = 4
+        date_value = clean_text(record.get("sapSyncedAt"))
 
-    # Bootstrap older active rows that were created before sapSyncStatus
-    # existed and still have no SAP sales order enrichment.
-    if not status and not clean_text(record.get("Sales Order Display")):
-        return True
+    parsed_date = parse_iso_datetime(date_value)
+    if parsed_date == datetime.min.replace(tzinfo=timezone.utc):
+        parsed_date = now_dt - timedelta(days=3650)
 
-    return False
+    return (
+        priority,
+        parsed_date,
+        clean_text(record.get("createdAt")) or clean_text(record.get("savedAt")),
+    )
 
 
-def fetch_pending_stock_transfer_records(limit: int) -> dict:
+def fetch_stock_transfer_records_for_sync(limit: int) -> dict:
     initialize_firebase()
     raw_data = db.reference(f"/{FIREBASE_NODE}").get() or {}
     now_dt = utc_now()
-    pending_items = [
+    sync_items = [
         (firebase_key, record)
         for firebase_key, record in raw_data.items()
         if should_sync_stock_transfer(record, now_dt)
     ]
-    pending_items.sort(
-        key=lambda item: (
-            clean_text(item[1].get("sapSyncRequestedAt"))
-            or clean_text(item[1].get("createdAt"))
-            or clean_text(item[1].get("savedAt"))
-        )
-    )
-    return dict(pending_items[:limit])
+    sync_items.sort(key=lambda item: get_sync_sort_key(item, now_dt))
+    if limit and limit > 0:
+        sync_items = sync_items[:limit]
+    return dict(sync_items)
 
 
 def acquire_worker_lock(worker_id: str) -> bool:
@@ -1295,40 +1317,82 @@ def update_stock_transfer_with_sap(result_df: pd.DataFrame) -> None:
         ascending=[True, False],
     ).drop_duplicates(subset=["Firebase Key"], keep="first")
 
+    initialize_firebase()
+    root_ref = db.reference("/")
+    current_records = db.reference(f"/{FIREBASE_NODE}").get() or {}
+
     updates = {}
+    audit_updates = {}
+    synced_at = utc_now_iso()
     for _, row in working.iterrows():
         firebase_key = row["Firebase Key"]
         if not firebase_key:
             continue
 
+        current_record = (
+            current_records.get(firebase_key, {})
+            if isinstance(current_records, dict)
+            else {}
+        )
+        current_record = current_record if isinstance(current_record, dict) else {}
+        changed_fields = {}
+        snapshot_before = {}
+        snapshot_after = {}
+
         for field in fields_to_write:
             value = row[field]
+            previous_value = clean_text(current_record.get(field))
+            snapshot_before[field] = previous_value
+            snapshot_after[field] = value
+            if previous_value != value:
+                changed_fields[field] = {
+                    "before": previous_value,
+                    "after": value,
+                }
             # Write an empty string when no value exists so stale prior values
             # are cleared rather than silently retained.
-            updates[f"{firebase_key}/{field}"] = value
+            updates[f"{FIREBASE_NODE}/{firebase_key}/{field}"] = value
+
+        if changed_fields:
+            audit_key = str(uuid.uuid4())
+            audit_updates[f"{FIREBASE_AUDIT_NODE}/{firebase_key}/{audit_key}"] = {
+                "action": "sap_enrichment_update",
+                "transferId": firebase_key,
+                "chassis": clean_text(row.get("Chassis")),
+                "changedAt": synced_at,
+                "changedBy": {
+                    "type": "system",
+                    "name": "Stock Transfer SAP Sync",
+                    "email": "",
+                    "company": "Local SAP sync worker",
+                    "host": socket.gethostname(),
+                },
+                "source": "sap_sync",
+                "changedFields": changed_fields,
+                "snapshotBefore": snapshot_before,
+                "snapshotAfter": snapshot_after,
+            }
 
     if not updates:
         logger.info("No Firebase SAP enrichment fields to update.")
         return
 
-    initialize_firebase()
-    node_ref = db.reference(f"/{FIREBASE_NODE}")
-
     batch_size = 500
-    update_items = list(updates.items())
+    update_items = list({**updates, **audit_updates}.items())
     for start in range(0, len(update_items), batch_size):
         batch = dict(update_items[start:start + batch_size])
-        node_ref.update(batch)
+        root_ref.update(batch)
         logger.info(
-            "Firebase SAP enrichment batch updated: %s fields",
+            "Firebase SAP enrichment/audit batch updated: %s paths",
             len(batch),
         )
 
     logger.info(
-        "Firebase /%s updated for %s records with %s fields each.",
+        "Firebase /%s updated for %s records with %s fields each; audit entries: %s.",
         FIREBASE_NODE,
         len(working),
         len(fields_to_write),
+        len(audit_updates),
     )
 
 
@@ -1453,12 +1517,12 @@ def process_pending_stock_transfer_once(limit: int = WORKER_BATCH_LIMIT) -> int:
 
     claimed_keys = []
     try:
-        pending_records = fetch_pending_stock_transfer_records(limit)
-        if not pending_records:
-            logger.info("No pending stock transfer SAP sync records.")
+        records_for_sync = fetch_stock_transfer_records_for_sync(limit)
+        if not records_for_sync:
+            logger.info("No stock transfer records available for SAP sync.")
             return 0
 
-        for firebase_key in pending_records:
+        for firebase_key in records_for_sync:
             if claim_stock_transfer_record(firebase_key, worker_id):
                 claimed_keys.append(firebase_key)
 
@@ -1467,9 +1531,9 @@ def process_pending_stock_transfer_once(limit: int = WORKER_BATCH_LIMIT) -> int:
             return 0
 
         claimed_records = {
-            firebase_key: pending_records[firebase_key]
+            firebase_key: records_for_sync[firebase_key]
             for firebase_key in claimed_keys
-            if firebase_key in pending_records
+            if firebase_key in records_for_sync
         }
         firebase_df = stock_transfer_records_to_df(claimed_records)
         if firebase_df.empty:
@@ -1527,7 +1591,7 @@ def main() -> None:
         "--limit",
         type=int,
         default=WORKER_BATCH_LIMIT,
-        help="Maximum pending stock transfer records per worker cycle.",
+        help="Maximum stock transfer records per worker cycle; use 0 to sync all eligible records.",
     )
     args = parser.parse_args()
 

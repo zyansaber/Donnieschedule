@@ -38,7 +38,7 @@ if errorlevel 1 (
 
 echo Running stock_transfer SAP sync once...
 echo.
-"%VENV_PY%" stock_transfer.py --once --limit 50
+"%VENV_PY%" stock_transfer.py --once --limit 0
 if errorlevel 1 (
   echo.
   echo Stock transfer SAP sync failed.

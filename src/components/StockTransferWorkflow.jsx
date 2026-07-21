@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { off, onValue, ref, runTransaction, update } from 'firebase/database';
+import { off, onValue, push, ref, runTransaction, update } from 'firebase/database';
 import { database } from '../utils/firebase';
 import { getSafeFirebaseKey, queueEmailJob } from '../utils/emailJobs';
 
@@ -294,6 +294,57 @@ const getTaskSubtasks = (role, transfer) => {
   }
   return [];
 };
+
+const getChangedFields = (before = {}, after = {}) => {
+  const fields = new Set([
+    ...Object.keys(before || {}),
+    ...Object.keys(after || {}),
+  ]);
+
+  return Array.from(fields).reduce((changes, field) => {
+    const beforeValue = before?.[field] ?? '';
+    const afterValue = after?.[field] ?? '';
+    if (JSON.stringify(beforeValue) !== JSON.stringify(afterValue)) {
+      changes[field] = {
+        before: beforeValue,
+        after: afterValue,
+      };
+    }
+    return changes;
+  }, {});
+};
+
+const buildWorkflowAuditEntry = ({
+  transfer,
+  role,
+  workflowBefore,
+  workflowAfter,
+  viaEmailLink,
+  extra = {},
+}) => ({
+  action: `confirm_${getEmailStep(role, transfer)}`,
+  transferId: transfer?.id || '',
+  chassis: transfer?.chassis || '',
+  changedAt: new Date().toISOString(),
+  changedBy: {
+    type: viaEmailLink ? 'email_link_user' : 'workflow_page_user',
+    name: roleLabels[role] || role || 'Workflow user',
+    email: '',
+    company: viaEmailLink ? 'Email task link' : 'Stock transfer workflow page',
+    role,
+  },
+  source: viaEmailLink ? 'email_link_confirm' : 'workflow_page_confirm',
+  role,
+  workflowStep: getEmailStep(role, transfer),
+  changedFields: getChangedFields(workflowBefore, workflowAfter),
+  details: extra,
+  snapshotBefore: {
+    workflow: workflowBefore,
+  },
+  snapshotAfter: {
+    workflow: workflowAfter,
+  },
+});
 
 const getEmailTitle = (role, transfer) => {
   const chassis = String(transfer?.chassis || '').trim();
@@ -717,35 +768,47 @@ const StockTransferWorkflow = ({ role = 'ceo', standalone = false }) => {
 
   const completeTask = async (transfer, extra = {}) => {
     const now = new Date().toISOString();
+    const workflowBefore = getWorkflow(transfer);
     const updates = {};
-    if (role === 'ceo') updates.workflow = { ...getWorkflow(transfer), ceoApprovedAt: now, ceoStatus: 'NSM approved' };
+    if (role === 'ceo') updates.workflow = { ...workflowBefore, ceoApprovedAt: now, ceoStatus: 'NSM approved' };
     if (role === 'location') {
       updates.workflow = {
-        ...getWorkflow(transfer),
+        ...workflowBefore,
         locationDmsDoneAt: now,
         locationDmsStatus: isExternalTransfer(transfer) ? 'DMS reverse goods receiving done' : 'DMS transfer done',
         locationDmsOwner: getLocationLabel(normalizeWorkflowLocation(transfer.currentLocation)),
       };
     }
-    if (role === 'planning') updates.workflow = { ...getWorkflow(transfer), planningBpDoneAt: now, planningBpStatus: 'SO BP changed' };
+    if (role === 'planning') updates.workflow = { ...workflowBefore, planningBpDoneAt: now, planningBpStatus: 'SO BP changed' };
     if (role === 'finance') {
-      const workflow = getWorkflow(transfer);
-      updates.workflow = !workflow.redoInvoiceDoneAt
-        ? { ...workflow, redoInvoiceDoneAt: now, redoInvoiceStatus: 'Floorplan check confirmed' }
-        : { ...workflow, financeDoneAt: now, financeStatus: 'Reverse invoice and PGI confirmed' };
+      updates.workflow = !workflowBefore.redoInvoiceDoneAt
+        ? { ...workflowBefore, redoInvoiceDoneAt: now, redoInvoiceStatus: 'Floorplan check confirmed' }
+        : { ...workflowBefore, financeDoneAt: now, financeStatus: 'Reverse invoice and PGI confirmed' };
     }
     if (role === 'transport') {
-      updates.workflow = { ...getWorkflow(transfer), transportDoneAt: now, transportStatus: 'Transport booked', transportVendor: extra.vendor || '', transportBookingTime: extra.bookingTime || '' };
+      updates.workflow = { ...workflowBefore, transportDoneAt: now, transportStatus: 'Transport booked', transportVendor: extra.vendor || '', transportBookingTime: extra.bookingTime || '' };
     }
     if (role === 'purchase') updates.workflow = {
-      ...getWorkflow(transfer),
+      ...workflowBefore,
       purchaseDoneAt: now,
       purchaseStatus: 'Transport PO confirmed',
       purchasePoNumber: extra.purchasePoNumber || '',
     };
 
     try {
-      await update(ref(database, `${TRANSFERS_PATH}/${transfer.id}`), updates);
+      const auditRef = push(ref(database, `stock_transfer_audit/${transfer.id}`));
+      const viaEmailLink = Boolean(emailTransferId);
+      await update(ref(database), {
+        [`${TRANSFERS_PATH}/${transfer.id}/workflow`]: updates.workflow,
+        [`stock_transfer_audit/${transfer.id}/${auditRef.key}`]: buildWorkflowAuditEntry({
+          transfer,
+          role,
+          workflowBefore,
+          workflowAfter: updates.workflow,
+          viaEmailLink,
+          extra,
+        }),
+      });
       const updatedTransfer = { ...transfer, ...updates };
       const nextRole = getNextEmailRole(role, updatedTransfer);
       if (nextRole) {
