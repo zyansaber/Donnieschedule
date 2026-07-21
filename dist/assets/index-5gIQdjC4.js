@@ -57528,21 +57528,21 @@ const getWorkflowUrl = (config2, role, transfer = {}) => {
   return `${getConfiguredBaseUrl(config2)}/${basePath}${query ? `?${query}` : ""}`;
 };
 const emailJsTemplateExample = `<div style="font-family:Arial,sans-serif;background:#f6f7fb;padding:24px;">
-  <div style="max-width:720px;margin:0 auto;background:white;border-radius:18px;overflow:hidden;">
-    <div style="background:#4f46e5;color:white;padding:20px 24px;">
+  <div style="max-width:720px;margin:0 auto;background:white;border-radius:14px;overflow:hidden;border:1px solid #dbeafe;">
+    <div style="background:#2563eb;color:white;padding:20px 24px;">
       <h2 style="margin:0;">{{title}}</h2>
       <p style="margin:8px 0 0;">Unfinished tasks: {{task_count}}</p>
     </div>
     <div style="padding:24px;">
       {{{content}}}
       <p style="margin-top:20px;">
-        <a href="{{workflow_url}}" style="color:#4f46e5;font-weight:bold;">Open this stock transfer task</a>
+        <a href="{{workflow_url}}" style="color:#2563eb;font-weight:bold;">Open this stock transfer task</a>
       </p>
       <p>NSM approve link, if this email is for NSM Approval: <a href="{{approve_link}}">{{approve_link}}</a></p>
     </div>
   </div>
 </div>`;
-const buildEmailHtml = (role, transfer, title, workflowUrl) => {
+const buildEmailHtml = (role, transfer, workflowUrl) => {
   const taskButton = workflowUrl ? `
     <div style="margin-top:20px;text-align:center;">
       <a href="${escapeHtml(workflowUrl)}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:999px;font-weight:700;">Open and Confirm</a>
@@ -57551,42 +57551,27 @@ const buildEmailHtml = (role, transfer, title, workflowUrl) => {
   const taskLabel = getTaskLabel(role, transfer);
   const subtasks = getTaskSubtasks(role, transfer);
   const subtasksBlock = subtasks.length ? `
-    <div style="margin-top:16px;border:1px solid #e5e7eb;border-radius:12px;padding:14px 16px;background:#f8fafc;">
-      <div style="font-weight:700;color:#111827;margin-bottom:8px;">${escapeHtml(role === "finance" ? "Finance subtasks" : "Subtasks")}</div>
-      <ul style="margin:0;padding-left:20px;color:#334155;line-height:1.55;">
+    <div style="margin-top:16px;border:1px solid #bfdbfe;border-radius:12px;padding:14px 16px;background:#eff6ff;">
+      <div style="font-weight:700;color:#1d4ed8;margin-bottom:8px;">${escapeHtml(role === "finance" ? "Finance subtasks" : "Subtasks")}</div>
+      <ul style="margin:0;padding-left:20px;color:#1e3a8a;line-height:1.55;">
         ${subtasks.map((subtask) => `<li>${escapeHtml(subtask)}</li>`).join("")}
       </ul>
     </div>
   ` : "";
   return `
-    <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:14px;overflow:hidden;">
-      <div style="background:#0f172a;color:#ffffff;padding:20px 24px;">
-        <h2 style="margin:0;font-size:20px;">${escapeHtml(title)}</h2>
-        <p style="margin:8px 0 0;opacity:0.88;">Please confirm this stock transfer task.</p>
+    <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;color:#172554;">
+      <div style="border-left:4px solid #2563eb;background:#eff6ff;padding:14px 16px;border-radius:10px;">
+        <div style="font-weight:700;color:#1d4ed8;margin-bottom:4px;">Please confirm this stock transfer task.</div>
+        <div style="color:#1e40af;font-size:13px;">Open the link and confirm once your part is done.</div>
       </div>
-      <div style="padding:22px 24px;">
-        <table style="width:100%;border-collapse:collapse;border:1px solid #e5e7eb;">
-          <tr>
-            <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#64748b;font-weight:700;width:34%;">Chassis</td>
-            <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#111827;">${escapeHtml(transfer.chassis || "-")}</td>
-          </tr>
-          <tr>
-            <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#64748b;font-weight:700;">From</td>
-            <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#111827;">${escapeHtml(transfer.currentLocation || "-")}</td>
-          </tr>
-          <tr>
-            <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#64748b;font-weight:700;">To</td>
-            <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#111827;">${escapeHtml(transfer.targetLocation || "-")}</td>
-          </tr>
-          <tr>
-            <td style="padding:10px 12px;color:#64748b;font-weight:700;">Current task</td>
-            <td style="padding:10px 12px;color:#111827;">${escapeHtml(taskLabel)}</td>
-          </tr>
-        </table>
-        ${subtasksBlock}
-        ${taskButton}
-        <p style="margin-top:16px;color:#64748b;font-size:13px;">Open the link and confirm once your part is done.</p>
+      <div style="margin-top:16px;border:1px solid #bfdbfe;border-radius:12px;overflow:hidden;">
+        <div style="padding:10px 14px;border-bottom:1px solid #dbeafe;"><span style="display:inline-block;width:120px;color:#1d4ed8;font-weight:700;">Chassis</span><span style="color:#172554;">${escapeHtml(transfer.chassis || "-")}</span></div>
+        <div style="padding:10px 14px;border-bottom:1px solid #dbeafe;"><span style="display:inline-block;width:120px;color:#1d4ed8;font-weight:700;">From</span><span style="color:#172554;">${escapeHtml(transfer.currentLocation || "-")}</span></div>
+        <div style="padding:10px 14px;border-bottom:1px solid #dbeafe;"><span style="display:inline-block;width:120px;color:#1d4ed8;font-weight:700;">To</span><span style="color:#172554;">${escapeHtml(transfer.targetLocation || "-")}</span></div>
+        <div style="padding:10px 14px;"><span style="display:inline-block;width:120px;color:#1d4ed8;font-weight:700;">Current task</span><span style="color:#172554;">${escapeHtml(taskLabel)}</span></div>
       </div>
+      ${subtasksBlock}
+      ${taskButton}
     </div>
   `;
 };
@@ -57607,7 +57592,7 @@ const sendWorkflowEmail = async (role, transfer, config2, taskCount = 1) => {
   const emailTitle = getEmailTitle(role, transfer);
   const workflowUrl = getWorkflowUrl(config2, role, transfer);
   const approveLink = role === "ceo" ? getApproveLink(config2, transfer.id) : "";
-  const content = buildEmailHtml(role, transfer, emailTitle, workflowUrl);
+  const content = buildEmailHtml(role, transfer, workflowUrl);
   const jobId = getEmailJobId(transfer, role);
   const recipient = getRecipient(config2, role, transfer);
   await queueEmailJob({

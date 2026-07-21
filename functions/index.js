@@ -180,44 +180,33 @@ const getWorkflowUrl = (config, role, transfer = {}) => {
 const buildStockTransferTaskEmailHtml = (role, transfer, title, workflowUrl, reminderText = "") => {
   const subtasks = getTaskSubtasks(role, transfer);
   const subtasksBlock = subtasks.length ? `
-    <div style="margin-top:16px;border:1px solid #e5e7eb;border-radius:12px;padding:14px 16px;background:#f8fafc;">
-      <div style="font-weight:700;color:#111827;margin-bottom:8px;">${escapeHtml(role === "finance" ? "Finance subtasks" : "Subtasks")}</div>
-      <ul style="margin:0;padding-left:20px;color:#334155;line-height:1.55;">
+    <div style="margin-top:16px;border:1px solid #bfdbfe;border-radius:12px;padding:14px 16px;background:#eff6ff;">
+      <div style="font-weight:700;color:#1d4ed8;margin-bottom:8px;">${escapeHtml(role === "finance" ? "Finance subtasks" : "Subtasks")}</div>
+      <ul style="margin:0;padding-left:20px;color:#1e3a8a;line-height:1.55;">
         ${subtasks.map((subtask) => `<li>${escapeHtml(subtask)}</li>`).join("")}
       </ul>
     </div>
   ` : "";
+  const reminderBlock = reminderText ? `
+    <div style="margin-top:12px;color:#1e40af;font-size:13px;">${escapeHtml(reminderText)}</div>
+  ` : "";
 
   return `
-    <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:14px;overflow:hidden;">
-      <div style="background:#0f172a;color:#ffffff;padding:20px 24px;">
-        <h2 style="margin:0;font-size:20px;">${escapeHtml(title)}</h2>
-        <p style="margin:8px 0 0;opacity:0.88;">${escapeHtml(reminderText || "Please confirm this stock transfer task.")}</p>
+    <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;color:#172554;">
+      <div style="border-left:4px solid #2563eb;background:#eff6ff;padding:14px 16px;border-radius:10px;">
+        <div style="font-weight:700;color:#1d4ed8;margin-bottom:4px;">Please confirm this stock transfer task.</div>
+        <div style="color:#1e40af;font-size:13px;">Open the link and confirm once your part is done.</div>
+        ${reminderBlock}
       </div>
-      <div style="padding:22px 24px;">
-        <table style="width:100%;border-collapse:collapse;border:1px solid #e5e7eb;">
-          <tr>
-            <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#64748b;font-weight:700;width:34%;">Chassis</td>
-            <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#111827;">${escapeHtml(transfer.chassis || "-")}</td>
-          </tr>
-          <tr>
-            <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#64748b;font-weight:700;">From</td>
-            <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#111827;">${escapeHtml(transfer.currentLocation || "-")}</td>
-          </tr>
-          <tr>
-            <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#64748b;font-weight:700;">To</td>
-            <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#111827;">${escapeHtml(transfer.targetLocation || "-")}</td>
-          </tr>
-          <tr>
-            <td style="padding:10px 12px;color:#64748b;font-weight:700;">Current task</td>
-            <td style="padding:10px 12px;color:#111827;">${escapeHtml(getTaskLabel(role, transfer))}</td>
-          </tr>
-        </table>
-        ${subtasksBlock}
-        <div style="margin-top:20px;text-align:center;">
-          <a href="${escapeHtml(workflowUrl)}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:999px;font-weight:700;">Open and Confirm</a>
-        </div>
-        <p style="margin-top:16px;color:#64748b;font-size:13px;">Open the link and confirm once your part is done.</p>
+      <div style="margin-top:16px;border:1px solid #bfdbfe;border-radius:12px;overflow:hidden;">
+        <div style="padding:10px 14px;border-bottom:1px solid #dbeafe;"><span style="display:inline-block;width:120px;color:#1d4ed8;font-weight:700;">Chassis</span><span style="color:#172554;">${escapeHtml(transfer.chassis || "-")}</span></div>
+        <div style="padding:10px 14px;border-bottom:1px solid #dbeafe;"><span style="display:inline-block;width:120px;color:#1d4ed8;font-weight:700;">From</span><span style="color:#172554;">${escapeHtml(transfer.currentLocation || "-")}</span></div>
+        <div style="padding:10px 14px;border-bottom:1px solid #dbeafe;"><span style="display:inline-block;width:120px;color:#1d4ed8;font-weight:700;">To</span><span style="color:#172554;">${escapeHtml(transfer.targetLocation || "-")}</span></div>
+        <div style="padding:10px 14px;"><span style="display:inline-block;width:120px;color:#1d4ed8;font-weight:700;">Current task</span><span style="color:#172554;">${escapeHtml(getTaskLabel(role, transfer))}</span></div>
+      </div>
+      ${subtasksBlock}
+      <div style="margin-top:20px;text-align:center;">
+        <a href="${escapeHtml(workflowUrl)}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:999px;font-weight:700;">Open and Confirm</a>
       </div>
     </div>
   `;
