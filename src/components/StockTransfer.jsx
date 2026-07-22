@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { off, onValue, push, ref, set } from 'firebase/database';
+import { get, off, onValue, push, ref, set, update } from 'firebase/database';
 import { database } from '../utils/firebase';
 
 const initialForm = {
@@ -15,6 +15,14 @@ const publicRequestActor = {
   email: '',
   company: 'Public web form',
 };
+
+const getLocalAdminActor = () => ({
+  name: 'Local Stock Transfer Admin',
+  email: '',
+  company: 'Localhost admin page',
+  type: 'local_admin',
+  host: typeof window !== 'undefined' ? window.location.host : '',
+});
 
 const normalizeChassis = (value) => value.trim().toUpperCase();
 
@@ -158,6 +166,8 @@ const getActorPayload = (actor) => ({
   name: String(actor?.name || '').trim(),
   email: String(actor?.email || '').trim(),
   company: String(actor?.company || '').trim(),
+  type: String(actor?.type || '').trim(),
+  host: String(actor?.host || '').trim(),
 });
 
 const buildAuditEntry = ({ action, transferId, chassis, actor, reason = '', snapshotBefore = null, snapshotAfter = null }) => ({
@@ -177,6 +187,21 @@ const buildSapSyncRequest = (reason) => ({
   sapSyncRequestReason: reason,
   sapSyncError: '',
 });
+
+const getSafeFirebaseKey = (value) => String(value || '').replace(/[.#$\[\]/]/g, '_');
+
+const getKnownEmailJobIds = (transfer) => {
+  const workflow = transfer?.workflow || {};
+  const jobIds = new Set([
+    `${getSafeFirebaseKey(transfer?.id)}_nsm_approval`,
+  ]);
+
+  Object.entries(workflow).forEach(([key, value]) => {
+    if (key.endsWith('EmailJobId') && value) jobIds.add(String(value));
+  });
+
+  return Array.from(jobIds).filter(Boolean);
+};
 
 
 const StockLocationCombobox = ({ id, label, value, onChange, options, placeholder }) => {
@@ -234,6 +259,7 @@ const StockTransfer = ({ data = [], showEmailSettings = false }) => {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [expandedTransferIds, setExpandedTransferIds] = useState({});
+  const [deletingTransferIds, setDeletingTransferIds] = useState({});
 
   useEffect(() => {
     const transfersRef = ref(database, 'stock_transfer');
@@ -410,6 +436,85 @@ const StockTransfer = ({ data = [], showEmailSettings = false }) => {
     }));
   };
 
+  const cancelQueuedEmailJobs = async (transfer, deletedAt) => {
+    const emailJobIds = getKnownEmailJobIds(transfer);
+    const updates = {};
+
+    await Promise.all(emailJobIds.map(async (jobId) => {
+      const jobRef = ref(database, `email_jobs/${jobId}`);
+      const snapshot = await get(jobRef);
+      const job = snapshot.exists() ? snapshot.val() : null;
+      const status = String(job?.status || '').toLowerCase();
+      if (!['pending', 'retrying'].includes(status)) return;
+
+      updates[`email_jobs/${jobId}/status`] = 'cancelled';
+      updates[`email_jobs/${jobId}/cancelledAt`] = deletedAt;
+      updates[`email_jobs/${jobId}/cancelReason`] = 'Stock transfer request deleted by local admin';
+      updates[`email_jobs/${jobId}/updatedAt`] = deletedAt;
+    }));
+
+    if (Object.keys(updates).length) {
+      await update(ref(database), updates);
+    }
+  };
+
+  const handleDeleteTransfer = async (transfer) => {
+    if (!showEmailSettings || !transfer?.id) return;
+
+    const confirmed = window.confirm(
+      `Delete stock transfer request ${transfer.chassis || transfer.id}? This will hide it from Active Requests and record the deletion in audit history.`
+    );
+    if (!confirmed) return;
+
+    const deletedAt = getNowIso();
+    const actor = getLocalAdminActor();
+    const deleteReason = 'Deleted from localhost stock transfer admin page';
+    const snapshotAfter = {
+      ...transfer,
+      deletedAt,
+      deletedBy: getActorPayload(actor),
+      deleteReason,
+    };
+
+    setDeletingTransferIds((current) => ({ ...current, [transfer.id]: true }));
+    setMessage('');
+
+    try {
+      const auditRef = push(ref(database, `stock_transfer_audit/${transfer.id}`));
+      await update(ref(database), {
+        [`stock_transfer/${transfer.id}/deletedAt`]: deletedAt,
+        [`stock_transfer/${transfer.id}/deletedBy`]: getActorPayload(actor),
+        [`stock_transfer/${transfer.id}/deleteReason`]: deleteReason,
+        [`stock_transfer/${transfer.id}/sapSyncStatus`]: 'deleted',
+        [`stock_transfer_audit/${transfer.id}/${auditRef.key}`]: buildAuditEntry({
+          action: 'delete',
+          transferId: transfer.id,
+          chassis: transfer.chassis,
+          actor,
+          reason: deleteReason,
+          snapshotBefore: transfer,
+          snapshotAfter,
+        }),
+      });
+      await cancelQueuedEmailJobs(transfer, deletedAt);
+      setExpandedTransferIds((current) => {
+        const next = { ...current };
+        delete next[transfer.id];
+        return next;
+      });
+      setMessage(`Deleted stock transfer request ${transfer.chassis || transfer.id}.`);
+    } catch (error) {
+      console.error('Failed to delete stock transfer:', error);
+      setMessage('Error deleting stock transfer.');
+    } finally {
+      setDeletingTransferIds((current) => {
+        const next = { ...current };
+        delete next[transfer.id];
+        return next;
+      });
+    }
+  };
+
   const isErrorMessage = message.includes('Error') || message.includes('Please') || message.includes('must') || message.includes('should not');
 
   return (
@@ -540,7 +645,6 @@ const StockTransfer = ({ data = [], showEmailSettings = false }) => {
                   <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">Invoice No.</th>
                   <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">BP Changed By</th>
                   <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">BP Changed</th>
-                  <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">Tasks</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 bg-white">
@@ -553,7 +657,32 @@ const StockTransfer = ({ data = [], showEmailSettings = false }) => {
                   return (
                     <React.Fragment key={transfer.id}>
                       <tr className={getTransferRowHighlight(transfer) ? 'bg-rose-50 text-rose-950' : 'hover:bg-slate-50/70'}>
-                        <td className="px-4 py-2 text-sm font-semibold text-gray-900">{transfer.chassis || '-'}</td>
+                        <td className="px-4 py-2 text-sm">
+                          <div className="font-semibold text-gray-900">{transfer.chassis || '-'}</div>
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => toggleTransferExpanded(transfer.id)}
+                              className="whitespace-nowrap rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                            >
+                              {expanded ? 'Hide tasks' : 'Show tasks'}
+                            </button>
+                            {showEmailSettings && (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteTransfer(transfer)}
+                                disabled={Boolean(deletingTransferIds[transfer.id])}
+                                className={`whitespace-nowrap rounded-md border px-3 py-1.5 text-xs font-semibold ${
+                                  deletingTransferIds[transfer.id]
+                                    ? 'border-slate-200 text-slate-400'
+                                    : 'border-red-200 text-red-700 hover:bg-red-50'
+                                }`}
+                              >
+                                {deletingTransferIds[transfer.id] ? 'Deleting...' : 'Delete'}
+                              </button>
+                            )}
+                          </div>
+                        </td>
                         <td className="px-4 py-2 text-sm text-gray-600">{getTransferModel(transfer)}</td>
                         <td className="px-4 py-2 text-sm text-gray-600">{transfer.currentLocation || '-'}</td>
                         <td className="px-4 py-2 text-sm text-gray-600">{transfer.targetLocation || '-'}</td>
@@ -567,19 +696,10 @@ const StockTransfer = ({ data = [], showEmailSettings = false }) => {
                         <td className="px-4 py-2 text-sm text-gray-600">{transfer['Last Invoice Number'] || '-'}</td>
                         <td className="px-4 py-2 text-sm text-gray-600">{transfer['Invoice BP Last Changed By'] || '-'}</td>
                         <td className="px-4 py-2 text-sm text-gray-600">{transfer['Invoice BP Last Change Date'] || '-'}</td>
-                        <td className="px-4 py-2 text-sm">
-                          <button
-                            type="button"
-                            onClick={() => toggleTransferExpanded(transfer.id)}
-                            className="whitespace-nowrap rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                          >
-                            {expanded ? 'Hide tasks' : 'Show tasks'}
-                          </button>
-                        </td>
                       </tr>
                       {expanded && (
                         <tr>
-                          <td colSpan={15} className="bg-slate-50 px-4 py-4">
+                          <td colSpan={14} className="bg-slate-50 px-4 py-4">
                             <div className="mb-3 flex flex-wrap items-center gap-2 text-sm text-slate-700">
                               <span className="font-semibold text-slate-950">Current task:</span>
                               <span>{firstPendingStep?.label || 'All tasks done'}</span>

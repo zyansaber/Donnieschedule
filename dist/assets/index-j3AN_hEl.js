@@ -56708,6 +56708,13 @@ const publicRequestActor = {
   email: "",
   company: "Public web form"
 };
+const getLocalAdminActor = () => ({
+  name: "Local Stock Transfer Admin",
+  email: "",
+  company: "Localhost admin page",
+  type: "local_admin",
+  host: typeof window !== "undefined" ? window.location.host : ""
+});
 const normalizeChassis = (value) => value.trim().toUpperCase();
 const normalizeValue = (value) => String(value || "").trim().toLowerCase();
 const normalizeStockLocation = (value) => {
@@ -56814,7 +56821,9 @@ const getWorkflowStepStatus = (workflow, step) => {
 const getActorPayload = (actor) => ({
   name: String((actor == null ? void 0 : actor.name) || "").trim(),
   email: String((actor == null ? void 0 : actor.email) || "").trim(),
-  company: String((actor == null ? void 0 : actor.company) || "").trim()
+  company: String((actor == null ? void 0 : actor.company) || "").trim(),
+  type: String((actor == null ? void 0 : actor.type) || "").trim(),
+  host: String((actor == null ? void 0 : actor.host) || "").trim()
 });
 const buildAuditEntry = ({ action, transferId, chassis, actor, reason = "", snapshotBefore = null, snapshotAfter = null }) => ({
   action,
@@ -56832,6 +56841,17 @@ const buildSapSyncRequest = (reason) => ({
   sapSyncRequestReason: reason,
   sapSyncError: ""
 });
+const getSafeFirebaseKey$1 = (value) => String(value || "").replace(/[.#$\[\]/]/g, "_");
+const getKnownEmailJobIds = (transfer) => {
+  const workflow = (transfer == null ? void 0 : transfer.workflow) || {};
+  const jobIds = /* @__PURE__ */ new Set([
+    `${getSafeFirebaseKey$1(transfer == null ? void 0 : transfer.id)}_nsm_approval`
+  ]);
+  Object.entries(workflow).forEach(([key, value]) => {
+    if (key.endsWith("EmailJobId") && value) jobIds.add(String(value));
+  });
+  return Array.from(jobIds).filter(Boolean);
+};
 const StockLocationCombobox = ({ id: id2, label, value, onChange, options, placeholder }) => {
   const [isOpen, setIsOpen] = reactExports.useState(false);
   const normalizedSearch = normalizeValue(value);
@@ -56878,6 +56898,7 @@ const StockTransfer = ({ data = [], showEmailSettings = false }) => {
   const [saving, setSaving] = reactExports.useState(false);
   const [message, setMessage] = reactExports.useState("");
   const [expandedTransferIds, setExpandedTransferIds] = reactExports.useState({});
+  const [deletingTransferIds, setDeletingTransferIds] = reactExports.useState({});
   reactExports.useEffect(() => {
     const transfersRef = ref(database, "stock_transfer");
     const handleValue = (snapshot) => {
@@ -57018,6 +57039,76 @@ const StockTransfer = ({ data = [], showEmailSettings = false }) => {
       [transferId]: !current[transferId]
     }));
   };
+  const cancelQueuedEmailJobs = async (transfer, deletedAt) => {
+    const emailJobIds = getKnownEmailJobIds(transfer);
+    const updates = {};
+    await Promise.all(emailJobIds.map(async (jobId) => {
+      const jobRef = ref(database, `email_jobs/${jobId}`);
+      const snapshot = await get$3(jobRef);
+      const job = snapshot.exists() ? snapshot.val() : null;
+      const status = String((job == null ? void 0 : job.status) || "").toLowerCase();
+      if (!["pending", "retrying"].includes(status)) return;
+      updates[`email_jobs/${jobId}/status`] = "cancelled";
+      updates[`email_jobs/${jobId}/cancelledAt`] = deletedAt;
+      updates[`email_jobs/${jobId}/cancelReason`] = "Stock transfer request deleted by local admin";
+      updates[`email_jobs/${jobId}/updatedAt`] = deletedAt;
+    }));
+    if (Object.keys(updates).length) {
+      await update(ref(database), updates);
+    }
+  };
+  const handleDeleteTransfer = async (transfer) => {
+    if (!showEmailSettings || !(transfer == null ? void 0 : transfer.id)) return;
+    const confirmed = window.confirm(
+      `Delete stock transfer request ${transfer.chassis || transfer.id}? This will hide it from Active Requests and record the deletion in audit history.`
+    );
+    if (!confirmed) return;
+    const deletedAt = getNowIso();
+    const actor = getLocalAdminActor();
+    const deleteReason = "Deleted from localhost stock transfer admin page";
+    const snapshotAfter = {
+      ...transfer,
+      deletedAt,
+      deletedBy: getActorPayload(actor),
+      deleteReason
+    };
+    setDeletingTransferIds((current) => ({ ...current, [transfer.id]: true }));
+    setMessage("");
+    try {
+      const auditRef = push(ref(database, `stock_transfer_audit/${transfer.id}`));
+      await update(ref(database), {
+        [`stock_transfer/${transfer.id}/deletedAt`]: deletedAt,
+        [`stock_transfer/${transfer.id}/deletedBy`]: getActorPayload(actor),
+        [`stock_transfer/${transfer.id}/deleteReason`]: deleteReason,
+        [`stock_transfer/${transfer.id}/sapSyncStatus`]: "deleted",
+        [`stock_transfer_audit/${transfer.id}/${auditRef.key}`]: buildAuditEntry({
+          action: "delete",
+          transferId: transfer.id,
+          chassis: transfer.chassis,
+          actor,
+          reason: deleteReason,
+          snapshotBefore: transfer,
+          snapshotAfter
+        })
+      });
+      await cancelQueuedEmailJobs(transfer, deletedAt);
+      setExpandedTransferIds((current) => {
+        const next = { ...current };
+        delete next[transfer.id];
+        return next;
+      });
+      setMessage(`Deleted stock transfer request ${transfer.chassis || transfer.id}.`);
+    } catch (error2) {
+      console.error("Failed to delete stock transfer:", error2);
+      setMessage("Error deleting stock transfer.");
+    } finally {
+      setDeletingTransferIds((current) => {
+        const next = { ...current };
+        delete next[transfer.id];
+        return next;
+      });
+    }
+  };
   const isErrorMessage = message.includes("Error") || message.includes("Please") || message.includes("must") || message.includes("should not");
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "w-full space-y-5 px-4 py-5 text-slate-900", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "rounded-lg border border-slate-200 bg-white px-5 py-4 shadow-sm", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between", children: [
@@ -57124,8 +57215,7 @@ const StockTransfer = ({ data = [], showEmailSettings = false }) => {
           /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500", children: "Invoice Date" }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500", children: "Invoice No." }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500", children: "BP Changed By" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500", children: "BP Changed" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500", children: "Tasks" })
+          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500", children: "BP Changed" })
         ] }) }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("tbody", { className: "divide-y divide-slate-100 bg-white", children: transferList.map((transfer) => {
           const workflow = transfer.workflow || {};
@@ -57134,7 +57224,30 @@ const StockTransfer = ({ data = [], showEmailSettings = false }) => {
           const firstPendingStep = workflowSteps.find((step) => getWorkflowStepStatus(workflow, step) !== "Done");
           return /* @__PURE__ */ jsxRuntimeExports.jsxs(React.Fragment, { children: [
             /* @__PURE__ */ jsxRuntimeExports.jsxs("tr", { className: getTransferRowHighlight(transfer) ? "bg-rose-50 text-rose-950" : "hover:bg-slate-50/70", children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm font-semibold text-gray-900", children: transfer.chassis || "-" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("td", { className: "px-4 py-2 text-sm", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "font-semibold text-gray-900", children: transfer.chassis || "-" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mt-2 flex flex-wrap items-center gap-2", children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx(
+                    "button",
+                    {
+                      type: "button",
+                      onClick: () => toggleTransferExpanded(transfer.id),
+                      className: "whitespace-nowrap rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50",
+                      children: expanded ? "Hide tasks" : "Show tasks"
+                    }
+                  ),
+                  showEmailSettings && /* @__PURE__ */ jsxRuntimeExports.jsx(
+                    "button",
+                    {
+                      type: "button",
+                      onClick: () => handleDeleteTransfer(transfer),
+                      disabled: Boolean(deletingTransferIds[transfer.id]),
+                      className: `whitespace-nowrap rounded-md border px-3 py-1.5 text-xs font-semibold ${deletingTransferIds[transfer.id] ? "border-slate-200 text-slate-400" : "border-red-200 text-red-700 hover:bg-red-50"}`,
+                      children: deletingTransferIds[transfer.id] ? "Deleting..." : "Delete"
+                    }
+                  )
+                ] })
+              ] }),
               /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: getTransferModel(transfer) }),
               /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: transfer.currentLocation || "-" }),
               /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: transfer.targetLocation || "-" }),
@@ -57147,18 +57260,9 @@ const StockTransfer = ({ data = [], showEmailSettings = false }) => {
               /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: transfer["Last Invoice Date"] || "-" }),
               /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: transfer["Last Invoice Number"] || "-" }),
               /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: transfer["Invoice BP Last Changed By"] || "-" }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: transfer["Invoice BP Last Change Date"] || "-" }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
-                "button",
-                {
-                  type: "button",
-                  onClick: () => toggleTransferExpanded(transfer.id),
-                  className: "whitespace-nowrap rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50",
-                  children: expanded ? "Hide tasks" : "Show tasks"
-                }
-              ) })
+              /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: transfer["Invoice BP Last Change Date"] || "-" })
             ] }),
-            expanded && /* @__PURE__ */ jsxRuntimeExports.jsx("tr", { children: /* @__PURE__ */ jsxRuntimeExports.jsxs("td", { colSpan: 15, className: "bg-slate-50 px-4 py-4", children: [
+            expanded && /* @__PURE__ */ jsxRuntimeExports.jsx("tr", { children: /* @__PURE__ */ jsxRuntimeExports.jsxs("td", { colSpan: 14, className: "bg-slate-50 px-4 py-4", children: [
               /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mb-3 flex flex-wrap items-center gap-2 text-sm text-slate-700", children: [
                 /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-semibold text-slate-950", children: "Current task:" }),
                 /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: (firstPendingStep == null ? void 0 : firstPendingStep.label) || "All tasks done" }),

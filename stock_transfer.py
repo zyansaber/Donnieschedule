@@ -108,6 +108,7 @@ LOG_FILE = os.path.join(
     SCRIPT_DIR,
     "stock_transfer_sap_pgi_invoice_stock_report.log",
 )
+RUN_LOG_DIR = os.path.join(SCRIPT_DIR, "stock_transfer_run_logs")
 
 
 class FirebaseCredentialError(RuntimeError):
@@ -126,6 +127,22 @@ logging.basicConfig(
     ],
 )
 logger = logging.getLogger("StockTransferSAPReport")
+
+
+def add_once_run_log_handler() -> str:
+    os.makedirs(RUN_LOG_DIR, exist_ok=True)
+    run_started_at = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_log_file = os.path.join(
+        RUN_LOG_DIR,
+        f"stock_transfer_once_{run_started_at}.txt",
+    )
+    handler = logging.FileHandler(run_log_file, encoding="utf-8")
+    handler.setLevel(logging.INFO)
+    handler.setFormatter(
+        logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+    )
+    logging.getLogger().addHandler(handler)
+    return run_log_file
 
 
 # ============================================================
@@ -1811,8 +1828,19 @@ def main() -> None:
         return
 
     if args.once:
+        run_log_file = add_once_run_log_handler()
+        logger.info(
+            "Starting stock_transfer SAP sync once: limit=%s log_file=%s",
+            args.limit,
+            run_log_file,
+        )
+        print(f"Run log: {run_log_file}")
         processed = process_pending_stock_transfer_once(limit=args.limit)
-        print(f"Done. Pending SAP sync records processed: {processed}")
+        logger.info(
+            "Finished stock_transfer SAP sync once: processed=%s",
+            processed,
+        )
+        print(f"Done. Stock transfer SAP sync records processed: {processed}")
         return
 
     logger.info("Starting Firebase stock_transfer -> SAP report")
