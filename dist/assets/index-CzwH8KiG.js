@@ -56727,8 +56727,9 @@ const getStockTransferCategory = (currentLocation, targetLocation) => isInternal
 const getTransferRowHighlight = (transfer) => {
   const targetLocation = transfer == null ? void 0 : transfer.targetLocation;
   const companyStockLocation = transfer == null ? void 0 : transfer["Company Stock Current Location"];
-  return isRequiredStockLocation(targetLocation) && normalizeStockLocation(companyStockLocation) !== normalizeStockLocation(targetLocation);
+  return Boolean(normalizeStockLocation(targetLocation)) && normalizeStockLocation(companyStockLocation) !== normalizeStockLocation(targetLocation);
 };
+const getStockLocationCellClass = (transfer) => getTransferRowHighlight(transfer) ? "px-4 py-2 text-sm font-semibold text-red-700 bg-red-50" : "px-4 py-2 text-sm text-gray-600";
 const getSOPGIPostDateDisplay = (transfer) => {
   const pgiPostDate = String((transfer == null ? void 0 : transfer["SO PGI Post Date"]) || "").trim();
   const pgiStatus = String((transfer == null ? void 0 : transfer["SO Is PGI"]) || "").trim().toLowerCase();
@@ -56743,14 +56744,60 @@ const getMelbourneDate = () => (/* @__PURE__ */ new Date()).toLocaleDateString("
   month: "2-digit",
   day: "2-digit"
 });
+const getMelbourneDateInputValue = (daysOffset = 0) => {
+  const date2 = /* @__PURE__ */ new Date();
+  date2.setDate(date2.getDate() + daysOffset);
+  const parts = new Intl.DateTimeFormat("en-AU", {
+    timeZone: "Australia/Melbourne",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(date2);
+  const getPart = (type) => {
+    var _a;
+    return ((_a = parts.find((part) => part.type === type)) == null ? void 0 : _a.value) || "";
+  };
+  return `${getPart("year")}-${getPart("month")}-${getPart("day")}`;
+};
 const getNowIso = () => (/* @__PURE__ */ new Date()).toISOString();
-const isTransferActive = (transfer) => {
-  var _a;
-  return !(transfer == null ? void 0 : transfer.deletedAt) && !(transfer == null ? void 0 : transfer.cancelledAt) && !((_a = transfer == null ? void 0 : transfer.workflow) == null ? void 0 : _a.purchaseDoneAt);
+const isExternalTransfer$1 = (transfer) => {
+  const category = (transfer == null ? void 0 : transfer["Stock Transfer Category"]) || getStockTransferCategory(transfer == null ? void 0 : transfer.currentLocation, transfer == null ? void 0 : transfer.targetLocation);
+  return normalizeValue(category).includes("external");
+};
+const isTransferWorkflowComplete = (transfer) => {
+  const workflow = (transfer == null ? void 0 : transfer.workflow) || {};
+  return isExternalTransfer$1(transfer) ? Boolean(workflow.planningBpDoneAt) : Boolean(workflow.purchaseDoneAt);
+};
+const getTransferCompletedAt = (transfer) => {
+  const workflow = (transfer == null ? void 0 : transfer.workflow) || {};
+  return isExternalTransfer$1(transfer) ? workflow.planningBpDoneAt : workflow.purchaseDoneAt;
+};
+const getDateRangeValue = (dateText, endOfDay = false) => {
+  if (!dateText) return null;
+  const date2 = /* @__PURE__ */ new Date(`${dateText}T${endOfDay ? "23:59:59.999" : "00:00:00.000"}`);
+  return Number.isNaN(date2.getTime()) ? null : date2;
+};
+const isTransferActive = (transfer) => !(transfer == null ? void 0 : transfer.deletedAt) && !(transfer == null ? void 0 : transfer.cancelledAt) && !isTransferWorkflowComplete(transfer);
+const getTransferSearchText = (transfer) => [
+  transfer == null ? void 0 : transfer.chassis,
+  transfer == null ? void 0 : transfer.Model,
+  transfer == null ? void 0 : transfer.currentLocation,
+  transfer == null ? void 0 : transfer.targetLocation,
+  transfer == null ? void 0 : transfer.savedAt,
+  transfer == null ? void 0 : transfer.completedAt,
+  transfer == null ? void 0 : transfer["Stock Transfer Category"],
+  transfer == null ? void 0 : transfer["Sales Order Display"],
+  transfer == null ? void 0 : transfer["Company Stock Current Location"],
+  transfer == null ? void 0 : transfer["Invoice-to Name"],
+  transfer == null ? void 0 : transfer["Last Invoice Number"]
+].map((value) => String(value || "").toLowerCase()).join(" ");
+const filterTransfersBySearch = (list, searchText) => {
+  const query = String(searchText || "").trim().toLowerCase();
+  if (!query) return list;
+  return list.filter((transfer) => getTransferSearchText(transfer).includes(query));
 };
 const getWorkflowSteps = (transfer) => {
-  const category = (transfer == null ? void 0 : transfer["Stock Transfer Category"]) || getStockTransferCategory(transfer == null ? void 0 : transfer.currentLocation, transfer == null ? void 0 : transfer.targetLocation);
-  const isExternal = normalizeValue(category).includes("external");
+  const isExternal = isExternalTransfer$1(transfer);
   const steps = [
     {
       label: "NSM approval",
@@ -56767,6 +56814,18 @@ const getWorkflowSteps = (transfer) => {
   ];
   if (isExternal) {
     steps.push(
+      {
+        label: "Transport booking",
+        contact: "Transport",
+        statusKey: "transportStatus",
+        doneAtKey: "transportDoneAt"
+      },
+      {
+        label: "Purchase transport PO",
+        contact: "Purchase",
+        statusKey: "purchaseStatus",
+        doneAtKey: "purchaseDoneAt"
+      },
       {
         label: "Location DMS reverse goods receiving",
         contact: "Location DMS",
@@ -56794,20 +56853,22 @@ const getWorkflowSteps = (transfer) => {
       doneAtKey: "locationDmsDoneAt"
     });
   }
-  steps.push(
-    {
-      label: "Transport booking",
-      contact: "Transport",
-      statusKey: "transportStatus",
-      doneAtKey: "transportDoneAt"
-    },
-    {
-      label: "Purchase transport PO",
-      contact: "Purchase",
-      statusKey: "purchaseStatus",
-      doneAtKey: "purchaseDoneAt"
-    }
-  );
+  if (!isExternal) {
+    steps.push(
+      {
+        label: "Transport booking",
+        contact: "Transport",
+        statusKey: "transportStatus",
+        doneAtKey: "transportDoneAt"
+      },
+      {
+        label: "Purchase transport PO",
+        contact: "Purchase",
+        statusKey: "purchaseStatus",
+        doneAtKey: "purchaseDoneAt"
+      }
+    );
+  }
   return steps;
 };
 const getWorkflowStepStatus = (workflow, step) => {
@@ -56899,6 +56960,10 @@ const StockTransfer = ({ data = [], showEmailSettings = false }) => {
   const [message, setMessage] = reactExports.useState("");
   const [expandedTransferIds, setExpandedTransferIds] = reactExports.useState({});
   const [deletingTransferIds, setDeletingTransferIds] = reactExports.useState({});
+  const [activeSearchText, setActiveSearchText] = reactExports.useState("");
+  const [historySearchText, setHistorySearchText] = reactExports.useState("");
+  const [historyStartDate, setHistoryStartDate] = reactExports.useState(() => getMelbourneDateInputValue(-7));
+  const [historyEndDate, setHistoryEndDate] = reactExports.useState(() => getMelbourneDateInputValue());
   reactExports.useEffect(() => {
     const transfersRef = ref(database, "stock_transfer");
     const handleValue = (snapshot) => {
@@ -56913,10 +56978,26 @@ const StockTransfer = ({ data = [], showEmailSettings = false }) => {
     onValue(transfersRef, handleValue, handleError);
     return () => off(transfersRef, "value", handleValue);
   }, []);
-  const transferList = reactExports.useMemo(() => Object.entries(transfers || {}).map(([id2, transfer]) => ({ id: id2, ...transfer })).filter((transfer) => !transfer.deletedAt && !transfer.cancelledAt).filter((transfer) => {
-    var _a;
-    return !((_a = transfer.workflow) == null ? void 0 : _a.purchaseDoneAt);
-  }).sort((a2, b2) => ((b2 == null ? void 0 : b2.savedAt) || "").localeCompare((a2 == null ? void 0 : a2.savedAt) || "")), [transfers]);
+  const transferList = reactExports.useMemo(() => Object.entries(transfers || {}).map(([id2, transfer]) => ({ id: id2, ...transfer })).filter((transfer) => !transfer.deletedAt && !transfer.cancelledAt).filter((transfer) => !isTransferWorkflowComplete(transfer)).sort((a2, b2) => ((b2 == null ? void 0 : b2.savedAt) || "").localeCompare((a2 == null ? void 0 : a2.savedAt) || "")), [transfers]);
+  const visibleTransferList = reactExports.useMemo(
+    () => filterTransfersBySearch(transferList, activeSearchText),
+    [transferList, activeSearchText]
+  );
+  const completedTransferList = reactExports.useMemo(() => {
+    const rangeStart = getDateRangeValue(historyStartDate);
+    const rangeEnd = getDateRangeValue(historyEndDate, true);
+    return Object.entries(transfers || {}).map(([id2, transfer]) => ({ id: id2, ...transfer })).filter((transfer) => !transfer.deletedAt && !transfer.cancelledAt).filter(isTransferWorkflowComplete).map((transfer) => ({ ...transfer, completedAt: getTransferCompletedAt(transfer) || "" })).filter((transfer) => {
+      const completedDate = new Date(transfer.completedAt);
+      if (Number.isNaN(completedDate.getTime())) return false;
+      if (rangeStart && completedDate < rangeStart) return false;
+      if (rangeEnd && completedDate > rangeEnd) return false;
+      return true;
+    }).sort((a2, b2) => (b2.completedAt || "").localeCompare(a2.completedAt || ""));
+  }, [transfers, historyStartDate, historyEndDate]);
+  const visibleCompletedTransferList = reactExports.useMemo(
+    () => filterTransfersBySearch(completedTransferList, historySearchText),
+    [completedTransferList, historySearchText]
+  );
   const scheduleByChassis = reactExports.useMemo(() => new Map((data || []).map((row) => [normalizeChassis(String((row == null ? void 0 : row.Chassis) || "")), row]).filter(([chassis]) => chassis)), [data]);
   const stockLocationOptions = reactExports.useMemo(() => [
     .../* @__PURE__ */ new Set([
@@ -57060,7 +57141,7 @@ const StockTransfer = ({ data = [], showEmailSettings = false }) => {
   const handleDeleteTransfer = async (transfer) => {
     if (!showEmailSettings || !(transfer == null ? void 0 : transfer.id)) return;
     const confirmed = window.confirm(
-      `Delete stock transfer request ${transfer.chassis || transfer.id}? This will hide it from Active Requests and record the deletion in audit history.`
+      `Delete stock transfer request ${transfer.chassis || transfer.id}? This will hide it from stock transfer lists and record the deletion in audit history.`
     );
     if (!confirmed) return;
     const deletedAt = getNowIso();
@@ -57196,11 +57277,30 @@ const StockTransfer = ({ data = [], showEmailSettings = false }) => {
       ] })
     ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "rounded-lg border border-slate-200 bg-white p-5 shadow-sm", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mb-4 flex items-center justify-between", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { className: "text-lg font-semibold text-slate-950", children: "Active Requests" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600", children: transferList.length })
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mb-4 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { children: /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { className: "text-lg font-semibold text-slate-950", children: "Active Requests" }) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-wrap items-end gap-3", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("label", { className: "mb-1 block text-xs font-semibold uppercase text-slate-500", htmlFor: "active-transfer-search", children: "Search" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "input",
+              {
+                id: "active-transfer-search",
+                type: "search",
+                value: activeSearchText,
+                onChange: (event) => setActiveSearchText(event.target.value),
+                placeholder: "Chassis, location, SO...",
+                className: "w-64 max-w-full rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
+              }
+            )
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "rounded-full bg-slate-100 px-2.5 py-2 text-xs font-semibold text-slate-600", children: [
+            visibleTransferList.length,
+            activeSearchText.trim() ? ` / ${transferList.length}` : ""
+          ] })
+        ] })
       ] }),
-      transferList.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-center text-gray-500 py-6", children: loadingTransfers ? "Loading stock transfers..." : "No saved stock transfers yet." }) : /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "overflow-x-auto", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("table", { className: "min-w-full divide-y divide-slate-200", children: [
+      visibleTransferList.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-center text-gray-500 py-6", children: loadingTransfers ? "Loading stock transfers..." : activeSearchText.trim() ? "No active transfers match this search." : "No saved stock transfers yet." }) : /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "overflow-x-auto", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("table", { className: "min-w-full divide-y divide-slate-200", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("thead", { className: "bg-slate-50", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("tr", { children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500", children: "Chassis" }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500", children: "Model" }),
@@ -57217,7 +57317,7 @@ const StockTransfer = ({ data = [], showEmailSettings = false }) => {
           /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500", children: "BP Changed By" }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500", children: "BP Changed" })
         ] }) }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("tbody", { className: "divide-y divide-slate-100 bg-white", children: transferList.map((transfer) => {
+        /* @__PURE__ */ jsxRuntimeExports.jsx("tbody", { className: "divide-y divide-slate-100 bg-white", children: visibleTransferList.map((transfer) => {
           const workflow = transfer.workflow || {};
           const workflowSteps = getWorkflowSteps(transfer);
           const expanded = Boolean(expandedTransferIds[transfer.id]);
@@ -57254,7 +57354,7 @@ const StockTransfer = ({ data = [], showEmailSettings = false }) => {
               /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: transfer.savedAt || "-" }),
               /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: transfer["Stock Transfer Category"] || "-" }),
               /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: getSOPGIPostDateDisplay(transfer) }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: transfer["Company Stock Current Location"] || "-" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: getStockLocationCellClass(transfer), children: transfer["Company Stock Current Location"] || "-" }),
               /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: transfer["Sales Order Display"] || "-" }),
               /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: transfer["Invoice-to Name"] || "-" }),
               /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: transfer["Last Invoice Date"] || "-" }),
@@ -57271,6 +57371,157 @@ const StockTransfer = ({ data = [], showEmailSettings = false }) => {
                   firstPendingStep.contact
                 ] })
               ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "grid gap-3 md:grid-cols-2 xl:grid-cols-3", children: workflowSteps.map((step) => {
+                const status = getWorkflowStepStatus(workflow, step);
+                const isDone = status === "Done";
+                return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "rounded-md border border-slate-200 bg-white p-3", children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-start justify-between gap-3", children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-sm font-semibold text-slate-950", children: step.label }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mt-1 text-xs text-slate-500", children: [
+                        "Contact: ",
+                        step.contact
+                      ] })
+                    ] }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx(
+                      "span",
+                      {
+                        className: `whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ${isDone ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`,
+                        children: status
+                      }
+                    )
+                  ] }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mt-2 space-y-1 text-xs text-slate-500", children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+                      "Completed: ",
+                      (workflow == null ? void 0 : workflow[step.doneAtKey]) || "-"
+                    ] }),
+                    step.statusKey === "transportStatus" && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+                        "Vendor: ",
+                        workflow.transportVendor || "-"
+                      ] }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+                        "Pickup: ",
+                        workflow.transportPickupAt || "-"
+                      ] })
+                    ] }),
+                    step.statusKey === "purchaseStatus" && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+                      "PO: ",
+                      workflow.purchasePoNumber || "-"
+                    ] })
+                  ] })
+                ] }, step.statusKey);
+              }) })
+            ] }) })
+          ] }, transfer.id);
+        }) })
+      ] }) })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "rounded-lg border border-slate-200 bg-white p-5 shadow-sm", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mb-4 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { className: "text-lg font-semibold text-slate-950", children: "Completed Transfer History" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "mt-1 text-xs text-slate-500", children: "Completed transfers stay visible here. Default range is the past 7 days." })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-wrap items-end gap-3", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("label", { className: "mb-1 block text-xs font-semibold uppercase text-slate-500", htmlFor: "completed-transfer-search", children: "Search" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "input",
+              {
+                id: "completed-transfer-search",
+                type: "search",
+                value: historySearchText,
+                onChange: (event) => setHistorySearchText(event.target.value),
+                placeholder: "Chassis, location, SO...",
+                className: "w-64 max-w-full rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
+              }
+            )
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("label", { className: "mb-1 block text-xs font-semibold uppercase text-slate-500", htmlFor: "completed-transfer-start", children: "From" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "input",
+              {
+                id: "completed-transfer-start",
+                type: "date",
+                value: historyStartDate,
+                onChange: (event) => setHistoryStartDate(event.target.value),
+                className: "rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
+              }
+            )
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("label", { className: "mb-1 block text-xs font-semibold uppercase text-slate-500", htmlFor: "completed-transfer-end", children: "To" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "input",
+              {
+                id: "completed-transfer-end",
+                type: "date",
+                value: historyEndDate,
+                onChange: (event) => setHistoryEndDate(event.target.value),
+                className: "rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
+              }
+            )
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "rounded-full bg-slate-100 px-2.5 py-2 text-xs font-semibold text-slate-600", children: [
+            visibleCompletedTransferList.length,
+            historySearchText.trim() ? ` / ${completedTransferList.length}` : ""
+          ] })
+        ] })
+      ] }),
+      visibleCompletedTransferList.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-center text-gray-500 py-6", children: loadingTransfers ? "Loading completed transfers..." : historySearchText.trim() ? "No completed transfers match this search and date range." : "No completed transfers in this date range." }) : /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "overflow-x-auto", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("table", { className: "min-w-full divide-y divide-slate-200", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("thead", { className: "bg-slate-50", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("tr", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500", children: "Chassis" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500", children: "Current" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500", children: "Target" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500", children: "Completed" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500", children: "Category" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500", children: "Sales Order" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500", children: "Invoice No." }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500", children: "Stock Location" })
+        ] }) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("tbody", { className: "divide-y divide-slate-100 bg-white", children: visibleCompletedTransferList.map((transfer) => {
+          const workflow = transfer.workflow || {};
+          const workflowSteps = getWorkflowSteps(transfer);
+          const expanded = Boolean(expandedTransferIds[transfer.id]);
+          return /* @__PURE__ */ jsxRuntimeExports.jsxs(React.Fragment, { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("tr", { className: "hover:bg-slate-50/70", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("td", { className: "px-4 py-2 text-sm", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "font-semibold text-gray-900", children: transfer.chassis || "-" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mt-2 flex flex-wrap items-center gap-2", children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx(
+                    "button",
+                    {
+                      type: "button",
+                      onClick: () => toggleTransferExpanded(transfer.id),
+                      className: "whitespace-nowrap rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50",
+                      children: expanded ? "Hide tasks" : "Show tasks"
+                    }
+                  ),
+                  showEmailSettings && /* @__PURE__ */ jsxRuntimeExports.jsx(
+                    "button",
+                    {
+                      type: "button",
+                      onClick: () => handleDeleteTransfer(transfer),
+                      disabled: Boolean(deletingTransferIds[transfer.id]),
+                      className: `whitespace-nowrap rounded-md border px-3 py-1.5 text-xs font-semibold ${deletingTransferIds[transfer.id] ? "border-slate-200 text-slate-400" : "border-red-200 text-red-700 hover:bg-red-50"}`,
+                      children: deletingTransferIds[transfer.id] ? "Deleting..." : "Delete"
+                    }
+                  )
+                ] })
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: transfer.currentLocation || "-" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: transfer.targetLocation || "-" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: transfer.completedAt || "-" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: transfer["Stock Transfer Category"] || "-" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: transfer["Sales Order Display"] || "-" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "px-4 py-2 text-sm text-gray-600", children: transfer["Last Invoice Number"] || "-" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: getStockLocationCellClass(transfer), children: transfer["Company Stock Current Location"] || "-" })
+            ] }),
+            expanded && /* @__PURE__ */ jsxRuntimeExports.jsx("tr", { children: /* @__PURE__ */ jsxRuntimeExports.jsxs("td", { colSpan: 8, className: "bg-slate-50 px-4 py-4", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "mb-3 text-sm font-semibold text-slate-950", children: "Completed task timeline" }),
               /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "grid gap-3 md:grid-cols-2 xl:grid-cols-3", children: workflowSteps.map((step) => {
                 const status = getWorkflowStepStatus(workflow, step);
                 const isDone = status === "Done";
@@ -57406,6 +57657,8 @@ const defaultConfig = {
     location: "",
     planning: "",
     finance: "",
+    financeFloorplan: "",
+    financeAr: "",
     transport: "",
     purchase: ""
   },
@@ -57413,6 +57666,8 @@ const defaultConfig = {
     ceo: "Stock Transfer NSM Approval Required",
     planning: "Stock Transfer Planning Change SO BP Task",
     finance: "Stock Transfer Finance Acctg/AP - Floorplan Check Task",
+    financeFloorplan: "Stock Transfer Finance Acctg/AP - Floorplan Check Task",
+    financeAr: "Stock Transfer Finance AR - Reverse Invoice and PGI Task",
     transport: "Stock Transfer Transport Task",
     purchase: "Stock Transfer Purchase Task"
   },
@@ -57421,6 +57676,8 @@ const defaultConfig = {
     location: "Please complete the DMS stock transfer task for your location.",
     planning: "Please confirm Planning Change SO BP is done for this stock transfer.",
     finance: "Please complete the required Finance check for this stock transfer.",
+    financeFloorplan: "Please complete the Finance Acctg/AP floorplan check for this stock transfer.",
+    financeAr: "Please complete Finance AR reverse invoice and PGI for this stock transfer.",
     transport: "Please book transport and enter vendor/time.",
     purchase: "Please raise and confirm the Transport PO."
   },
@@ -57436,6 +57693,8 @@ const defaultConfig = {
     location: "",
     planning: "",
     finance: "",
+    financeFloorplan: "",
+    financeAr: "",
     transport: "",
     purchase: ""
   },
@@ -57444,6 +57703,8 @@ const defaultConfig = {
     location: "",
     planning: "",
     finance: "",
+    financeFloorplan: "",
+    financeAr: "",
     transport: "",
     purchase: ""
   }
@@ -57463,9 +57724,12 @@ const roleLabels = {
   location: "Location DMS Work",
   planning: "Planning Work",
   finance: "Finance Work",
+  financeFloorplan: "Finance Acctg/AP - Floorplan Check",
+  financeAr: "Finance AR - Reverse Invoice and PGI",
   transport: "Transport Work",
   purchase: "Purchase Work"
 };
+const recipientConfigRoles = ["ceo", "financeFloorplan", "financeAr", "planning", "transport", "purchase"];
 const workflowFlowSummaries = {
   internal: [
     "NSM Approval",
@@ -57477,24 +57741,28 @@ const workflowFlowSummaries = {
   external: [
     "NSM Approval",
     "Finance Acctg/AP - Floorplan Check",
+    "Transport books transport",
+    "Purchase raises Transport PO",
     "Current Location confirms DMS reverse goods receiving",
     "Finance AR - Reverse Invoice and PGI",
-    "Planning Change SO BP",
-    "Transport books transport",
-    "Purchase raises Transport PO"
+    "Planning Change SO BP"
   ]
 };
 const getWorkflow = (transfer) => (transfer == null ? void 0 : transfer.workflow) || {};
 const isExternalTransfer = (transfer) => String((transfer == null ? void 0 : transfer["Stock Transfer Category"]) || "").trim().toLowerCase() === "external stock transfer";
 const hasSalesOrder = (transfer) => String((transfer == null ? void 0 : transfer["Sales Order Display"]) || "").trim();
-const buildRows = (transfers) => Object.entries(transfers || {}).map(([id2, transfer]) => ({ id: id2, ...transfer })).filter(hasSalesOrder).sort((a2, b2) => ((b2 == null ? void 0 : b2.savedAt) || "").localeCompare((a2 == null ? void 0 : a2.savedAt) || ""));
+const isWorkflowComplete = (transfer) => {
+  const workflow = getWorkflow(transfer);
+  return isExternalTransfer(transfer) ? Boolean(workflow.planningBpDoneAt) : Boolean(workflow.purchaseDoneAt);
+};
+const buildRows = (transfers) => Object.entries(transfers || {}).map(([id2, transfer]) => ({ id: id2, ...transfer })).filter((transfer) => !transfer.deletedAt && !transfer.cancelledAt && !isWorkflowComplete(transfer)).filter(hasSalesOrder).sort((a2, b2) => ((b2 == null ? void 0 : b2.savedAt) || "").localeCompare((a2 == null ? void 0 : a2.savedAt) || ""));
 const getTaskList = (role, transfers, locationKey = "") => buildRows(transfers).filter((transfer) => {
   const workflow = getWorkflow(transfer);
   if (role === "ceo") return !workflow.ceoApprovedAt;
   if (!workflow.ceoApprovedAt) return false;
   if (role === "location") {
     const transferLocationKey = normalizeWorkflowLocation(transfer.currentLocation);
-    const readyForLocation = workflow.redoInvoiceDoneAt;
+    const readyForLocation = isExternalTransfer(transfer) ? workflow.purchaseDoneAt : workflow.redoInvoiceDoneAt;
     return readyForLocation && !workflow.locationDmsDoneAt && (!locationKey || transferLocationKey === locationKey);
   }
   if (role === "planning") return isExternalTransfer(transfer) && workflow.financeDoneAt && !workflow.planningBpDoneAt;
@@ -57503,7 +57771,7 @@ const getTaskList = (role, transfers, locationKey = "") => buildRows(transfers).
     return isExternalTransfer(transfer) && workflow.locationDmsDoneAt && !workflow.financeDoneAt;
   }
   if (role === "transport") {
-    if (isExternalTransfer(transfer) && !workflow.planningBpDoneAt) return false;
+    if (isExternalTransfer(transfer) && !workflow.redoInvoiceDoneAt) return false;
     if (!isExternalTransfer(transfer) && !workflow.locationDmsDoneAt) return false;
     return !workflow.transportDoneAt;
   }
@@ -57514,9 +57782,10 @@ const getNextEmailRole = (completedRole, transfer) => {
   const workflow = getWorkflow(transfer);
   if (completedRole === "ceo") return "finance";
   if (completedRole === "location") return isExternalTransfer(transfer) ? "finance" : "transport";
-  if (completedRole === "finance") return workflow.financeDoneAt ? "planning" : "location";
-  if (completedRole === "planning") return "transport";
+  if (completedRole === "finance") return workflow.financeDoneAt ? "planning" : isExternalTransfer(transfer) ? "transport" : "location";
+  if (completedRole === "planning") return isExternalTransfer(transfer) ? "" : "transport";
   if (completedRole === "transport") return "purchase";
+  if (completedRole === "purchase") return isExternalTransfer(transfer) && !workflow.locationDmsDoneAt ? "location" : "";
   return "";
 };
 const legacyDefaultSubjects = {
@@ -57547,6 +57816,20 @@ const normalizeWorkflowConfig = (config2 = {}) => {
   });
   return merged;
 };
+const getPersistableWorkflowConfig = (config2 = {}) => {
+  const nextConfig = normalizeWorkflowConfig(config2);
+  return {
+    ...nextConfig,
+    recipients: {
+      ...nextConfig.recipients,
+      finance: nextConfig.recipients.financeFloorplan || nextConfig.recipients.finance || ""
+    },
+    ccRecipients: {
+      ...nextConfig.ccRecipients,
+      finance: nextConfig.ccRecipients.financeFloorplan || nextConfig.ccRecipients.finance || ""
+    }
+  };
+};
 const getEmailStep = (role, transfer = {}) => {
   if (role === "ceo") return "nsm_approval";
   if (role === "location") return "location_dms";
@@ -57561,6 +57844,7 @@ const getEmailStep = (role, transfer = {}) => {
 const getEmailJobId = (transfer, role) => `${getSafeFirebaseKey(transfer == null ? void 0 : transfer.id)}_${getEmailStep(role, transfer)}`;
 const isFinanceFloorplanStep = (transfer) => !getWorkflow(transfer).redoInvoiceDoneAt;
 const getFinanceTaskLabel = (transfer) => isFinanceFloorplanStep(transfer) ? "Finance Acctg/AP - Floorplan Check" : "Finance AR - Reverse Invoice and PGI";
+const getFinanceRecipientKey = (transfer) => isFinanceFloorplanStep(transfer) ? "financeFloorplan" : "financeAr";
 const escapeHtml = (value) => String(value || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 const getTaskLabel = (role, transfer) => {
   if (role === "finance") return getFinanceTaskLabel(transfer);
@@ -57728,15 +58012,21 @@ const buildEmailHtml = (role, transfer, workflowUrl) => {
   `;
 };
 const getRecipient = (config2, role, transfer) => {
-  var _a, _b;
+  var _a, _b, _c, _d;
   if (role === "location") {
     return ((_a = config2 == null ? void 0 : config2.locationRecipients) == null ? void 0 : _a[normalizeWorkflowLocation(transfer == null ? void 0 : transfer.currentLocation)]) || "";
   }
-  return ((_b = config2 == null ? void 0 : config2.recipients) == null ? void 0 : _b[role]) || "";
+  if (role === "finance") {
+    return ((_b = config2 == null ? void 0 : config2.recipients) == null ? void 0 : _b[getFinanceRecipientKey(transfer)]) || ((_c = config2 == null ? void 0 : config2.recipients) == null ? void 0 : _c.finance) || "";
+  }
+  return ((_d = config2 == null ? void 0 : config2.recipients) == null ? void 0 : _d[role]) || "";
 };
-const getCcRecipient = (config2, role) => {
-  var _a;
-  return ((_a = config2 == null ? void 0 : config2.ccRecipients) == null ? void 0 : _a[role]) || "";
+const getCcRecipient = (config2, role, transfer = {}) => {
+  var _a, _b, _c;
+  if (role === "finance") {
+    return ((_a = config2 == null ? void 0 : config2.ccRecipients) == null ? void 0 : _a[getFinanceRecipientKey(transfer)]) || ((_b = config2 == null ? void 0 : config2.ccRecipients) == null ? void 0 : _b.finance) || "";
+  }
+  return ((_c = config2 == null ? void 0 : config2.ccRecipients) == null ? void 0 : _c[role]) || "";
 };
 const canSendEmail = (config2, role, transfer = {}) => Boolean(getRecipient(config2, role, transfer));
 const sendWorkflowEmail = async (role, transfer, config2, taskCount = 1) => {
@@ -57752,7 +58042,7 @@ const sendWorkflowEmail = async (role, transfer, config2, taskCount = 1) => {
     step: getEmailStep(role, transfer),
     role,
     to: recipient,
-    cc: getCcRecipient(config2, role),
+    cc: getCcRecipient(config2, role, transfer),
     title: emailTitle,
     content,
     metadata: {
@@ -57809,7 +58099,7 @@ const ConfigEditor = ({ config: config2, onChange, onSave, saving }) => {
         );
       }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "md:col-span-3 mt-2 text-sm font-semibold text-gray-700", children: "Role recipients and content" }),
-      Object.keys(roleLabels).filter((role) => role !== "location").map((role) => {
+      recipientConfigRoles.map((role) => {
         var _a, _b, _c, _d;
         return /* @__PURE__ */ jsxRuntimeExports.jsxs(React.Fragment, { children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("input", { className: "rounded border px-3 py-2 text-sm", placeholder: `${roleLabels[role]} recipient email`, value: ((_a = config2.recipients) == null ? void 0 : _a[role]) || "", onChange: (e3) => updateConfig(`recipients.${role}`, e3.target.value) }),
@@ -57970,7 +58260,9 @@ const StockTransferWorkflow = ({ role = "ceo", standalone = false }) => {
     setSavingConfig(true);
     setMessage("");
     try {
-      await update(ref(database, CONFIG_PATH), config2);
+      const nextConfig = getPersistableWorkflowConfig(config2);
+      await update(ref(database, CONFIG_PATH), nextConfig);
+      setConfig(nextConfig);
       setMessage("Email settings saved.");
     } catch (error2) {
       console.error("Failed to save stock transfer workflow config:", error2);

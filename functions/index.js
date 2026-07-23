@@ -28,6 +28,8 @@ const roleLabels = {
   location: "Location DMS Work",
   planning: "Planning Work",
   finance: "Finance Work",
+  financeFloorplan: "Finance Acctg/AP - Floorplan Check",
+  financeAr: "Finance AR - Reverse Invoice and PGI",
   transport: "Transport Work",
   purchase: "Purchase Work",
 };
@@ -79,6 +81,10 @@ const isExternalTransfer = (transfer) => (
 );
 const hasSalesOrder = (transfer) => Boolean(String(transfer?.["Sales Order Display"] || "").trim());
 const isFinanceFloorplanStep = (transfer) => !getWorkflow(transfer).redoInvoiceDoneAt;
+const isWorkflowComplete = (transfer) => {
+  const workflow = getWorkflow(transfer);
+  return isExternalTransfer(transfer) ? Boolean(workflow.planningBpDoneAt) : Boolean(workflow.purchaseDoneAt);
+};
 const getFinanceTaskLabel = (transfer) => (
   isFinanceFloorplanStep(transfer)
     ? "Finance Acctg/AP - Floorplan Check"
@@ -86,6 +92,10 @@ const getFinanceTaskLabel = (transfer) => (
 );
 const getTaskLabel = (role, transfer) => (
   role === "finance" ? getFinanceTaskLabel(transfer) : roleLabels[role] || "Stock Transfer Task"
+);
+
+const getFinanceRecipientKey = (transfer) => (
+  isFinanceFloorplanStep(transfer) ? "financeFloorplan" : "financeAr"
 );
 
 const getTaskSubtasks = (role, transfer) => {
@@ -161,10 +171,18 @@ const getRecipient = (config, role, transfer) => {
   if (role === "location") {
     return config?.locationRecipients?.[normalizeWorkflowLocation(transfer?.currentLocation)] || "";
   }
+  if (role === "finance") {
+    return config?.recipients?.[getFinanceRecipientKey(transfer)] || config?.recipients?.finance || "";
+  }
   return config?.recipients?.[role] || "";
 };
 
-const getCcRecipient = (config, role) => config?.ccRecipients?.[role] || "";
+const getCcRecipient = (config, role, transfer = {}) => {
+  if (role === "finance") {
+    return config?.ccRecipients?.[getFinanceRecipientKey(transfer)] || config?.ccRecipients?.finance || "";
+  }
+  return config?.ccRecipients?.[role] || "";
+};
 
 const getWorkflowUrl = (config, role, transfer = {}) => {
   const basePath = workflowPaths[role] || workflowPaths.ceo;
@@ -220,6 +238,7 @@ const buildEmailJsPayload = (job) => ({
   template_params: {
     to_email: job.to,
     cc_email: job.cc || "",
+    cc: job.cc || "",
     title: job.title,
     content: job.content,
     transfer_id: job.transferId || "",
@@ -268,6 +287,8 @@ const sendEmailJsEmail = async (job) => {
   logger.info("Sending EmailJS request", {
     serviceId: process.env.EMAILJS_SERVICE_ID || "",
     templateId: process.env.EMAILJS_TEMPLATE_ID || "",
+    to: job.to || "",
+    cc: job.cc || "",
     publicKeyPreview: process.env.EMAILJS_PUBLIC_KEY
       ? `${process.env.EMAILJS_PUBLIC_KEY.slice(0, 4)}...${process.env.EMAILJS_PUBLIC_KEY.slice(-4)}`
       : "",
@@ -423,10 +444,16 @@ const recoverStuckJobsForStatus = async (status) => {
 
 const getActiveStockTransferTask = (transfer) => {
   const workflow = getWorkflow(transfer);
-  if (transfer.deletedAt || transfer.cancelledAt || workflow.purchaseDoneAt) return null;
+  if (transfer.deletedAt || transfer.cancelledAt || isWorkflowComplete(transfer)) return null;
   if (!hasSalesOrder(transfer)) return null;
   if (!workflow.ceoApprovedAt) return {role: "ceo", doneKey: "ceoApprovedAt", emailQueuedAtKey: "ceoEmailQueuedAt"};
   if (!workflow.redoInvoiceDoneAt) return {role: "finance", doneKey: "redoInvoiceDoneAt", emailQueuedAtKey: "financeEmailQueuedAt"};
+  if (isExternalTransfer(transfer) && !workflow.transportDoneAt) {
+    return {role: "transport", doneKey: "transportDoneAt", emailQueuedAtKey: "transportEmailQueuedAt"};
+  }
+  if (isExternalTransfer(transfer) && workflow.transportDoneAt && !workflow.purchaseDoneAt) {
+    return {role: "purchase", doneKey: "purchaseDoneAt", emailQueuedAtKey: "purchaseEmailQueuedAt"};
+  }
   if (!workflow.locationDmsDoneAt) return {role: "location", doneKey: "locationDmsDoneAt", emailQueuedAtKey: "locationEmailQueuedAt"};
   if (isExternalTransfer(transfer) && !workflow.financeDoneAt) {
     return {role: "finance", doneKey: "financeDoneAt", emailQueuedAtKey: "financeEmailQueuedAt"};
@@ -434,8 +461,12 @@ const getActiveStockTransferTask = (transfer) => {
   if (isExternalTransfer(transfer) && !workflow.planningBpDoneAt) {
     return {role: "planning", doneKey: "planningBpDoneAt", emailQueuedAtKey: "planningEmailQueuedAt"};
   }
-  if (!workflow.transportDoneAt) return {role: "transport", doneKey: "transportDoneAt", emailQueuedAtKey: "transportEmailQueuedAt"};
-  if (!workflow.purchaseDoneAt) return {role: "purchase", doneKey: "purchaseDoneAt", emailQueuedAtKey: "purchaseEmailQueuedAt"};
+  if (!isExternalTransfer(transfer) && !workflow.transportDoneAt) {
+    return {role: "transport", doneKey: "transportDoneAt", emailQueuedAtKey: "transportEmailQueuedAt"};
+  }
+  if (!isExternalTransfer(transfer) && !workflow.purchaseDoneAt) {
+    return {role: "purchase", doneKey: "purchaseDoneAt", emailQueuedAtKey: "purchaseEmailQueuedAt"};
+  }
   return null;
 };
 
@@ -454,7 +485,7 @@ const queueInitialStockTransferTaskEmail = async ({transfer, config, nowIso}) =>
     step: emailStep,
     role,
     to: recipient,
-    cc: getCcRecipient(config, role),
+    cc: getCcRecipient(config, role, transfer),
     title,
     content: buildStockTransferTaskEmailHtml(role, transfer, title, workflowUrl),
     attempts: 0,
@@ -488,6 +519,54 @@ const queueInitialStockTransferTaskEmail = async ({transfer, config, nowIso}) =>
   return {queued: true, jobId, recipient, emailStep};
 };
 
+const queueStockTransferTaskEmail = async ({transfer, config, role, nowIso, source}) => {
+  const emailStep = getEmailStep(role, transfer);
+  const recipient = getRecipient(config, role, transfer);
+  if (!recipient) return {queued: false, reason: "missing_recipient", emailStep};
+
+  const workflowUrl = getWorkflowUrl(config, role, transfer);
+  const chassis = String(transfer.chassis || "").trim();
+  const title = `Action Required: Stock Transfer${chassis ? ` ${chassis}` : ""}`;
+  const jobId = `${getSafeFirebaseKey(transfer.id)}_${emailStep}`;
+  const jobData = {
+    status: "pending",
+    step: emailStep,
+    role,
+    to: recipient,
+    cc: getCcRecipient(config, role, transfer),
+    title,
+    content: buildStockTransferTaskEmailHtml(role, transfer, title, workflowUrl),
+    attempts: 0,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+    lastError: null,
+    failedAt: null,
+    transferId: transfer.id,
+    source,
+    taskTransferId: transfer.id,
+    workflowUrl,
+    approveLink: workflowUrl,
+    chassis: transfer.chassis || "",
+    currentLocation: transfer.currentLocation || "",
+    targetLocation: transfer.targetLocation || "",
+    salesOrderDisplay: transfer["Sales Order Display"] || "",
+    transferCategory: transfer["Stock Transfer Category"] || "",
+  };
+
+  const jobRef = admin.database().ref(`/email_jobs/${jobId}`);
+  const result = await jobRef.transaction((existingJob) => {
+    if (existingJob && ACTIVE_EMAIL_JOB_STATUSES.includes(existingJob.status)) return;
+    return {
+      ...(existingJob || {}),
+      ...jobData,
+      attempts: Number(existingJob?.attempts) || 0,
+    };
+  }, undefined, false);
+
+  if (!result.committed) return {queued: false, reason: "existing_active_job", jobId, recipient, emailStep};
+  return {queued: true, jobId, recipient, emailStep};
+};
+
 const queueReminderEmailJob = async ({transfer, config, task, stage, nowIso}) => {
   const role = task.role;
   const emailStep = getEmailStep(role, transfer);
@@ -503,7 +582,7 @@ const queueReminderEmailJob = async ({transfer, config, task, stage, nowIso}) =>
     step: emailStep,
     role,
     to: recipient,
-    cc: getCcRecipient(config, role),
+    cc: getCcRecipient(config, role, transfer),
     title,
     content: buildStockTransferTaskEmailHtml(
         role,
@@ -602,7 +681,7 @@ exports.queueStockTransferNsmEmailOnSapReady = functions
 
       const transfer = {id: transferId, ...after};
       const workflow = getWorkflow(transfer);
-      if (transfer.deletedAt || transfer.cancelledAt || workflow.purchaseDoneAt) return;
+      if (transfer.deletedAt || transfer.cancelledAt || isWorkflowComplete(transfer)) return;
       if (!hasSalesOrder(transfer)) return;
       if (workflow.ceoApprovedAt || workflow.ceoEmailQueuedAt || workflow.ceoEmailJobId) return;
       if (workflow.ceoEmailError === "Missing recipient for ceo") return;
@@ -672,6 +751,125 @@ exports.queueStockTransferNsmEmailOnSapReady = functions
         });
         logger.error("Failed to queue stock transfer NSM email", {
           transferId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    });
+
+exports.queueStockTransferNextTaskEmail = functions
+    .region("asia-southeast1")
+    .runWith({maxInstances: 5})
+    .database
+    .instance("scheduling-dd672-default-rtdb")
+    .ref(`/${TRANSFERS_PATH}/{transferId}`)
+    .onWrite(async (change, context) => {
+      const after = change.after.val();
+      const transferId = context.params.transferId;
+      if (!after || !transferId) return;
+
+      const transfer = {id: transferId, ...after};
+      const task = getActiveStockTransferTask(transfer);
+      if (!task || task.role === "ceo") return;
+
+      const role = task.role;
+      const workflow = getWorkflow(transfer);
+      const emailStep = getEmailStep(role, transfer);
+      if (
+        workflow[`${role}EmailStep`] === emailStep &&
+        (workflow[`${role}EmailQueuedAt`] || workflow[`${role}EmailJobId`])
+      ) {
+        return;
+      }
+
+      const configSnapshot = await admin.database().ref(`/${CONFIG_PATH}`).once("value");
+      const config = configSnapshot.val() || {};
+      const recipient = getRecipient(config, role, transfer);
+      const workflowRef = admin.database().ref(`/${TRANSFERS_PATH}/${transferId}/workflow`);
+      if (!recipient) {
+        await workflowRef.update({
+          [`${role}EmailError`]: role === "location"
+            ? `Missing location recipient for ${normalizeWorkflowLocation(transfer.currentLocation)}`
+            : `Missing recipient for ${role}`,
+        });
+        return;
+      }
+
+      const claimTime = new Date().toISOString();
+      const claimResult = await workflowRef.transaction((currentWorkflow = {}) => {
+        const currentTransfer = {...transfer, workflow: currentWorkflow || {}};
+        const currentTask = getActiveStockTransferTask(currentTransfer);
+        if (!currentTask || currentTask.role !== role) return;
+        const currentEmailStep = getEmailStep(role, currentTransfer);
+        if (currentEmailStep !== emailStep) return;
+        if (
+          currentWorkflow[`${role}EmailStep`] === emailStep &&
+          (currentWorkflow[`${role}EmailQueuedAt`] || currentWorkflow[`${role}EmailJobId`])
+        ) {
+          return;
+        }
+        const sendingAt = currentWorkflow[`${role}EmailSendingAt`]
+          ? Date.parse(currentWorkflow[`${role}EmailSendingAt`])
+          : 0;
+        const sendingIsFresh = (
+          currentWorkflow[`${role}EmailSendingStep`] === emailStep &&
+          sendingAt &&
+          Date.now() - sendingAt < 120000
+        );
+        if (sendingIsFresh) return;
+        return {
+          ...currentWorkflow,
+          [`${role}EmailSendingAt`]: claimTime,
+          [`${role}EmailSendingStep`]: emailStep,
+        };
+      }, undefined, false);
+
+      if (!claimResult.committed) return;
+
+      try {
+        const claimedWorkflow = claimResult.snapshot.val() || {};
+        const claimedTransfer = {...transfer, workflow: claimedWorkflow};
+        const result = await queueStockTransferTaskEmail({
+          transfer: claimedTransfer,
+          config,
+          role,
+          nowIso: new Date().toISOString(),
+          source: "stock_transfer_workflow_server",
+        });
+
+        const updates = {
+          [`${role}EmailSendingAt`]: null,
+          [`${role}EmailSendingStep`]: null,
+        };
+
+        if (result.queued || result.reason === "existing_active_job") {
+          updates[`${role}EmailQueuedAt`] = new Date().toISOString();
+          updates[`${role}EmailJobId`] = result.jobId;
+          updates[`${role}EmailStep`] = result.emailStep || emailStep;
+          updates[`${role}EmailRecipient`] = result.recipient || recipient || "";
+          updates[`${role}EmailError`] = null;
+        } else {
+          updates[`${role}EmailError`] = result.reason || `Failed to queue ${role} task email`;
+        }
+
+        await workflowRef.update(updates);
+        logger.info("Stock transfer next task email dispatch checked", {
+          transferId,
+          role,
+          emailStep,
+          queued: result.queued,
+          reason: result.reason || "",
+          jobId: result.jobId || "",
+        });
+      } catch (error) {
+        await workflowRef.update({
+          [`${role}EmailSendingAt`]: null,
+          [`${role}EmailSendingStep`]: null,
+          [`${role}EmailError`]: error instanceof Error ? error.message : String(error),
+        });
+        logger.error("Failed to queue stock transfer next task email", {
+          transferId,
+          role,
+          emailStep,
           error: error instanceof Error ? error.message : String(error),
         });
       }

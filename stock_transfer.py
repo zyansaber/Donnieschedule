@@ -1437,12 +1437,24 @@ def get_workflow(transfer: dict) -> dict:
     return workflow if isinstance(workflow, dict) else {}
 
 
-def is_stock_transfer_email_active(transfer: dict) -> bool:
+def is_external_stock_transfer(transfer: dict) -> bool:
+    return clean_text(transfer.get("Stock Transfer Category")).lower() == "external stock transfer"
+
+
+def is_stock_transfer_workflow_complete(transfer: dict) -> bool:
     workflow = get_workflow(transfer)
+    return bool(
+        workflow.get("planningBpDoneAt")
+        if is_external_stock_transfer(transfer)
+        else workflow.get("purchaseDoneAt")
+    )
+
+
+def is_stock_transfer_email_active(transfer: dict) -> bool:
     return not (
         transfer.get("deletedAt")
         or transfer.get("cancelledAt")
-        or workflow.get("purchaseDoneAt")
+        or is_stock_transfer_workflow_complete(transfer)
     )
 
 

@@ -1,0 +1,13 @@
+2026-07-23 11:34:13,625 - INFO - Starting stock_transfer SAP sync once: limit=0 log_file=C:\Users\Leo.Li\Documents\GitHub\Donnieschedule\stock_transfer_run_logs\stock_transfer_once_20260723_113413.txt
+2026-07-23 11:34:16,054 - INFO - Firebase rows=4, unique chassis=4
+2026-07-23 11:34:19,166 - INFO - Found chassis/SO rows: 4
+2026-07-23 11:34:20,621 - INFO - PGI query used unreversed 601/602 reference logic.
+2026-07-23 11:34:20,621 - INFO - Found PGI rows: 4
+2026-07-23 11:34:22,083 - INFO - Found last valid invoice rows: 4
+2026-07-23 11:34:23,484 - INFO - Found Invoice-to BP change log rows: 2
+2026-07-23 11:34:25,075 - INFO - Found company warehouse stock summary rows: 3
+2026-07-23 11:34:25,796 - INFO - Firebase SAP enrichment/audit batch updated: 37 paths
+2026-07-23 11:34:25,796 - INFO - Firebase /stock_transfer updated for 4 records with 9 fields each; audit entries: 1.
+2026-07-23 11:34:26,681 - INFO - SAP sync NSM email queue checked: queued=1 skipped=3
+2026-07-23 11:34:26,790 - INFO - SAP sync worker processed records: 4
+2026-07-23 11:34:27,005 - INFO - Finished stock_transfer SAP sync once: processed=4

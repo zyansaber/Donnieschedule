@@ -38,6 +38,8 @@ const defaultConfig = {
     location: '',
     planning: '',
     finance: '',
+    financeFloorplan: '',
+    financeAr: '',
     transport: '',
     purchase: '',
   },
@@ -45,6 +47,8 @@ const defaultConfig = {
     ceo: 'Stock Transfer NSM Approval Required',
     planning: 'Stock Transfer Planning Change SO BP Task',
     finance: 'Stock Transfer Finance Acctg/AP - Floorplan Check Task',
+    financeFloorplan: 'Stock Transfer Finance Acctg/AP - Floorplan Check Task',
+    financeAr: 'Stock Transfer Finance AR - Reverse Invoice and PGI Task',
     transport: 'Stock Transfer Transport Task',
     purchase: 'Stock Transfer Purchase Task',
   },
@@ -53,6 +57,8 @@ const defaultConfig = {
     location: 'Please complete the DMS stock transfer task for your location.',
     planning: 'Please confirm Planning Change SO BP is done for this stock transfer.',
     finance: 'Please complete the required Finance check for this stock transfer.',
+    financeFloorplan: 'Please complete the Finance Acctg/AP floorplan check for this stock transfer.',
+    financeAr: 'Please complete Finance AR reverse invoice and PGI for this stock transfer.',
     transport: 'Please book transport and enter vendor/time.',
     purchase: 'Please raise and confirm the Transport PO.',
   },
@@ -68,6 +74,8 @@ const defaultConfig = {
     location: '',
     planning: '',
     finance: '',
+    financeFloorplan: '',
+    financeAr: '',
     transport: '',
     purchase: '',
   },
@@ -76,6 +84,8 @@ const defaultConfig = {
     location: '',
     planning: '',
     finance: '',
+    financeFloorplan: '',
+    financeAr: '',
     transport: '',
     purchase: '',
   },
@@ -102,9 +112,13 @@ const roleLabels = {
   location: 'Location DMS Work',
   planning: 'Planning Work',
   finance: 'Finance Work',
+  financeFloorplan: 'Finance Acctg/AP - Floorplan Check',
+  financeAr: 'Finance AR - Reverse Invoice and PGI',
   transport: 'Transport Work',
   purchase: 'Purchase Work',
 };
+
+const recipientConfigRoles = ['ceo', 'financeFloorplan', 'financeAr', 'planning', 'transport', 'purchase'];
 
 const workflowFlowSummaries = {
   internal: [
@@ -117,20 +131,25 @@ const workflowFlowSummaries = {
   external: [
     'NSM Approval',
     'Finance Acctg/AP - Floorplan Check',
+    'Transport books transport',
+    'Purchase raises Transport PO',
     'Current Location confirms DMS reverse goods receiving',
     'Finance AR - Reverse Invoice and PGI',
     'Planning Change SO BP',
-    'Transport books transport',
-    'Purchase raises Transport PO',
   ],
 };
 
 const getWorkflow = (transfer) => transfer?.workflow || {};
 const isExternalTransfer = (transfer) => String(transfer?.['Stock Transfer Category'] || '').trim().toLowerCase() === 'external stock transfer';
 const hasSalesOrder = (transfer) => String(transfer?.['Sales Order Display'] || '').trim();
+const isWorkflowComplete = (transfer) => {
+  const workflow = getWorkflow(transfer);
+  return isExternalTransfer(transfer) ? Boolean(workflow.planningBpDoneAt) : Boolean(workflow.purchaseDoneAt);
+};
 
 const buildRows = (transfers) => Object.entries(transfers || {})
   .map(([id, transfer]) => ({ id, ...transfer }))
+  .filter((transfer) => !transfer.deletedAt && !transfer.cancelledAt && !isWorkflowComplete(transfer))
   .filter(hasSalesOrder)
   .sort((a, b) => (b?.savedAt || '').localeCompare(a?.savedAt || ''));
 
@@ -140,7 +159,9 @@ const getTaskList = (role, transfers, locationKey = '') => buildRows(transfers).
   if (!workflow.ceoApprovedAt) return false;
   if (role === 'location') {
     const transferLocationKey = normalizeWorkflowLocation(transfer.currentLocation);
-    const readyForLocation = workflow.redoInvoiceDoneAt;
+    const readyForLocation = isExternalTransfer(transfer)
+      ? workflow.purchaseDoneAt
+      : workflow.redoInvoiceDoneAt;
     return readyForLocation
       && !workflow.locationDmsDoneAt
       && (!locationKey || transferLocationKey === locationKey);
@@ -151,7 +172,7 @@ const getTaskList = (role, transfers, locationKey = '') => buildRows(transfers).
     return isExternalTransfer(transfer) && workflow.locationDmsDoneAt && !workflow.financeDoneAt;
   }
   if (role === 'transport') {
-    if (isExternalTransfer(transfer) && !workflow.planningBpDoneAt) return false;
+    if (isExternalTransfer(transfer) && !workflow.redoInvoiceDoneAt) return false;
     if (!isExternalTransfer(transfer) && !workflow.locationDmsDoneAt) return false;
     return !workflow.transportDoneAt;
   }
@@ -163,9 +184,10 @@ const getNextEmailRole = (completedRole, transfer) => {
   const workflow = getWorkflow(transfer);
   if (completedRole === 'ceo') return 'finance';
   if (completedRole === 'location') return isExternalTransfer(transfer) ? 'finance' : 'transport';
-  if (completedRole === 'finance') return workflow.financeDoneAt ? 'planning' : 'location';
-  if (completedRole === 'planning') return 'transport';
+  if (completedRole === 'finance') return workflow.financeDoneAt ? 'planning' : isExternalTransfer(transfer) ? 'transport' : 'location';
+  if (completedRole === 'planning') return isExternalTransfer(transfer) ? '' : 'transport';
   if (completedRole === 'transport') return 'purchase';
+  if (completedRole === 'purchase') return isExternalTransfer(transfer) && !workflow.locationDmsDoneAt ? 'location' : '';
   return '';
 };
 
@@ -202,6 +224,21 @@ const normalizeWorkflowConfig = (config = {}) => {
   return merged;
 };
 
+const getPersistableWorkflowConfig = (config = {}) => {
+  const nextConfig = normalizeWorkflowConfig(config);
+  return {
+    ...nextConfig,
+    recipients: {
+      ...nextConfig.recipients,
+      finance: nextConfig.recipients.financeFloorplan || nextConfig.recipients.finance || '',
+    },
+    ccRecipients: {
+      ...nextConfig.ccRecipients,
+      finance: nextConfig.ccRecipients.financeFloorplan || nextConfig.ccRecipients.finance || '',
+    },
+  };
+};
+
 const getEmailStep = (role, transfer = {}) => {
   if (role === 'ceo') return 'nsm_approval';
   if (role === 'location') return 'location_dms';
@@ -226,6 +263,10 @@ const getFinanceTaskLabel = (transfer) => (
   isFinanceFloorplanStep(transfer)
     ? 'Finance Acctg/AP - Floorplan Check'
     : 'Finance AR - Reverse Invoice and PGI'
+);
+
+const getFinanceRecipientKey = (transfer) => (
+  isFinanceFloorplanStep(transfer) ? 'financeFloorplan' : 'financeAr'
 );
 
 const escapeHtml = (value) => String(value || '')
@@ -420,11 +461,19 @@ const getRecipient = (config, role, transfer) => {
   if (role === 'location') {
     return config?.locationRecipients?.[normalizeWorkflowLocation(transfer?.currentLocation)] || '';
   }
+  if (role === 'finance') {
+    return config?.recipients?.[getFinanceRecipientKey(transfer)] || config?.recipients?.finance || '';
+  }
 
   return config?.recipients?.[role] || '';
 };
 
-const getCcRecipient = (config, role) => config?.ccRecipients?.[role] || '';
+const getCcRecipient = (config, role, transfer = {}) => {
+  if (role === 'finance') {
+    return config?.ccRecipients?.[getFinanceRecipientKey(transfer)] || config?.ccRecipients?.finance || '';
+  }
+  return config?.ccRecipients?.[role] || '';
+};
 
 const canSendEmail = (config, role, transfer = {}) => (
   Boolean(getRecipient(config, role, transfer))
@@ -443,7 +492,7 @@ const sendWorkflowEmail = async (role, transfer, config, taskCount = 1) => {
     step: getEmailStep(role, transfer),
     role,
     to: recipient,
-    cc: getCcRecipient(config, role),
+    cc: getCcRecipient(config, role, transfer),
     title: emailTitle,
     content,
     metadata: {
@@ -498,7 +547,7 @@ const ConfigEditor = ({ config, onChange, onSave, saving }) => {
           />
         ))}
         <div className="md:col-span-3 mt-2 text-sm font-semibold text-gray-700">Role recipients and content</div>
-        {Object.keys(roleLabels).filter((role) => role !== 'location').map((role) => (
+        {recipientConfigRoles.map((role) => (
           <React.Fragment key={role}>
             <input className="rounded border px-3 py-2 text-sm" placeholder={`${roleLabels[role]} recipient email`} value={config.recipients?.[role] || ''} onChange={(e) => updateConfig(`recipients.${role}`, e.target.value)} />
             <input className="rounded border px-3 py-2 text-sm" placeholder={`${roleLabels[role]} CC email`} value={config.ccRecipients?.[role] || ''} onChange={(e) => updateConfig(`ccRecipients.${role}`, e.target.value)} />
@@ -756,7 +805,9 @@ const StockTransferWorkflow = ({ role = 'ceo', standalone = false }) => {
     setSavingConfig(true);
     setMessage('');
     try {
-      await update(ref(database, CONFIG_PATH), config);
+      const nextConfig = getPersistableWorkflowConfig(config);
+      await update(ref(database, CONFIG_PATH), nextConfig);
+      setConfig(nextConfig);
       setMessage('Email settings saved.');
     } catch (error) {
       console.error('Failed to save stock transfer workflow config:', error);
