@@ -29,7 +29,7 @@ const getLocationLabel = (locationKey) => (
 );
 
 const defaultConfig = {
-  appBaseUrl: 'https://schedule-final-tyn6.onrender.com',
+  appBaseUrl: 'https://dealerportal.onrender.com',
   serviceId: '',
   publicKey: '',
   templateId: '',

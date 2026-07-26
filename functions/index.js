@@ -19,7 +19,7 @@ const RETRY_DELAYS_MS = [5000, 15000];
 const STUCK_JOB_MS = 10 * 60 * 1000;
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 const ACTIVE_EMAIL_JOB_STATUSES = ["pending", "sending", "retrying", "sent"];
-const DEFAULT_APP_BASE_URL = "https://schedule-final-tyn6.onrender.com";
+const DEFAULT_APP_BASE_URL = "https://dealerportal.onrender.com";
 const TRANSFERS_PATH = "stock_transfer";
 const CONFIG_PATH = "stockTransferWorkflowConfig";
 
@@ -45,6 +45,7 @@ const workflowPaths = {
 
 const reminderStages = [
   {key: "day1", delayMs: ONE_DAY_MS, titlePrefix: "Reminder"},
+  {key: "day2", delayMs: 2 * ONE_DAY_MS, titlePrefix: "Reminder"},
   {key: "day7", delayMs: 7 * ONE_DAY_MS, titlePrefix: "Final Reminder"},
 ];
 
@@ -900,3 +901,5 @@ exports.sendStockTransferReminderEmails = functions
       const result = await queueDueStockTransferReminders();
       logger.info("Queued stock transfer reminder emails", result);
     });
+
+Object.assign(exports, require("./salesforce"));

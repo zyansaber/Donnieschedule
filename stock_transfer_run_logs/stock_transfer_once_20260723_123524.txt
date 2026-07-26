@@ -1,0 +1,1 @@
+2026-07-23 12:35:24,245 - INFO - Starting stock_transfer SAP sync once: limit=0 log_file=C:\Users\Leo.Li\Documents\GitHub\Donnieschedule\stock_transfer_run_logs\stock_transfer_once_20260723_123524.txt
