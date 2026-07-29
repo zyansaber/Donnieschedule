@@ -636,7 +636,7 @@ const StockTransfer = ({ data = [], showEmailSettings = false }) => {
           <div className="flex flex-wrap items-center gap-2">
             <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 ring-1 ring-amber-200">Yard stock only</span>
             {showEmailSettings && (
-              <a className="rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50" href="#/stock-transfer-workflow/settings">Email Settings</a>
+              <a className="rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50" href="#/stock-transfer-workflow/settings">Email Routing</a>
             )}
           </div>
         </div>

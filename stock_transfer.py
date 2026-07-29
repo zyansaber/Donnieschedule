@@ -81,7 +81,7 @@ WORKER_LOCK_TTL_SECONDS = 10 * 60
 PROCESSING_STALE_SECONDS = 10 * 60
 ERROR_RETRY_SECONDS = 10 * 60
 ACTIVE_EMAIL_JOB_STATUSES = {"pending", "sending", "retrying", "sent"}
-DEFAULT_APP_BASE_URL = "https://dealerportal.onrender.com"
+DEFAULT_APP_BASE_URL = "https://schedule-final-tyn6.onrender.com"
 
 
 # ============================================================

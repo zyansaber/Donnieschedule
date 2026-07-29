@@ -29,7 +29,7 @@ const getLocationLabel = (locationKey) => (
 );
 
 const defaultConfig = {
-  appBaseUrl: 'https://dealerportal.onrender.com',
+  appBaseUrl: 'https://schedule-final-tyn6.onrender.com',
   serviceId: '',
   publicKey: '',
   templateId: '',
@@ -119,6 +119,15 @@ const roleLabels = {
 };
 
 const recipientConfigRoles = ['ceo', 'financeFloorplan', 'financeAr', 'planning', 'transport', 'purchase'];
+
+const approvalLinkRoles = [
+  ['ceo', 'NSM approval'],
+  ['finance', 'Finance task'],
+  ['location', 'Location DMS task'],
+  ['transport', 'Transport task'],
+  ['purchase', 'Purchase task'],
+  ['planning', 'Planning task'],
+];
 
 const workflowFlowSummaries = {
   internal: [
@@ -525,7 +534,7 @@ const ConfigEditor = ({ config, onChange, onSave, saving }) => {
 
   return (
     <details className="mb-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-      <summary className="cursor-pointer text-sm font-semibold text-gray-700">Backend email recipients and content</summary>
+      <summary className="cursor-pointer text-sm font-semibold text-gray-700">Email routing setup</summary>
       <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
         <input
           className="rounded border px-3 py-2 text-sm md:col-span-2"
@@ -534,7 +543,7 @@ const ConfigEditor = ({ config, onChange, onSave, saving }) => {
           onChange={(e) => updateConfig('appBaseUrl', e.target.value)}
         />
         <button type="button" onClick={onSave} disabled={saving} className="rounded bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-gray-400">
-          {saving ? 'Saving...' : 'Save email settings'}
+          {saving ? 'Saving...' : 'Save routing'}
         </button>
         <div className="md:col-span-3 mt-2 text-sm font-semibold text-gray-700">Location DMS recipients</div>
         {LOCATION_WORKFLOW_LOCATIONS.map(([locationKey, label]) => (
@@ -898,7 +907,7 @@ const StockTransferWorkflow = ({ role = 'ceo', standalone = false }) => {
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Stock Transfer Workflow</div>
-            <h2 className="mt-1 text-2xl font-semibold text-slate-950">{role === 'settings' ? 'Email Settings' : role === 'location' ? `${getLocationLabel(locationKey)} DMS Work` : roleLabels[role]}</h2>
+            <h2 className="mt-1 text-2xl font-semibold text-slate-950">{role === 'settings' ? 'Local Email Routing Admin' : role === 'location' ? `${getLocationLabel(locationKey)} DMS Work` : roleLabels[role]}</h2>
           </div>
           {role !== 'settings' && (
             <span className="w-fit rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">{tasks.length} pending</span>
@@ -915,6 +924,20 @@ const StockTransferWorkflow = ({ role = 'ceo', standalone = false }) => {
       )}
       {role === 'settings' && (
         <div className="mb-4 rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
+          <div className="mb-4">
+            <div className="font-semibold text-slate-800">Approval and task pages</div>
+            <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {approvalLinkRoles.map(([linkRole, label]) => (
+                <a
+                  key={linkRole}
+                  className="rounded-md border border-slate-200 px-3 py-2 font-semibold text-slate-700 hover:bg-slate-50"
+                  href={workflowPaths[linkRole]}
+                >
+                  {label}
+                </a>
+              ))}
+            </div>
+          </div>
           Use one EmailJS template for all workflow emails. In EmailJS, set To Email to <span className="font-semibold">{'{{to_email}}'}</span>, Subject to <span className="font-semibold">{'{{title}}'}</span>, and the email body to <span className="font-semibold">{'{{{content}}}'}</span> (or {'{{content}}'} if your template does not support triple braces). Available variables: <span className="font-semibold">to_email, title, task_count, uncompleted_task_count, approve_link, message_note, content, message_html, workflow_url, chassis, model, current_location, target_location, sales_order_display, transfer_category</span>.
           <pre className="mt-4 overflow-x-auto rounded-xl bg-slate-900 p-4 text-xs text-slate-100">{emailJsTemplateExample}</pre>
           <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">

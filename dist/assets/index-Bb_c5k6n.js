@@ -57199,7 +57199,7 @@ const StockTransfer = ({ data = [], showEmailSettings = false }) => {
       ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-wrap items-center gap-2", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 ring-1 ring-amber-200", children: "Yard stock only" }),
-        showEmailSettings && /* @__PURE__ */ jsxRuntimeExports.jsx("a", { className: "rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50", href: "#/stock-transfer-workflow/settings", children: "Email Settings" })
+        showEmailSettings && /* @__PURE__ */ jsxRuntimeExports.jsx("a", { className: "rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50", href: "#/stock-transfer-workflow/settings", children: "Email Routing" })
       ] })
     ] }) }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "rounded-lg border border-slate-200 bg-white p-5 shadow-sm", children: [
@@ -57730,6 +57730,14 @@ const roleLabels = {
   purchase: "Purchase Work"
 };
 const recipientConfigRoles = ["ceo", "financeFloorplan", "financeAr", "planning", "transport", "purchase"];
+const approvalLinkRoles = [
+  ["ceo", "NSM approval"],
+  ["finance", "Finance task"],
+  ["location", "Location DMS task"],
+  ["transport", "Transport task"],
+  ["purchase", "Purchase task"],
+  ["planning", "Planning task"]
+];
 const workflowFlowSummaries = {
   internal: [
     "NSM Approval",
@@ -58072,7 +58080,7 @@ const ConfigEditor = ({ config: config2, onChange, onSave, saving }) => {
     onChange({ ...config2, [section]: { ...config2[section] || {}, [key]: value } });
   };
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("details", { className: "mb-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm", children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("summary", { className: "cursor-pointer text-sm font-semibold text-gray-700", children: "Backend email recipients and content" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("summary", { className: "cursor-pointer text-sm font-semibold text-gray-700", children: "Email routing setup" }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mt-4 grid grid-cols-1 gap-3 md:grid-cols-3", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx(
         "input",
@@ -58083,7 +58091,7 @@ const ConfigEditor = ({ config: config2, onChange, onSave, saving }) => {
           onChange: (e3) => updateConfig("appBaseUrl", e3.target.value)
         }
       ),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: onSave, disabled: saving, className: "rounded bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-gray-400", children: saving ? "Saving..." : "Save email settings" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: onSave, disabled: saving, className: "rounded bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-gray-400", children: saving ? "Saving..." : "Save routing" }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "md:col-span-3 mt-2 text-sm font-semibold text-gray-700", children: "Location DMS recipients" }),
       LOCATION_WORKFLOW_LOCATIONS.map(([locationKey, label]) => {
         var _a;
@@ -58344,7 +58352,7 @@ const StockTransferWorkflow = ({ role = "ceo", standalone = false }) => {
     /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "mb-5 rounded-lg border border-slate-200 bg-white p-5 shadow-sm", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-xs font-semibold uppercase tracking-wide text-slate-500", children: "Stock Transfer Workflow" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { className: "mt-1 text-2xl font-semibold text-slate-950", children: role === "settings" ? "Email Settings" : role === "location" ? `${getLocationLabel(locationKey)} DMS Work` : roleLabels[role] })
+        /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { className: "mt-1 text-2xl font-semibold text-slate-950", children: role === "settings" ? "Local Email Routing Admin" : role === "location" ? `${getLocationLabel(locationKey)} DMS Work` : roleLabels[role] })
       ] }),
       role !== "settings" && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "w-fit rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600", children: [
         tasks.length,
@@ -58354,6 +58362,18 @@ const StockTransferWorkflow = ({ role = "ceo", standalone = false }) => {
     role === "location" && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "mb-4 rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm", children: "Internal stock transfer: confirm the DMS transfer is completed. External stock transfer: confirm DMS reverse goods receiving is completed." }),
     role === "settings" && /* @__PURE__ */ jsxRuntimeExports.jsx(ConfigEditor, { config: config2, onChange: setConfig, onSave: saveConfig, saving: savingConfig }),
     role === "settings" && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mb-4 rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mb-4", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "font-semibold text-slate-800", children: "Approval and task pages" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3", children: approvalLinkRoles.map(([linkRole, label]) => /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "a",
+          {
+            className: "rounded-md border border-slate-200 px-3 py-2 font-semibold text-slate-700 hover:bg-slate-50",
+            href: workflowPaths[linkRole],
+            children: label
+          },
+          linkRole
+        )) })
+      ] }),
       "Use one EmailJS template for all workflow emails. In EmailJS, set To Email to ",
       /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-semibold", children: "{{to_email}}" }),
       ", Subject to ",
@@ -61655,11 +61675,13 @@ function App() {
     "/stock-transfer-workflow/location": "location",
     "/stock-transfer-workflow/planning": "planning",
     "/stock-transfer-workflow/transport": "transport",
-    "/stock-transfer-workflow/purchase": "purchase",
-    "/stock-transfer-workflow/settings": "settings"
+    "/stock-transfer-workflow/purchase": "purchase"
   };
   const isInternalSnowy = window.location.pathname === internalSnowyPath;
   const allowLocalEmailSettings = isLocalWorkflowAdminHost();
+  if (allowLocalEmailSettings) {
+    stockTransferWorkflowRoutes["/stock-transfer-workflow/settings"] = "settings";
+  }
   const standaloneStockTransferWorkflowRole = stockTransferWorkflowRoutes[routePath];
   const menuItems = [
     { id: "schedule", name: "Schedule", icon: "M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" },
@@ -61803,10 +61825,11 @@ function App() {
   if (isInternalSnowy) {
     return /* @__PURE__ */ jsxRuntimeExports.jsx(InternalSnowyPage, {});
   }
+  if (routePath === "/stock-transfer-workflow/settings" && !allowLocalEmailSettings) {
+    window.location.replace(`${window.location.pathname}#/stock-transfer-workflow/ceo`);
+    return null;
+  }
   if (standaloneStockTransferWorkflowRole) {
-    if (standaloneStockTransferWorkflowRole === "settings" && !allowLocalEmailSettings) {
-      return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex min-h-screen items-center justify-center bg-slate-50 p-6", children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "w-full max-w-md rounded-lg border border-slate-200 bg-white p-6 text-center text-sm text-slate-600 shadow-sm", children: "Email settings are only available on the local computer." }) });
-    }
     return /* @__PURE__ */ jsxRuntimeExports.jsx(StockTransferWorkflow, { role: standaloneStockTransferWorkflowRole, standalone: true });
   }
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex min-h-screen flex-col bg-slate-50", children: [

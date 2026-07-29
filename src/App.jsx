@@ -42,10 +42,12 @@ function App() {
     '/stock-transfer-workflow/planning': 'planning',
     '/stock-transfer-workflow/transport': 'transport',
     '/stock-transfer-workflow/purchase': 'purchase',
-    '/stock-transfer-workflow/settings': 'settings',
   };
   const isInternalSnowy = window.location.pathname === internalSnowyPath;
   const allowLocalEmailSettings = isLocalWorkflowAdminHost();
+  if (allowLocalEmailSettings) {
+    stockTransferWorkflowRoutes['/stock-transfer-workflow/settings'] = 'settings';
+  }
   const standaloneStockTransferWorkflowRole = stockTransferWorkflowRoutes[routePath];
 
   const menuItems = [
@@ -69,7 +71,7 @@ function App() {
     await queueEmailJob({
       step: 'schedule_shuffle_requests',
       role: 'schedule',
-      to: 'leo.li@regentrv.com.au',
+      to: 'lynn@regentrv.com.au',
       title: 'Schedule Shuffling Requests',
       content: `
         <h2>Schedule Shuffling Requests</h2>
@@ -208,16 +210,12 @@ function App() {
     return <InternalSnowyPage />;
   }
 
+  if (routePath === '/stock-transfer-workflow/settings' && !allowLocalEmailSettings) {
+    window.location.replace(`${window.location.pathname}#/stock-transfer-workflow/ceo`);
+    return null;
+  }
+
   if (standaloneStockTransferWorkflowRole) {
-    if (standaloneStockTransferWorkflowRole === 'settings' && !allowLocalEmailSettings) {
-      return (
-        <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
-          <div className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-6 text-center text-sm text-slate-600 shadow-sm">
-            Email settings are only available on the local computer.
-          </div>
-        </div>
-      );
-    }
     return <StockTransferWorkflow role={standaloneStockTransferWorkflowRole} standalone />;
   }
   
