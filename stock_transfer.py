@@ -1086,33 +1086,48 @@ def fetch_dealer_sales_orders(chassis_list: List[str]):
     return eligible, rejected
 
 def fetch_pgi_for_dealer_orders(eligible):
-    """Resolve PGI from the actual non-rejected order numbers and item numbers."""
+    """Resolve PGI through the dealer SO's actual outbound delivery/document flow.
+
+    KDAUF/KDPOS alone is not used as proof of this sales order's dispatch.
+    Dealer names come only from the issuing material document WERKS/LGORT map.
+    """
     fields = ["Sales Order SAP", "Sales Order Item", "PGI Plant", "PGI Storage Location",
               "PGI Post Date", "PGI Entry Date", "PGI Entry Time", "PGI Document", "PGI Year", "PGI Item"]
     frames = []
     for batch in chunk_list(eligible["Sales Order SAP"].drop_duplicates().tolist()):
         so_sql = sql_quote_list(batch)
         sql = f"""
-        WITH linked AS (
-            SELECT DISTINCT item."VBELN" AS "Sales Order SAP", item."POSNR" AS "Sales Order Item",
-                movement."MBLNR", movement."MJAHR", movement."ZEILE"
-            FROM "SAPHANADB"."VBAP" item
-            INNER JOIN "SAPHANADB"."NSDM_V_MSEG" movement
-                ON movement."MANDT" = item."MANDT" AND movement."KDAUF" = item."VBELN"
-               AND movement."KDPOS" = item."POSNR"
-            WHERE item."MANDT" = '{MANDT}' AND item."VBELN" IN ({so_sql})
-              AND COALESCE(TRIM(item."ABGRU"), '') = ''
-              AND movement."BWART" = '601' AND movement."SHKZG" = 'H'
-            UNION
-            SELECT DISTINCT delivery."VGBEL", delivery."VGPOS",
-                movement."MBLNR", movement."MJAHR", movement."ZEILE"
+        WITH deliveries AS (
+            SELECT DISTINCT delivery."VGBEL" AS "Sales Order SAP", delivery."VGPOS" AS "Sales Order Item",
+                delivery."VBELN" AS "Delivery", delivery."POSNR" AS "Delivery Item"
             FROM "SAPHANADB"."LIPS" delivery
-            INNER JOIN "SAPHANADB"."NSDM_V_MSEG" movement
-                ON movement."MANDT" = delivery."MANDT"
-               AND movement."VBELN_IM" = delivery."VBELN"
-               AND movement."VBELP_IM" = delivery."POSNR"
             WHERE delivery."MANDT" = '{MANDT}' AND delivery."VGBEL" IN ({so_sql})
-              AND movement."BWART" = '601' AND movement."SHKZG" = 'H'
+            UNION
+            SELECT DISTINCT flow."VBELV", flow."POSNV", flow."VBELN", flow."POSNN"
+            FROM "SAPHANADB"."VBFA" flow
+            WHERE flow."MANDT" = '{MANDT}' AND flow."VBELV" IN ({so_sql})
+              AND flow."VBTYP_N" = 'J'
+        ), linked AS (
+            SELECT DISTINCT delivery."Sales Order SAP", delivery."Sales Order Item",
+                movement."MBLNR", movement."MJAHR", movement."ZEILE"
+            FROM deliveries delivery
+            INNER JOIN "SAPHANADB"."NSDM_V_MSEG" movement
+                ON movement."MANDT" = '{MANDT}'
+               AND movement."VBELN_IM" = delivery."Delivery"
+               AND movement."VBELP_IM" = delivery."Delivery Item"
+            WHERE movement."BWART" = '601' AND movement."SHKZG" = 'H'
+            UNION
+            SELECT DISTINCT delivery."Sales Order SAP", delivery."Sales Order Item",
+                movement."MBLNR", movement."MJAHR", movement."ZEILE"
+            FROM deliveries delivery
+            INNER JOIN "SAPHANADB"."VBFA" flow
+                ON flow."MANDT" = '{MANDT}' AND flow."VBELV" = delivery."Delivery"
+               AND flow."POSNV" = delivery."Delivery Item" AND flow."VBTYP_N" = 'R'
+            INNER JOIN "SAPHANADB"."NSDM_V_MSEG" movement
+                ON movement."MANDT" = flow."MANDT" AND movement."MBLNR" = flow."VBELN"
+               AND movement."MJAHR" = flow."MJAHR"
+               AND CAST(movement."ZEILE" AS INTEGER) = CAST(flow."POSNN" AS INTEGER)
+            WHERE movement."BWART" = '601' AND movement."SHKZG" = 'H'
         ), ranked AS (
             SELECT linked."Sales Order SAP", linked."Sales Order Item",
                 pgi."WERKS" AS "PGI Plant", pgi."LGORT" AS "PGI Storage Location",
@@ -1162,7 +1177,6 @@ def fetch_pgi_for_dealer_orders(eligible):
                        row["Sales Order SAP"], row["Sales Order Item"], row["PGI Plant"], row["PGI Storage Location"])
     return detail
 
-
 def fetch_dealer_last_pgi(chassis_list):
     eligible, rejected = fetch_dealer_sales_orders(chassis_list)
     logger.info("Dealer eligible SO items=%s; rejected SO items=%s", len(eligible), len(rejected))
@@ -1184,8 +1198,13 @@ def fetch_dealer_last_pgi(chassis_list):
                                "Chassis": chassis, "Dealer Is PGI": "No eligible SO"}
                               for chassis in unmatched])
         result = pd.concat([result, empty], ignore_index=True)
-    return result.drop_duplicates(["Chassis", "Dealer Sales Organization", "Dealer Sales Order Number", "Dealer Sales Order Item"])
-
+    result = result.drop_duplicates(["Chassis", "Dealer Sales Organization", "Dealer Sales Order Number", "Dealer Sales Order Item"])
+    result.attrs["dealer_pgi_check"] = detail[[
+        "Chassis", "Dealer Sales Order Number", "Dealer Sales Organization", "Dealer Sales Order Item",
+        "Dealer Is PGI", "PGI Document", "PGI Year", "PGI Item", "PGI Plant", "PGI Storage Location",
+        "Dealer PGI Warehouse Name",
+    ]].copy()
+    return result
 
 def fetch_company_stock_locations(chassis_list: List[str]) -> pd.DataFrame:
     columns = [
@@ -1334,12 +1353,14 @@ def build_sap_enrichment(firebase_df: pd.DataFrame):
     logger.info("Found SO bill-to change/current-partner rows: %s", len(bp_change_df))
 
     dealer_pgi_df = fetch_dealer_last_pgi(chassis_list)
+    dealer_check_df = dealer_pgi_df.attrs.pop("dealer_pgi_check", pd.DataFrame())
     logger.info("Dealer PGI status rows for 3120/3140 SOs: %s", len(dealer_pgi_df))
 
     stock_summary_df = fetch_company_stock_locations(chassis_list)
     logger.info("Found company warehouse stock summary rows: %s", len(stock_summary_df))
 
     stock_detail_df = stock_summary_df.copy()
+    stock_detail_df.attrs["dealer_pgi_check"] = dealer_check_df
 
     result = firebase_df.merge(
         so_df,
@@ -1468,10 +1489,6 @@ def build_sap_enrichment(firebase_df: pd.DataFrame):
     )
     return result, stock_detail_df
 
-
-# ============================================================
-# Excel
-# ============================================================
 def write_excel(
     result_df: pd.DataFrame,
     firebase_df: pd.DataFrame,
@@ -1523,6 +1540,8 @@ def write_excel(
         firebase_df.to_excel(writer, sheet_name="Firebase Raw", index=False)
         stock_detail_df.to_excel(writer, sheet_name="Warehouse Stock Detail", index=False)
         report_summary.to_excel(writer, sheet_name="Summary", index=False)
+        stock_detail_df.attrs.get("dealer_pgi_check", pd.DataFrame()).to_excel(
+            writer, sheet_name="Dealer PGI Check", index=False)
 
         header_fill = PatternFill(fill_type="solid", fgColor="1F4E78")
         header_font = Font(color="FFFFFF", bold=True)
@@ -1565,11 +1584,6 @@ def write_excel(
             ):
                 result_ws.cell(row_number, location_col).fill = outside_fill
 
-
-
-# ============================================================
-# Write SAP enrichment back to Firebase stock_transfer
-# ============================================================
 def update_stock_transfer_with_sap(result_df: pd.DataFrame) -> None:
     """
     Write selected SAP result fields back to each original Firebase record:
