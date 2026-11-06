@@ -60,7 +60,7 @@ FIREBASE_EMAIL_JOBS_NODE = "email_jobs"
 # ============================================================
 # SAP HANA
 # ============================================================
-# Configure SAP_HANA_DSN on the computer running the sync.
+# Set SAP_HANA_DSN on the sync computer.
 DSN = os.environ.get("SAP_HANA_DSN", "").strip()
 
 MANDT = "800"
@@ -96,7 +96,10 @@ WAREHOUSE_MAP: Dict[Tuple[str, str], str] = {
     ("3411", "0099"): "Frankston",
 }
 
-DEALER_PGI_COLUMNS = ["Dealer Is PGI", "Dealer PGI Warehouse Name"]
+DEALER_PGI_COLUMNS = [
+    "Dealer Sales Order Number", "Dealer Sales Organization", "Dealer Sales Order Item",
+    "Dealer Is PGI", "Dealer PGI Warehouse Name",
+]
 INVOICE_BP_CHANGE_COLUMNS = [
     "SO Invoice-to BP", "SO Invoice-to Name", "SO Invoice-to Item",
     "Invoice BP Last Changed By", "Invoice BP Last Change Date",
@@ -199,7 +202,9 @@ def assert_sap_read_only_sql(sql: str) -> None:
     normalized = sql.strip()
     if not normalized.upper().startswith(("SELECT", "WITH")):
         raise RuntimeError("Blocked non-read-only SAP SQL. Only SELECT/WITH queries are allowed.")
-    blocked_keyword = SAP_WRITE_KEYWORD_PATTERN.search(normalized)
+    blocked_keyword = SAP_WRITE_KEYWORD_PATTERN.search(
+        re.sub(r"\bREPLACE(?=\s*\()", "SAP_STRING_REPLACE", normalized, flags=re.IGNORECASE)
+    )
     if blocked_keyword:
         raise RuntimeError(f"Blocked SAP SQL containing write keyword: {blocked_keyword.group(1).upper()}")
 
@@ -1027,21 +1032,12 @@ def fetch_invoice_bp_last_change(sales_orders: List[str]) -> pd.DataFrame:
 # ============================================================
 # Current company warehouse stock
 # ============================================================
-def fetch_dealer_last_pgi(chassis_list: List[str]) -> pd.DataFrame:
-    """PGI of non-rejected 3120/3140 SO item 10 linked to each chassis.
-
-    Both direct sales-order assignment and delivery predecessor links are used.
-    Never infer dealer PGI from the 3110 order or from an unrelated historical
-    serial movement. Exclude referenced 602 reversals and choose the latest
-    surviving PGI across eligible orders. Only status and warehouse are exported.
-    """
-    columns = ["Chassis"] + DEALER_PGI_COLUMNS
-    rows = []
+def fetch_dealer_sales_orders(chassis_list: List[str]):
+    frames = []
     for batch in chunk_list(chassis_list):
         chassis_sql = sql_quote_list(batch)
-        sql = f"""
-        WITH eligible_orders AS (
-            SELECT DISTINCT objk."SERNR" AS "Chassis", vbak."VBELN", vbap."POSNR"
+        candidate_sql = f"""
+            SELECT DISTINCT REPLACE(REPLACE(REPLACE(UPPER(TRIM(objk."SERNR")), ' ', ''), '-', ''), '_', '') AS "Chassis", vbak."VBELN", vbap."POSNR", vbak."VKORG" AS "Sales Organization", COALESCE(TRIM(vbap."ABGRU"), '') AS "Rejection Reason", 'SER02/OBJK' AS "Match Source"
             FROM "SAPHANADB"."SER02" ser02
             INNER JOIN "SAPHANADB"."OBJK" objk
                 ON objk."MANDT" = ser02."MANDT" AND objk."OBKNR" = ser02."OBKNR"
@@ -1051,47 +1047,91 @@ def fetch_dealer_last_pgi(chassis_list: List[str]) -> pd.DataFrame:
                 ON vbap."MANDT" = ser02."MANDT" AND vbap."VBELN" = ser02."SDAUFNR"
                AND vbap."POSNR" = ser02."POSNR"
             WHERE ser02."MANDT" = '{MANDT}'
-              AND objk."SERNR" IN ({chassis_sql})
+              AND REPLACE(REPLACE(REPLACE(UPPER(TRIM(objk."SERNR")), ' ', ''), '-', ''), '_', '') IN ({chassis_sql})
               AND vbak."VKORG" IN ('3120', '3140')
-              AND vbap."POSNR" = '{SALES_ORDER_ITEM}'
-              AND COALESCE(TRIM(vbap."ABGRU"), '') = ''
-        ), linked_movements AS (
-            SELECT DISTINCT eligible."Chassis", movement."MBLNR", movement."MJAHR", movement."ZEILE"
-            FROM eligible_orders eligible
-            INNER JOIN "SAPHANADB"."NSDM_V_MSEG" movement
-                ON movement."MANDT" = '{MANDT}' AND movement."KDAUF" = eligible."VBELN"
-               AND movement."KDPOS" = eligible."POSNR"
-               AND movement."BWART" = '601' AND movement."SHKZG" = 'H'
+
             UNION
-            SELECT DISTINCT eligible."Chassis", movement."MBLNR", movement."MJAHR", movement."ZEILE"
-            FROM eligible_orders eligible
+            SELECT DISTINCT REPLACE(REPLACE(REPLACE(UPPER(TRIM(objk."SERNR")), ' ', ''), '-', ''), '_', '') AS "Chassis", vbak."VBELN", vbap."POSNR", vbak."VKORG" AS "Sales Organization", COALESCE(TRIM(vbap."ABGRU"), '') AS "Rejection Reason", 'SER01/OBJK/LIPS' AS "Match Source"
+            FROM "SAPHANADB"."SER01" ser02
+            INNER JOIN "SAPHANADB"."OBJK" objk
+                ON objk."MANDT" = ser02."MANDT" AND objk."OBKNR" = ser02."OBKNR"
             INNER JOIN "SAPHANADB"."LIPS" delivery
-                ON delivery."MANDT" = '{MANDT}' AND delivery."VGBEL" = eligible."VBELN"
-               AND delivery."VGPOS" = eligible."POSNR"
+                ON delivery."MANDT" = ser02."MANDT" AND delivery."VBELN" = ser02."LIEF_NR" AND delivery."POSNR" = ser02."POSNR"
+            INNER JOIN "SAPHANADB"."VBAK" vbak
+                ON vbak."MANDT" = ser02."MANDT" AND vbak."VBELN" = delivery."VGBEL"
+            INNER JOIN "SAPHANADB"."VBAP" vbap
+                ON vbap."MANDT" = ser02."MANDT" AND vbap."VBELN" = delivery."VGBEL"
+               AND vbap."POSNR" = delivery."VGPOS"
+            WHERE ser02."MANDT" = '{MANDT}'
+              AND REPLACE(REPLACE(REPLACE(UPPER(TRIM(objk."SERNR")), ' ', ''), '-', ''), '_', '') IN ({chassis_sql})
+              AND vbak."VKORG" IN ('3120', '3140')
+        """
+        candidates = hana_query(candidate_sql)
+        if not candidates.empty:
+            frames.append(candidates)
+    columns = ["Chassis", "VBELN", "POSNR", "Sales Organization", "Rejection Reason", "Match Source"]
+    candidates = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=columns)
+    for column in columns:
+        candidates[column] = candidates[column].fillna("").astype(str).str.strip()
+    candidates["Chassis"] = candidates["Chassis"].map(normalize_chassis)
+    candidates = candidates.rename(columns={"VBELN": "Sales Order SAP", "POSNR": "Sales Order Item"})
+    keys = ["Chassis", "Sales Organization", "Sales Order SAP", "Sales Order Item", "Rejection Reason"]
+    candidates = candidates.groupby(keys, as_index=False, dropna=False).agg(
+        **{"Match Source": ("Match Source", lambda values: "; ".join(sorted(set(values))))})
+    candidates["Sales Order Number"] = candidates["Sales Order SAP"].str.lstrip("0")
+    candidates = candidates[["Chassis", "Sales Organization", "Sales Order Number", "Sales Order SAP", "Sales Order Item", "Rejection Reason", "Match Source"]]
+    candidates = candidates.sort_values(["Chassis", "Sales Organization", "Sales Order SAP", "Sales Order Item"])
+    eligible = candidates[candidates["Rejection Reason"].eq("")].copy()
+    rejected = candidates[candidates["Rejection Reason"].ne("")].copy()
+    return eligible, rejected
+
+def fetch_pgi_for_dealer_orders(eligible):
+    """Resolve PGI from the actual non-rejected order numbers and item numbers."""
+    fields = ["Sales Order SAP", "Sales Order Item", "PGI Plant", "PGI Storage Location",
+              "PGI Post Date", "PGI Entry Date", "PGI Entry Time", "PGI Document", "PGI Year", "PGI Item"]
+    frames = []
+    for batch in chunk_list(eligible["Sales Order SAP"].drop_duplicates().tolist()):
+        so_sql = sql_quote_list(batch)
+        sql = f"""
+        WITH linked AS (
+            SELECT DISTINCT item."VBELN" AS "Sales Order SAP", item."POSNR" AS "Sales Order Item",
+                movement."MBLNR", movement."MJAHR", movement."ZEILE"
+            FROM "SAPHANADB"."VBAP" item
+            INNER JOIN "SAPHANADB"."NSDM_V_MSEG" movement
+                ON movement."MANDT" = item."MANDT" AND movement."KDAUF" = item."VBELN"
+               AND movement."KDPOS" = item."POSNR"
+            WHERE item."MANDT" = '{MANDT}' AND item."VBELN" IN ({so_sql})
+              AND COALESCE(TRIM(item."ABGRU"), '') = ''
+              AND movement."BWART" = '601' AND movement."SHKZG" = 'H'
+            UNION
+            SELECT DISTINCT delivery."VGBEL", delivery."VGPOS",
+                movement."MBLNR", movement."MJAHR", movement."ZEILE"
+            FROM "SAPHANADB"."LIPS" delivery
             INNER JOIN "SAPHANADB"."NSDM_V_MSEG" movement
                 ON movement."MANDT" = delivery."MANDT"
                AND movement."VBELN_IM" = delivery."VBELN"
                AND movement."VBELP_IM" = delivery."POSNR"
-               AND movement."BWART" = '601' AND movement."SHKZG" = 'H'
-        ), ranked_pgi AS (
-            SELECT linked."Chassis", pgi."WERKS" AS "Plant", pgi."LGORT" AS "Storage Location",
-                COALESCE(storage."LGOBE", '') AS "Storage Description",
+            WHERE delivery."MANDT" = '{MANDT}' AND delivery."VGBEL" IN ({so_sql})
+              AND movement."BWART" = '601' AND movement."SHKZG" = 'H'
+        ), ranked AS (
+            SELECT linked."Sales Order SAP", linked."Sales Order Item",
+                pgi."WERKS" AS "PGI Plant", pgi."LGORT" AS "PGI Storage Location",
+                pgi."BUDAT_MKPF" AS "PGI Post Date", header."CPUDT" AS "PGI Entry Date",
+                header."CPUTM" AS "PGI Entry Time", pgi."MBLNR" AS "PGI Document",
+                pgi."MJAHR" AS "PGI Year", pgi."ZEILE" AS "PGI Item",
                 ROW_NUMBER() OVER (
-                    PARTITION BY linked."Chassis"
+                    PARTITION BY linked."Sales Order SAP", linked."Sales Order Item"
                     ORDER BY COALESCE(NULLIF(header."CPUDT", '00000000'), pgi."BUDAT_MKPF") DESC,
                         header."CPUTM" DESC, pgi."BUDAT_MKPF" DESC,
                         pgi."MJAHR" DESC, pgi."MBLNR" DESC, pgi."ZEILE" DESC
                 ) AS rn
-            FROM linked_movements linked
+            FROM linked
             INNER JOIN "SAPHANADB"."NSDM_V_MSEG" pgi
                 ON pgi."MANDT" = '{MANDT}' AND pgi."MBLNR" = linked."MBLNR"
                AND pgi."MJAHR" = linked."MJAHR" AND pgi."ZEILE" = linked."ZEILE"
             INNER JOIN "SAPHANADB"."MKPF" header
                 ON header."MANDT" = pgi."MANDT" AND header."MBLNR" = pgi."MBLNR"
                AND header."MJAHR" = pgi."MJAHR"
-            LEFT JOIN "SAPHANADB"."T001L" storage
-                ON storage."MANDT" = pgi."MANDT" AND storage."WERKS" = pgi."WERKS"
-               AND storage."LGORT" = pgi."LGORT"
             WHERE NOT EXISTS (
                 SELECT 1 FROM "SAPHANADB"."NSDM_V_MSEG" reversal
                 WHERE reversal."MANDT" = pgi."MANDT" AND reversal."BWART" = '602'
@@ -1099,29 +1139,52 @@ def fetch_dealer_last_pgi(chassis_list: List[str]) -> pd.DataFrame:
                   AND reversal."SJAHR" = pgi."MJAHR" AND reversal."SMBLP" = pgi."ZEILE"
             )
         )
-        SELECT DISTINCT eligible."Chassis", ranked."Plant", ranked."Storage Location",
-            ranked."Storage Description"
-        FROM eligible_orders eligible
-        LEFT JOIN ranked_pgi ranked
-            ON ranked."Chassis" = eligible."Chassis" AND ranked.rn = 1
+        SELECT "Sales Order SAP", "Sales Order Item", "PGI Plant", "PGI Storage Location",
+            "PGI Post Date", "PGI Entry Date", "PGI Entry Time", "PGI Document", "PGI Year", "PGI Item"
+        FROM ranked WHERE rn = 1
         """
         frame = hana_query(sql)
-        matches = {}
         if not frame.empty:
-            frame = normalize_sap_text_columns(frame, list(frame.columns))
-            matches = {normalize_chassis(row["Chassis"]): row for _, row in frame.iterrows()}
-        for chassis in batch:
-            match = matches.get(normalize_chassis(chassis))
-            status, warehouse = "No eligible SO", ""
-            if match is not None:
-                status = "Yes" if match["Plant"] else "No"
-                if status == "Yes":
-                    warehouse = WAREHOUSE_MAP.get(
-                        (match["Plant"], match["Storage Location"]),
-                        match["Storage Description"] or f'{match["Plant"]}/{match["Storage Location"]}',
-                    )
-            rows.append({"Chassis": chassis, "Dealer Is PGI": status, "Dealer PGI Warehouse Name": warehouse})
-    return pd.DataFrame(rows, columns=columns).drop_duplicates("Chassis")
+            frames.append(frame)
+    pgi = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=fields)
+    for field in fields:
+        pgi[field] = pgi[field].fillna("").astype(str).str.strip()
+    detail = eligible.merge(pgi, on=["Sales Order SAP", "Sales Order Item"], how="left", validate="many_to_one")
+    for field in fields:
+        detail[field] = detail[field].fillna("")
+    detail["Dealer Is PGI"] = detail["PGI Document"].ne("").map({True: "Yes", False: "No"})
+    detail["Dealer PGI Warehouse Name"] = detail.apply(
+        lambda row: WAREHOUSE_MAP.get((row["PGI Plant"], row["PGI Storage Location"]), "")
+        if row["Dealer Is PGI"] == "Yes" else "", axis=1)
+    missing = detail["Dealer Is PGI"].eq("Yes") & detail["Dealer PGI Warehouse Name"].eq("")
+    for _, row in detail.loc[missing].iterrows():
+        logger.warning("PGI exists but warehouse mapping missing: SO=%s item=%s plant=%s storage=%s",
+                       row["Sales Order SAP"], row["Sales Order Item"], row["PGI Plant"], row["PGI Storage Location"])
+    return detail
+
+
+def fetch_dealer_last_pgi(chassis_list):
+    eligible, rejected = fetch_dealer_sales_orders(chassis_list)
+    logger.info("Dealer eligible SO items=%s; rejected SO items=%s", len(eligible), len(rejected))
+    detail = fetch_pgi_for_dealer_orders(eligible)
+    detail["Event Date"] = detail["PGI Entry Date"].where(
+        ~detail["PGI Entry Date"].isin(["", "00000000"]), detail["PGI Post Date"])
+    detail = detail.sort_values(
+        ["Event Date", "PGI Entry Time", "PGI Post Date", "PGI Year", "PGI Document", "PGI Item"],
+        ascending=False, kind="stable")
+    detail = detail.rename(columns={
+        "Sales Order Number": "Dealer Sales Order Number",
+        "Sales Organization": "Dealer Sales Organization",
+        "Sales Order Item": "Dealer Sales Order Item",
+    })
+    result = detail[["Chassis"] + DEALER_PGI_COLUMNS].copy()
+    unmatched = [chassis for chassis in chassis_list if chassis not in set(result["Chassis"])]
+    if unmatched:
+        empty = pd.DataFrame([{**{column: "" for column in DEALER_PGI_COLUMNS},
+                               "Chassis": chassis, "Dealer Is PGI": "No eligible SO"}
+                              for chassis in unmatched])
+        result = pd.concat([result, empty], ignore_index=True)
+    return result.drop_duplicates(["Chassis", "Dealer Sales Organization", "Dealer Sales Order Number", "Dealer Sales Order Item"])
 
 
 def fetch_company_stock_locations(chassis_list: List[str]) -> pd.DataFrame:
@@ -1311,7 +1374,7 @@ def build_sap_enrichment(firebase_df: pd.DataFrame):
         dealer_pgi_df,
         how="left",
         on="Chassis",
-        validate="many_to_one",
+        validate="many_to_many",
     )
 
     text_columns = [
@@ -1401,6 +1464,7 @@ def build_sap_enrichment(firebase_df: pd.DataFrame):
     result = result.sort_values(
         ["Transfer Saved At", "Chassis", "Sales Order SAP"],
         na_position="last",
+        kind="stable",
     )
     return result, stock_detail_df
 
@@ -1542,11 +1606,24 @@ def update_stock_transfer_with_sap(result_df: pd.DataFrame) -> None:
             working[column] = ""
         working[column] = working[column].fillna("").astype(str).str.strip()
 
+    dealer_orders_by_key = {}
+    for key, group in working.groupby("Firebase Key", sort=False):
+        dealer_rows = group.loc[group["Dealer Sales Order Number"].ne("")].drop_duplicates(
+            ["Dealer Sales Organization", "Dealer Sales Order Number", "Dealer Sales Order Item"])
+        dealer_orders_by_key[key] = [{
+            "Sales Order Number": item["Dealer Sales Order Number"],
+            "Sales Organization": item["Dealer Sales Organization"],
+            "Sales Order Item": item["Dealer Sales Order Item"],
+            "Is PGI": item["Dealer Is PGI"],
+            "Warehouse Name": item["Dealer PGI Warehouse Name"],
+        } for _, item in dealer_rows.iterrows()]
+
     # A chassis can occasionally resolve to multiple 3110 sales orders. For a
     # single Firebase record, keep the numerically/latest-looking SAP SO row.
     working = working.sort_values(
         ["Firebase Key", "Sales Order SAP"],
         ascending=[True, False],
+        kind="stable",
     ).drop_duplicates(subset=["Firebase Key"], keep="first")
 
     initialize_firebase()
@@ -1567,6 +1644,7 @@ def update_stock_transfer_with_sap(result_df: pd.DataFrame) -> None:
             else {}
         )
         current_record = current_record if isinstance(current_record, dict) else {}
+        updates[f"{FIREBASE_NODE}/{firebase_key}/Dealer Sales Orders"] = dealer_orders_by_key.get(firebase_key) or None
         changed_fields = {}
         snapshot_before = {}
         snapshot_after = {}

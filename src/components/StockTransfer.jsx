@@ -61,6 +61,19 @@ const getStockLocationCellClass = (transfer) => (
     : 'px-4 py-2 text-sm text-gray-600'
 );
 
+const getDealerOrderRows = (transfer) => {
+  const saved = transfer?.['Dealer Sales Orders'];
+  const rows = Array.isArray(saved) ? saved : saved && typeof saved === 'object' ? Object.values(saved) : [];
+  if (rows.length) return rows;
+  return [{
+    'Sales Order Number': transfer?.['Dealer Sales Order Number'] || '',
+    'Sales Organization': transfer?.['Dealer Sales Organization'] || '',
+    'Sales Order Item': transfer?.['Dealer Sales Order Item'] || '',
+    'Is PGI': transfer?.['Dealer Is PGI'] || '',
+    'Warehouse Name': transfer?.['Dealer PGI Warehouse Name'] || '',
+  }];
+};
+
 const getSOPGIPostDateDisplay = (transfer) => {
   const pgiPostDate = String(transfer?.['SO PGI Post Date'] || '').trim();
   const pgiStatus = String(transfer?.['SO Is PGI'] || '').trim().toLowerCase();
@@ -770,6 +783,7 @@ const StockTransfer = ({ data = [], showEmailSettings = false }) => {
                   <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">Category</th>
                   <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">PGI Date</th>
                   <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">Stock Location</th>
+                  <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">Dealer Sales Order (3120/3140)</th>
                   <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">Dealer PGI (3120/3140)</th>
                   <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">Dealer PGI Warehouse Name</th>
                   <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">Sales Order</th>
@@ -820,15 +834,16 @@ const StockTransfer = ({ data = [], showEmailSettings = false }) => {
                         <td className="px-4 py-2 text-sm text-gray-600">{transfer['Stock Transfer Category'] || '-'}</td>
                         <td className="px-4 py-2 text-sm text-gray-600">{getSOPGIPostDateDisplay(transfer)}</td>
                         <td className={getStockLocationCellClass(transfer)}>{transfer['Company Stock Current Location'] || '-'}</td>
-                        <td className="px-4 py-2 text-sm text-gray-600">{transfer['Dealer Is PGI'] || '-'}</td>
-                        <td className="px-4 py-2 text-sm text-gray-600">{transfer['Dealer PGI Warehouse Name'] || '-'}</td>
+                        <td className="px-4 py-2 text-sm text-gray-600">{getDealerOrderRows(transfer).map((order, index) => <div key={index}>{order['Sales Order Number'] || '-'}{order['Sales Organization'] ? ' (' + order['Sales Organization'] + ')' : ''}{order['Sales Order Item'] ? ' / ' + order['Sales Order Item'] : ''}</div>)}</td>
+                        <td className="px-4 py-2 text-sm text-gray-600">{getDealerOrderRows(transfer).map((order, index) => <div key={index}>{order['Is PGI'] || '-'}</div>)}</td>
+                        <td className="px-4 py-2 text-sm text-gray-600">{getDealerOrderRows(transfer).map((order, index) => <div key={index}>{order['Warehouse Name'] || '-'}</div>)}</td>
                         <td className="px-4 py-2 text-sm text-gray-600">{transfer['Sales Order Display'] || '-'}</td>
                         <td className="px-4 py-2 text-sm text-gray-600">{transfer['Invoice-to Name'] || '-'}</td>
                         <td className="px-4 py-2 text-sm text-gray-600">{transfer['Invoice BP Last Changed By'] || '-'}</td>
                       </tr>
                       {expanded && (
                         <tr>
-                          <td colSpan={13} className="bg-slate-50 px-4 py-4">
+                          <td colSpan={14} className="bg-slate-50 px-4 py-4">
                             <div className="mb-3 flex flex-wrap items-center gap-2 text-sm text-slate-700">
                               <span className="font-semibold text-slate-950">Current task:</span>
                               <span>{firstPendingStep?.label || 'All tasks done'}</span>
@@ -954,6 +969,7 @@ const StockTransfer = ({ data = [], showEmailSettings = false }) => {
                   <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">Category</th>
                   <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">Sales Order</th>
                   <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">Stock Location</th>
+                  <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">Dealer Sales Order (3120/3140)</th>
                   <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">Dealer PGI (3120/3140)</th>
                   <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">Dealer PGI Warehouse Name</th>
                 </tr>
@@ -999,12 +1015,13 @@ const StockTransfer = ({ data = [], showEmailSettings = false }) => {
                         <td className="px-4 py-2 text-sm text-gray-600">{transfer['Stock Transfer Category'] || '-'}</td>
                         <td className="px-4 py-2 text-sm text-gray-600">{transfer['Sales Order Display'] || '-'}</td>
                         <td className={getStockLocationCellClass(transfer)}>{transfer['Company Stock Current Location'] || '-'}</td>
-                        <td className="px-4 py-2 text-sm text-gray-600">{transfer['Dealer Is PGI'] || '-'}</td>
-                        <td className="px-4 py-2 text-sm text-gray-600">{transfer['Dealer PGI Warehouse Name'] || '-'}</td>
+                        <td className="px-4 py-2 text-sm text-gray-600">{getDealerOrderRows(transfer).map((order, index) => <div key={index}>{order['Sales Order Number'] || '-'}{order['Sales Organization'] ? ' (' + order['Sales Organization'] + ')' : ''}{order['Sales Order Item'] ? ' / ' + order['Sales Order Item'] : ''}</div>)}</td>
+                        <td className="px-4 py-2 text-sm text-gray-600">{getDealerOrderRows(transfer).map((order, index) => <div key={index}>{order['Is PGI'] || '-'}</div>)}</td>
+                        <td className="px-4 py-2 text-sm text-gray-600">{getDealerOrderRows(transfer).map((order, index) => <div key={index}>{order['Warehouse Name'] || '-'}</div>)}</td>
                       </tr>
                       {expanded && (
                         <tr>
-                          <td colSpan={9} className="bg-slate-50 px-4 py-4">
+                          <td colSpan={10} className="bg-slate-50 px-4 py-4">
                             <div className="mb-3 text-sm font-semibold text-slate-950">Completed task timeline</div>
                             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                               {workflowSteps.map((step) => {
