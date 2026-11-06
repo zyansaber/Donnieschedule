@@ -47,13 +47,29 @@ const getStockTransferCategory = (currentLocation, targetLocation) => (
     : 'External stock transfer'
 );
 
-const getTransferRowHighlight = (transfer) => {
-  const targetLocation = transfer?.targetLocation;
-  const companyStockLocation = transfer?.['Company Stock Current Location'];
-
-  return Boolean(normalizeStockLocation(targetLocation))
-    && normalizeStockLocation(companyStockLocation) !== normalizeStockLocation(targetLocation);
+const getLatestDealerPGIWarehouse = (transfer) => {
+  // The sync writes the latest valid PGI to this flat field.
+  if (Object.prototype.hasOwnProperty.call(transfer || {}, 'Dealer PGI Warehouse Name')) {
+    return normalizeStockLocation(transfer['Dealer PGI Warehouse Name']);
+  }
+  // Older records may only contain the order list, stored newest PGI first.
+  const latest = getDealerOrderRows(transfer).find((order) => normalizeValue(order?.['Is PGI']) === 'yes');
+  return normalizeStockLocation(latest?.['Warehouse Name']);
 };
+
+const isTransferFinished = (transfer) => {
+  const target = normalizeStockLocation(transfer?.targetLocation);
+  if (!target) return false;
+
+  const matchesCurrentStock = target === normalizeStockLocation(transfer?.['Company Stock Current Location']);
+  const matchesLatestPGI = target === getLatestDealerPGIWarehouse(transfer);
+  const externalTargetLeftCompany = !isRequiredStockLocation(target)
+    && normalizeValue(transfer?.['Company Stock Current Location']) === 'not in company warehouse';
+
+  return matchesCurrentStock || matchesLatestPGI || externalTargetLeftCompany;
+};
+
+const getTransferRowHighlight = (transfer) => !isTransferFinished(transfer);
 
 const getStockLocationCellClass = (transfer) => (
   getTransferRowHighlight(transfer)
@@ -800,7 +816,7 @@ const StockTransfer = ({ data = [], showEmailSettings = false }) => {
 
                   return (
                     <React.Fragment key={transfer.id}>
-                      <tr className={getTransferRowHighlight(transfer) ? 'bg-rose-50 text-rose-950' : 'hover:bg-slate-50/70'}>
+                      <tr className={getTransferRowHighlight(transfer) ? 'bg-rose-50 text-rose-950' : 'bg-white'}>
                         <td className="px-4 py-2 text-sm">
                           <div className="font-semibold text-gray-900">{transfer.chassis || '-'}</div>
                           <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -982,7 +998,7 @@ const StockTransfer = ({ data = [], showEmailSettings = false }) => {
 
                   return (
                     <React.Fragment key={transfer.id}>
-                      <tr className="hover:bg-slate-50/70">
+                      <tr className={getTransferRowHighlight(transfer) ? 'bg-rose-50 text-rose-950' : 'bg-white'}>
                         <td className="px-4 py-2 text-sm">
                           <div className="font-semibold text-gray-900">{transfer.chassis || '-'}</div>
                           <div className="mt-2 flex flex-wrap items-center gap-2">
