@@ -1085,97 +1085,208 @@ def fetch_dealer_sales_orders(chassis_list: List[str]):
     rejected = candidates[candidates["Rejection Reason"].ne("")].copy()
     return eligible, rejected
 
-def fetch_pgi_for_dealer_orders(eligible):
-    """Resolve PGI through the dealer SO's actual outbound delivery/document flow.
+def confirmed_pgi_normalize(value):
+    return str(value or '').strip().zfill(10)
 
-    KDAUF/KDPOS alone is not used as proof of this sales order's dispatch.
-    Dealer names come only from the issuing material document WERKS/LGORT map.
-    """
-    fields = ["Sales Order SAP", "Sales Order Item", "PGI Plant", "PGI Storage Location",
-              "PGI Post Date", "PGI Entry Date", "PGI Entry Time", "PGI Document", "PGI Year", "PGI Item"]
-    frames = []
-    for batch in chunk_list(eligible["Sales Order SAP"].drop_duplicates().tolist()):
-        so_sql = sql_quote_list(batch)
-        sql = f"""
-        WITH deliveries AS (
-            SELECT DISTINCT delivery."VGBEL" AS "Sales Order SAP", delivery."VGPOS" AS "Sales Order Item",
-                delivery."VBELN" AS "Delivery", delivery."POSNR" AS "Delivery Item"
-            FROM "SAPHANADB"."LIPS" delivery
-            WHERE delivery."MANDT" = '{MANDT}' AND delivery."VGBEL" IN ({so_sql})
-            UNION
-            SELECT DISTINCT flow."VBELV", flow."POSNV", flow."VBELN", flow."POSNN"
-            FROM "SAPHANADB"."VBFA" flow
-            WHERE flow."MANDT" = '{MANDT}' AND flow."VBELV" IN ({so_sql})
-              AND flow."VBTYP_N" = 'J'
-        ), linked AS (
-            SELECT DISTINCT delivery."Sales Order SAP", delivery."Sales Order Item",
-                movement."MBLNR", movement."MJAHR", movement."ZEILE"
-            FROM deliveries delivery
-            INNER JOIN "SAPHANADB"."NSDM_V_MSEG" movement
-                ON movement."MANDT" = '{MANDT}'
-               AND movement."VBELN_IM" = delivery."Delivery"
-               AND movement."VBELP_IM" = delivery."Delivery Item"
-            WHERE movement."BWART" = '601' AND movement."SHKZG" = 'H'
-            UNION
-            SELECT DISTINCT delivery."Sales Order SAP", delivery."Sales Order Item",
-                movement."MBLNR", movement."MJAHR", movement."ZEILE"
-            FROM deliveries delivery
-            INNER JOIN "SAPHANADB"."VBFA" flow
-                ON flow."MANDT" = '{MANDT}' AND flow."VBELV" = delivery."Delivery"
-               AND flow."POSNV" = delivery."Delivery Item" AND flow."VBTYP_N" = 'R'
-            INNER JOIN "SAPHANADB"."NSDM_V_MSEG" movement
-                ON movement."MANDT" = flow."MANDT" AND movement."MBLNR" = flow."VBELN"
-               AND movement."MJAHR" = flow."MJAHR"
-               AND CAST(movement."ZEILE" AS INTEGER) = CAST(flow."POSNN" AS INTEGER)
-            WHERE movement."BWART" = '601' AND movement."SHKZG" = 'H'
-        ), ranked AS (
-            SELECT linked."Sales Order SAP", linked."Sales Order Item",
-                pgi."WERKS" AS "PGI Plant", pgi."LGORT" AS "PGI Storage Location",
-                pgi."BUDAT_MKPF" AS "PGI Post Date", header."CPUDT" AS "PGI Entry Date",
-                header."CPUTM" AS "PGI Entry Time", pgi."MBLNR" AS "PGI Document",
-                pgi."MJAHR" AS "PGI Year", pgi."ZEILE" AS "PGI Item",
-                ROW_NUMBER() OVER (
-                    PARTITION BY linked."Sales Order SAP", linked."Sales Order Item"
-                    ORDER BY COALESCE(NULLIF(header."CPUDT", '00000000'), pgi."BUDAT_MKPF") DESC,
-                        header."CPUTM" DESC, pgi."BUDAT_MKPF" DESC,
-                        pgi."MJAHR" DESC, pgi."MBLNR" DESC, pgi."ZEILE" DESC
-                ) AS rn
-            FROM linked
-            INNER JOIN "SAPHANADB"."NSDM_V_MSEG" pgi
-                ON pgi."MANDT" = '{MANDT}' AND pgi."MBLNR" = linked."MBLNR"
-               AND pgi."MJAHR" = linked."MJAHR" AND pgi."ZEILE" = linked."ZEILE"
-            INNER JOIN "SAPHANADB"."MKPF" header
-                ON header."MANDT" = pgi."MANDT" AND header."MBLNR" = pgi."MBLNR"
-               AND header."MJAHR" = pgi."MJAHR"
-            WHERE NOT EXISTS (
-                SELECT 1 FROM "SAPHANADB"."NSDM_V_MSEG" reversal
-                WHERE reversal."MANDT" = pgi."MANDT" AND reversal."BWART" = '602'
-                  AND reversal."SHKZG" = 'S' AND reversal."SMBLN" = pgi."MBLNR"
-                  AND reversal."SJAHR" = pgi."MJAHR" AND reversal."SMBLP" = pgi."ZEILE"
-            )
-        )
-        SELECT "Sales Order SAP", "Sales Order Item", "PGI Plant", "PGI Storage Location",
-            "PGI Post Date", "PGI Entry Date", "PGI Entry Time", "PGI Document", "PGI Year", "PGI Item"
-        FROM ranked WHERE rn = 1
-        """
-        frame = hana_query(sql)
-        if not frame.empty:
-            frames.append(frame)
-    pgi = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=fields)
-    for field in fields:
-        pgi[field] = pgi[field].fillna("").astype(str).str.strip()
-    detail = eligible.merge(pgi, on=["Sales Order SAP", "Sales Order Item"], how="left", validate="many_to_one")
-    for field in fields:
-        detail[field] = detail[field].fillna("")
-    detail["Dealer Is PGI"] = detail["PGI Document"].ne("").map({True: "Yes", False: "No"})
-    detail["Dealer PGI Warehouse Name"] = detail.apply(
-        lambda row: WAREHOUSE_MAP.get((row["PGI Plant"], row["PGI Storage Location"]), "")
-        if row["Dealer Is PGI"] == "Yes" else "", axis=1)
-    missing = detail["Dealer Is PGI"].eq("Yes") & detail["Dealer PGI Warehouse Name"].eq("")
-    for _, row in detail.loc[missing].iterrows():
-        logger.warning("PGI exists but warehouse mapping missing: SO=%s item=%s plant=%s storage=%s",
-                       row["Sales Order SAP"], row["Sales Order Item"], row["PGI Plant"], row["PGI Storage Location"])
-    return detail
+def confirmed_pgi_placeholders(values):
+    return ','.join('?' for _ in values)
+
+def confirmed_pgi_fetch(conn, sql, params=()):
+    cur = conn.cursor()
+    try:
+        cur.execute(sql, tuple(params))
+        cols = [x[0] for x in cur.description]
+        return [dict(zip(cols, row)) for row in cur.fetchall()]
+    finally:
+        cur.close()
+
+def fetch_confirmed_order_pgi(order_input):
+    SCHEMA = "SAPHANADB"
+    orders = list(dict.fromkeys(confirmed_pgi_normalize(value) for value in order_input))
+    conn = pyodbc.connect(DSN, timeout=20)
+    warnings = []
+    try:
+        def q(sql, args=()):
+            return confirmed_pgi_fetch(conn, sql, args)
+        def columns(table):
+            rows = q('SELECT COLUMN_NAME FROM SYS.TABLE_COLUMNS '
+                     'WHERE SCHEMA_NAME=? AND TABLE_NAME=?', [SCHEMA, table])
+            rows += q('SELECT COLUMN_NAME FROM SYS.VIEW_COLUMNS '
+                      'WHERE SCHEMA_NAME=? AND VIEW_NAME=?', [SCHEMA, table])
+            return {r['COLUMN_NAME'] for r in rows}
+        def table(name):
+            return f'"{SCHEMA}"."{name}"'
+        headers = q(f'SELECT "VBELN","VKORG","VKGRP","AUART","ERDAT","KUNNR" '
+                    f'FROM {table("VBAK")} WHERE "MANDT"=? '
+                    f'AND "VBELN" IN ({confirmed_pgi_placeholders(orders)})', [MANDT]+orders)
+        header_map = {r['VBELN']: r for r in headers}
+        items = q(f'SELECT "VBELN","POSNR","MATNR","ARKTX","ABGRU" '
+                  f'FROM {table("VBAP")} WHERE "MANDT"=? '
+                  f'AND "VBELN" IN ({confirmed_pgi_placeholders(orders)})', [MANDT]+orders)
+        # Do not restrict sales organization, item 10, division, date, plant or storage.
+        deliveries = q(f'SELECT "VBELN","POSNR","VGBEL","VGPOS","MATNR","WERKS","LGORT" '
+                       f'FROM {table("LIPS")} WHERE "MANDT"=? '
+                       f'AND "VGBEL" IN ({confirmed_pgi_placeholders(orders)})', [MANDT]+orders)
+        flow_deliveries = q(f'SELECT "VBELV","POSNV","VBELN","POSNN" '
+                            f'FROM {table("VBFA")} WHERE "MANDT"=? AND "VBTYP_N"=\'J\' '
+                            f'AND "VBELV" IN ({confirmed_pgi_placeholders(orders)})', [MANDT]+orders)
+        delivery_links = {}
+        def add_link(delivery, item, so, soitem, route):
+            delivery_links.setdefault((str(delivery), str(item)), set()).add((so, soitem, route))
+        for r in deliveries:
+            add_link(r['VBELN'], r['POSNR'], r['VGBEL'], r['VGPOS'], 'LIPS reference')
+        for r in flow_deliveries:
+            add_link(r['VBELN'], r['POSNN'], r['VBELV'], r['POSNV'], 'VBFA delivery flow')
+        delivery_ids = sorted({k[0] for k in delivery_links})
+        mc = columns('NSDM_V_MSEG')
+        required = {'MANDT','MBLNR','MJAHR','ZEILE','BWART','KDAUF','KDPOS',
+                    'MATNR','WERKS','LGORT','MENGE','MEINS','SHKZG','BUDAT_MKPF'}
+        if not required <= mc:
+            raise RuntimeError('Missing MSEG columns: '+ ', '.join(sorted(required-mc)))
+        optional = ['VBELN_IM','VBELP_IM','SMBLN','SJAHR','SMBLP','CPUDT_MKPF','CPUTM_MKPF']
+        fields = sorted(required) + [c for c in optional if c in mc]
+        select = ','.join('m."'+c+'"' for c in fields)
+        def movements(condition, args):
+            return q(f'SELECT {select} FROM {table("NSDM_V_MSEG")} m '
+                     f'WHERE m."MANDT"=? AND m."BWART" IN (\'601\',\'602\') AND ({condition})', [MANDT]+list(args))
+        records = {}
+        links = {}
+        def key(r):
+            return tuple(str(r[c]) for c in ['MBLNR','MJAHR','ZEILE'])
+        def keep(r, associations=()):
+            k=key(r); records[k]=r; links.setdefault(k,set()).update(associations)
+        for r in movements(f'm."KDAUF" IN ({confirmed_pgi_placeholders(orders)})', orders):
+            keep(r, [(r['KDAUF'], r['KDPOS'], 'MSEG sales order')])
+        if delivery_ids and {'VBELN_IM','VBELP_IM'} <= mc:
+            for r in movements(f'm."VBELN_IM" IN ({confirmed_pgi_placeholders(delivery_ids)})', delivery_ids):
+                keep(r, delivery_links.get((str(r['VBELN_IM']), str(r['VBELP_IM'])), set()))
+        elif delivery_ids:
+            warnings.append('MSEG delivery reference columns unavailable; used document flow instead.')
+        # Delivery -> material document flow also finds movements with empty KDAUF.
+        if delivery_ids:
+            fc = columns('VBFA')
+            if 'MJAHR' in fc:
+                flow = q(f'SELECT "VBELV","POSNV","VBELN","POSNN","MJAHR" '
+                         f'FROM {table("VBFA")} WHERE "MANDT"=? AND "VBTYP_N"=\'R\' '
+                         f'AND "VBELV" IN ({confirmed_pgi_placeholders(delivery_ids)})', [MANDT]+delivery_ids)
+                docids = sorted({r['VBELN'] for r in flow})
+                flowmap={}
+                for r in flow:
+                    fk=(str(r['VBELN']),str(r['MJAHR']),str(r['POSNN']).zfill(4))
+                    flowmap.setdefault(fk,set()).update(delivery_links.get((str(r['VBELV']),str(r['POSNV'])),set()))
+                if docids:
+                    for r in movements(f'm."MBLNR" IN ({confirmed_pgi_placeholders(docids)})', docids):
+                        ass=flowmap.get(key(r),set())
+                        if ass: keep(r,[(so,it,'VBFA material document flow') for so,it,_ in ass])
+            else:
+                warnings.append('VBFA.MJAHR unavailable: material document flow fallback skipped to avoid cross-year false matches.')
+        # Find linked reversals globally, even if the reversal omits SO/delivery fields.
+        reversals_supported = {'SMBLN','SJAHR','SMBLP'} <= mc
+        if reversals_supported:
+            initial=list(records.values())
+            original_docs=sorted({r['MBLNR'] for r in initial if r['BWART']=='601'})
+            if original_docs:
+                for r in movements(f'm."SMBLN" IN ({confirmed_pgi_placeholders(original_docs)})', original_docs):
+                    ref=tuple(str(r[c]) for c in ['SMBLN','SJAHR','SMBLP'])
+                    if ref in records: keep(r, links.get(ref,set()))
+            missing_originals=sorted({r['SMBLN'] for r in list(records.values())
+                                      if r['BWART']=='602' and str(r.get('SMBLN','')).strip(' 0')})
+            if missing_originals:
+                originals=movements(f'm."MBLNR" IN ({confirmed_pgi_placeholders(missing_originals)})',missing_originals)
+                for r in originals:
+                    ass=set()
+                    for rev in list(records.values()):
+                        if tuple(str(rev.get(c,'')) for c in ['SMBLN','SJAHR','SMBLP'])==key(r):
+                            ass.update(links.get(key(rev),set()))
+                    if ass: keep(r,ass)
+        else:
+            warnings.append('Reversal reference fields unavailable: PGI status requires manual review.')
+        reversed_by={}
+        for k,r in records.items():
+            if r['BWART']=='602':
+                ref=tuple(str(r.get(c,'')) for c in ['SMBLN','SJAHR','SMBLP'])
+                reversed_by.setdefault(ref,[]).append(k)
+        detail=[]
+        for k,r in records.items():
+            for so,it,route in sorted(links.get(k,set())):
+                row={'Sales Order':so.lstrip('0'),'Sales Order SAP':so,'SO Item':it,
+                     'Sales Organization':header_map.get(so,{}).get('VKORG',''),
+                     'Match Route':route,**r}
+                row['PGI Record State']=('Reversed' if k in reversed_by else
+                                        ('Valid PGI' if reversals_supported else 'Review reversal status')) if r['BWART']=='601' else 'Reversal'
+                row['Reversed By']='; '.join('/'.join(x) for x in reversed_by.get(k,[]))
+                row['Signed Quantity']=float(r['MENGE'] or 0)*(1 if r['SHKZG']=='H' else -1)
+                detail.append(row)
+        # One movement can have multiple evidence paths; count only once per SO.
+        unique={}
+        for row in detail:
+            k=(row['Sales Order SAP'],row['MBLNR'],row['MJAHR'],row['ZEILE'])
+            if k not in unique: unique[k]=dict(row)
+            else:
+                unique[k]['Match Route']+='; '+row['Match Route']
+        detail=list(unique.values())
+        summary=[]
+        for so in orders:
+            rr=[r for r in detail if r['Sales Order SAP']==so]
+            pgi=[r for r in rr if r['BWART']=='601']
+            rev=[r for r in rr if r['BWART']=='602']
+            valid=[r for r in pgi if r['PGI Record State']=='Valid PGI']
+            unresolved=[r for r in rev if tuple(str(r.get(c,'')) for c in ['SMBLN','SJAHR','SMBLP']) not in records]
+            status='Valid PGI' if valid else ('All PGI reversed' if pgi else 'No PGI found via checked paths')
+            if unresolved or (pgi and not reversals_supported): status='Manual review required'
+            if so not in header_map: status='Sales order not found in client '+MANDT
+            summary.append({'Sales Order':so.lstrip('0'),'Sales Order SAP':so,
+                'Input Occurrences':sum(confirmed_pgi_normalize(v)==so for v in order_input),
+                'Sales Organization':header_map.get(so,{}).get('VKORG',''),
+                'Sales Group':header_map.get(so,{}).get('VKGRP',''),
+                'Status':status,'601 Records':len(pgi),'602 Records':len(rev),
+                'Valid PGI Records':len(valid),
+                'Latest Valid PGI':max((str(r['BUDAT_MKPF']) for r in valid),default=''),
+                'Valid PGI Plants':'; '.join(sorted({str(r['WERKS']) for r in valid})),
+                'Valid PGI Storage Locations':'; '.join(sorted({str(r['LGORT']) for r in valid}))})
+    finally:
+        conn.close()
+    return pd.DataFrame(summary), pd.DataFrame(detail), warnings
+
+def fetch_pgi_for_dealer_orders(eligible):
+    """Use the user's confirmed sales_order_pgi_check algorithm without extra filters."""
+    eligible = eligible.copy()
+    eligible["Sales Order SAP"] = eligible["Sales Order Number"].map(confirmed_pgi_normalize)
+    evidence_fields = ["PGI Plant", "PGI Storage Location", "PGI Post Date", "PGI Entry Date",
+                       "PGI Entry Time", "PGI Document", "PGI Year", "PGI Item"]
+    records = []
+    for batch in chunk_list(eligible["Sales Order SAP"].drop_duplicates().tolist(), size=100):
+        summary, detail, warnings = fetch_confirmed_order_pgi(batch)
+        for warning in warnings:
+            logger.warning("Confirmed PGI query: %s", warning)
+        for _, order in summary.iterrows():
+            so = order["Sales Order SAP"]
+            status = order["Status"]
+            row = {field: "" for field in evidence_fields}
+            row["Sales Order SAP"] = so
+            row["Dealer Is PGI"] = ("Yes" if status == "Valid PGI" else
+                                      "No" if status == "All PGI reversed" else
+                                      "No PGI found" if status == "No PGI found via checked paths" else
+                                      "Review" if status == "Manual review required" else "Order not found")
+            row["Dealer PGI Warehouse Name"] = ""
+            if not detail.empty:
+                valid = detail.loc[detail["Sales Order SAP"].eq(so) & detail["PGI Record State"].eq("Valid PGI")]
+                if not valid.empty:
+                    valid = valid.copy()
+                    for field in ["BUDAT_MKPF", "CPUDT_MKPF", "CPUTM_MKPF", "MJAHR", "MBLNR", "ZEILE"]:
+                        if field not in valid: valid[field] = ""
+                        valid[field] = valid[field].fillna("").astype(str)
+                    event = valid.sort_values(["BUDAT_MKPF", "CPUDT_MKPF", "CPUTM_MKPF", "MJAHR", "MBLNR", "ZEILE"], ascending=False).iloc[0]
+                    for target, source in [("PGI Plant", "WERKS"), ("PGI Storage Location", "LGORT"),
+                                           ("PGI Post Date", "BUDAT_MKPF"), ("PGI Entry Date", "CPUDT_MKPF"),
+                                           ("PGI Entry Time", "CPUTM_MKPF"), ("PGI Document", "MBLNR"),
+                                           ("PGI Year", "MJAHR"), ("PGI Item", "ZEILE")]:
+                        row[target] = str(event.get(source, "") or "").strip()
+                    row["Dealer PGI Warehouse Name"] = WAREHOUSE_MAP.get(
+                        (row["PGI Plant"], row["PGI Storage Location"]), "")
+            records.append(row)
+    pgi = pd.DataFrame(records, columns=["Sales Order SAP", "Dealer Is PGI", "Dealer PGI Warehouse Name"] + evidence_fields)
+    return eligible.merge(pgi, on="Sales Order SAP", how="left", validate="many_to_one")
 
 def fetch_dealer_last_pgi(chassis_list):
     eligible, rejected = fetch_dealer_sales_orders(chassis_list)
