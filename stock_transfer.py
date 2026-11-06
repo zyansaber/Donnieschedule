@@ -10,11 +10,11 @@ Regent RV - Firebase stock_transfer -> SAP validation report
    - 优先按 601 未被 602 反冲的方式判断；
    - 如果系统字段不支持，回退到 601 - 602 净数量逻辑。
 5. 对已 PGI 的 Sales Order 查询最后有效发票，并获取 Invoice-to BP 和名称。
-6. 查询最后 Invoice-to BP 的客户主数据最后变更人员（CDHDR，OBJECTCLAS='DEBI'）。
+6. 查询 3110 销售订单开票伙伴 RE 的实际变更日志（VERKBELEG/VBPA）。
 7. 查询公司仓库库存位置：
    - 3211: Perth 0001/0002, Traralgon 0003/0004,
            Launceston 0005/0006, Geelong 0007/0008
-   - 3411: Frankston 0002
+   - 3411: Frankston 0002/0099
 8. 输出 Excel。
 
 依赖：
@@ -60,12 +60,9 @@ FIREBASE_EMAIL_JOBS_NODE = "email_jobs"
 # ============================================================
 # SAP HANA
 # ============================================================
-DSN = (
-    "DRIVER={HDBODBC};"
-    "SERVERNODE=10.11.2.25:30241;"
-    "UID=BAOJIANFENG;"
-    "PWD=Xja@2025ABC;"
-)
+# Configure the complete HANA ODBC connection string on the sync computer.
+# Example: DRIVER={HDBODBC};SERVERNODE=<host>:<port>;UID=<user>;PWD=<password>;
+DSN = os.environ.get("SAP_HANA_DSN", "").strip()
 
 MANDT = "800"
 SALES_ORG = "3110"
@@ -97,7 +94,29 @@ WAREHOUSE_MAP: Dict[Tuple[str, str], str] = {
     ("3211", "0007"): "Geelong",
     ("3211", "0008"): "Geelong",
     ("3411", "0002"): "Frankston",
+    ("3411", "0099"): "Frankston",
 }
+
+DEALER_PGI_PLANTS = ("3211", "3411")
+DEALER_PGI_SUFFIXES = [
+    "Post Date", "Entry Date", "Entry Time", "Plant", "Storage Location",
+    "Warehouse", "Material Document", "Material Document Year",
+    "Material Document Item", "Match Source",
+]
+DEALER_PGI_COLUMNS = [
+    f"{prefix} {suffix}"
+    for prefix in ["Dealer Last PGI", "3211 Last PGI", "3411 Last PGI"]
+    for suffix in DEALER_PGI_SUFFIXES
+]
+INVOICE_BP_CHANGE_COLUMNS = [
+    "SO Invoice-to BP", "SO Invoice-to Name", "SO Invoice-to Item",
+    "Invoice BP Last Changed By", "Invoice BP Last Change Date",
+    "Invoice BP Last Change Time", "Invoice BP Last Change TCode",
+    "Invoice BP Change Source", "Invoice BP Change Status",
+    "Invoice BP Change Number", "Invoice BP Change Item",
+    "Invoice BP Change Field", "Invoice BP Change Type",
+    "Invoice BP Change Old Value", "Invoice BP Change New Value",
+]
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_FILE = os.path.join(
@@ -198,6 +217,8 @@ def assert_sap_read_only_sql(sql: str) -> None:
 
 def hana_query(sql: str) -> pd.DataFrame:
     assert_sap_read_only_sql(sql)
+    if not DSN:
+        raise RuntimeError("Set SAP_HANA_DSN to your HANA ODBC connection string before syncing.")
     with pyodbc.connect(DSN) as connection:
         return pd.read_sql(sql, connection)
 
@@ -219,8 +240,30 @@ def normalize_sap_text_columns(df: pd.DataFrame, columns: List[str]) -> pd.DataF
 
 
 def format_sap_date_series(series: pd.Series) -> pd.Series:
-    converted = pd.to_datetime(series, errors="coerce")
-    return converted.dt.strftime("%Y-%m-%d").fillna("")
+    # Convert numeric/string DATS explicitly: integer 20261106 is not nanoseconds.
+    text = series.fillna("").astype(str).str.strip().str.replace(r"\.0$", "", regex=True)
+    dates = pd.Series("", index=series.index, dtype=str)
+    dats = text.str.fullmatch(r"\d{8}")
+    dates.loc[dats] = pd.to_datetime(
+        text.loc[dats], format="%Y%m%d", errors="coerce"
+    ).dt.strftime("%Y-%m-%d").fillna("")
+    dates.loc[~dats] = pd.to_datetime(
+        text.loc[~dats], errors="coerce"
+    ).dt.strftime("%Y-%m-%d").fillna("")
+    return dates
+
+
+def format_sap_time(value) -> str:
+    if value is None or pd.isna(value):
+        return ""
+    text = re.sub(r"\.0$", "", str(value).strip())
+    if re.fullmatch(r"\d{1,6}", text):
+        text = text.zfill(6)
+        text = f"{text[:2]}:{text[2:4]}:{text[4:]}"
+    try:
+        return datetime.strptime(text, "%H:%M:%S").strftime("%H:%M:%S")
+    except ValueError:
+        return ""
 
 
 def utc_now() -> datetime:
@@ -768,9 +811,9 @@ def fetch_last_valid_invoice(sales_orders: List[str]) -> pd.DataFrame:
                 vbrk."VBELN" AS "Invoice Number",
                 vbrk."FKDAT" AS "Invoice Date",
                 COALESCE(
+                    NULLIF(vbpa_item_re."KUNNR", ''),
                     NULLIF(vbpa_re."KUNNR", ''),
-                    NULLIF(vbpa_rg."KUNNR", ''),
-                    NULLIF(vbrk."KUNRG", '')
+                    ''
                 ) AS "Invoice-to BP",
                 ROW_NUMBER() OVER (
                     PARTITION BY vbrp."AUBEL"
@@ -789,15 +832,18 @@ def fetch_last_valid_invoice(sales_orders: List[str]) -> pd.DataFrame:
                AND vbpa_re."VBELN" = vbrk."VBELN"
                AND vbpa_re."POSNR" = '000000'
                AND vbpa_re."PARVW" = 'RE'
-            LEFT JOIN "SAPHANADB"."VBPA" vbpa_rg
-                ON vbpa_rg."MANDT" = vbrk."MANDT"
-               AND vbpa_rg."VBELN" = vbrk."VBELN"
-               AND vbpa_rg."POSNR" = '000000'
-               AND vbpa_rg."PARVW" = 'RG'
+            LEFT JOIN "SAPHANADB"."VBPA" vbpa_item_re
+                ON vbpa_item_re."MANDT" = vbrp."MANDT"
+               AND vbpa_item_re."VBELN" = vbrp."VBELN"
+               AND vbpa_item_re."POSNR" = vbrp."POSNR"
+               AND vbpa_item_re."PARVW" = 'RE'
             WHERE vbrp."MANDT" = '{MANDT}'
               AND vbrp."AUBEL" IN ({so_sql})
               AND COALESCE(vbrp."AUPOS", '{SALES_ORDER_ITEM}') = '{SALES_ORDER_ITEM}'
               AND COALESCE(vbrk."FKSTO", '') <> 'X'
+              AND COALESCE(vbrk."SFAKN", '') = ''
+              AND vbrk."VBTYP" IN ('M', 'P')
+              AND vbrk."VKORG" = '{SALES_ORG}'
         )
         SELECT
             source."Sales Order SAP",
@@ -839,49 +885,121 @@ def fetch_last_valid_invoice(sales_orders: List[str]) -> pd.DataFrame:
 # ============================================================
 # Last customer master change user for Invoice-to BP
 # ============================================================
-def fetch_invoice_bp_last_change(invoice_bps: List[str]) -> pd.DataFrame:
-    columns = [
-        "Invoice-to BP",
-        "Invoice BP Last Changed By",
-        "Invoice BP Last Change Date",
-        "Invoice BP Last Change Time",
-        "Invoice BP Last Change TCode",
-    ]
-    if not invoice_bps:
+def fetch_invoice_bp_last_change(sales_orders: List[str]) -> pd.DataFrame:
+    """Attribute only the selected SO's effective RE partner changes.
+
+    CDHDR/DEBI describes customer master maintenance, not a bill-to change on
+    this chassis. Join VERKBELEG to CDPOS/VBPA and inspect the actual role,
+    item and changed field. RG (payer) is never substituted for RE (bill-to).
+    KEY insert/delete events have no reliable BP values; label them explicitly.
+    All dates/times remain in SAP system local time (no guessed UTC offset).
+    """
+    columns = ["Sales Order SAP"] + INVOICE_BP_CHANGE_COLUMNS
+    if not sales_orders:
         return pd.DataFrame(columns=columns)
 
     frames = []
-    for batch in chunk_list(invoice_bps):
-        padded = [clean_text(value).zfill(10) for value in batch]
-        bp_sql = sql_quote_list(padded)
+    for batch in chunk_list(sales_orders):
+        so_sql = sql_quote_list([clean_text(value).zfill(10) for value in batch])
         sql = f"""
-        WITH ranked_change AS (
+        WITH current_partner AS (
             SELECT
-                cdhdr."OBJECTID" AS "Invoice-to BP",
+                vbak."VBELN" AS "Sales Order SAP",
+                CASE WHEN item_re."VBELN" IS NOT NULL
+                     THEN COALESCE(item_re."KUNNR", '')
+                     ELSE COALESCE(header_re."KUNNR", '') END AS "SO Invoice-to BP",
+                CASE WHEN item_re."VBELN" IS NOT NULL
+                     THEN '{SALES_ORDER_ITEM}' ELSE '000000' END AS "SO Invoice-to Item"
+            FROM "SAPHANADB"."VBAK" vbak
+            LEFT JOIN "SAPHANADB"."VBPA" item_re
+                ON item_re."MANDT" = vbak."MANDT"
+               AND item_re."VBELN" = vbak."VBELN"
+               AND item_re."POSNR" = '{SALES_ORDER_ITEM}'
+               AND item_re."PARVW" = 'RE'
+            LEFT JOIN "SAPHANADB"."VBPA" header_re
+                ON header_re."MANDT" = vbak."MANDT"
+               AND header_re."VBELN" = vbak."VBELN"
+               AND header_re."POSNR" = '000000'
+               AND header_re."PARVW" = 'RE'
+            WHERE vbak."MANDT" = '{MANDT}'
+              AND vbak."VKORG" = '{SALES_ORG}'
+              AND vbak."VBELN" IN ({so_sql})
+        ), ranked_change AS (
+            SELECT
+                current_partner."Sales Order SAP",
                 cdhdr."USERNAME" AS "Invoice BP Last Changed By",
                 cdhdr."UDATE" AS "Invoice BP Last Change Date",
                 cdhdr."UTIME" AS "Invoice BP Last Change Time",
                 cdhdr."TCODE" AS "Invoice BP Last Change TCode",
+                cdhdr."CHANGENR" AS "Invoice BP Change Number",
+                SUBSTRING(cdpos."TABKEY", 14, 6) AS "Invoice BP Change Item",
+                cdpos."FNAME" AS "Invoice BP Change Field",
+                cdpos."CHNGIND" AS "Invoice BP Change Type",
+                CASE WHEN cdpos."FNAME" = 'KUNNR' THEN cdpos."VALUE_OLD"
+                     ELSE '' END AS "Invoice BP Change Old Value",
+                CASE WHEN cdpos."FNAME" = 'KUNNR' THEN cdpos."VALUE_NEW"
+                     ELSE '' END AS "Invoice BP Change New Value",
                 ROW_NUMBER() OVER (
-                    PARTITION BY cdhdr."OBJECTID"
+                    PARTITION BY current_partner."Sales Order SAP"
                     ORDER BY
                         cdhdr."UDATE" DESC,
                         cdhdr."UTIME" DESC,
-                        cdhdr."CHANGENR" DESC
+                        cdhdr."CHANGENR" DESC,
+                        CASE WHEN cdpos."FNAME" = 'KUNNR' THEN 0 ELSE 1 END,
+                        CASE WHEN cdpos."CHNGIND" = 'I' THEN 0
+                             WHEN cdpos."CHNGIND" = 'U' THEN 1 ELSE 2 END,
+                        cdpos."TABKEY" DESC
                 ) AS rn
-            FROM "SAPHANADB"."CDHDR" cdhdr
-            WHERE cdhdr."MANDANT" = '{MANDT}'
-              AND cdhdr."OBJECTCLAS" = 'DEBI'
-              AND cdhdr."OBJECTID" IN ({bp_sql})
+            FROM current_partner
+            INNER JOIN "SAPHANADB"."CDHDR" cdhdr
+                ON cdhdr."MANDANT" = '{MANDT}'
+               AND cdhdr."OBJECTCLAS" = 'VERKBELEG'
+               AND cdhdr."OBJECTID" = current_partner."Sales Order SAP"
+            INNER JOIN "SAPHANADB"."CDPOS" cdpos
+                ON cdpos."MANDANT" = cdhdr."MANDANT"
+               AND cdpos."OBJECTCLAS" = cdhdr."OBJECTCLAS"
+               AND cdpos."OBJECTID" = cdhdr."OBJECTID"
+               AND cdpos."CHANGENR" = cdhdr."CHANGENR"
+            WHERE cdpos."TABNAME" = 'VBPA'
+              AND SUBSTRING(cdpos."TABKEY", 1, 3) = '{MANDT}'
+              AND SUBSTRING(cdpos."TABKEY", 4, 10) = current_partner."Sales Order SAP"
+              AND SUBSTRING(cdpos."TABKEY", 20, 2) = 'RE'
+              AND (
+                    SUBSTRING(cdpos."TABKEY", 14, 6) = current_partner."SO Invoice-to Item"
+                 OR (current_partner."SO Invoice-to Item" = '000000'
+                     AND SUBSTRING(cdpos."TABKEY", 14, 6) = '{SALES_ORDER_ITEM}'
+                     AND cdpos."CHNGIND" IN ('D', 'E'))
+              )
+              AND (
+                    (cdpos."FNAME" = 'KUNNR'
+                     AND cdpos."CHNGIND" IN ('U', 'I', 'J', 'D', 'E')
+                     AND COALESCE(TRIM(cdpos."VALUE_OLD"), '')
+                         <> COALESCE(TRIM(cdpos."VALUE_NEW"), ''))
+                 OR (cdpos."FNAME" = 'KEY' AND cdpos."CHNGIND" IN ('I', 'D'))
+              )
         )
         SELECT
-            "Invoice-to BP",
-            "Invoice BP Last Changed By",
-            "Invoice BP Last Change Date",
-            "Invoice BP Last Change Time",
-            "Invoice BP Last Change TCode"
-        FROM ranked_change
-        WHERE rn = 1
+            current_partner."Sales Order SAP",
+            current_partner."SO Invoice-to BP",
+            COALESCE(kna1."NAME1", '') AS "SO Invoice-to Name",
+            current_partner."SO Invoice-to Item",
+            ranked."Invoice BP Last Changed By",
+            ranked."Invoice BP Last Change Date",
+            ranked."Invoice BP Last Change Time",
+            ranked."Invoice BP Last Change TCode",
+            ranked."Invoice BP Change Number",
+            ranked."Invoice BP Change Item",
+            ranked."Invoice BP Change Field",
+            ranked."Invoice BP Change Type",
+            ranked."Invoice BP Change Old Value",
+            ranked."Invoice BP Change New Value"
+        FROM current_partner
+        LEFT JOIN ranked_change ranked
+            ON ranked."Sales Order SAP" = current_partner."Sales Order SAP"
+           AND ranked.rn = 1
+        LEFT JOIN "SAPHANADB"."KNA1" kna1
+            ON kna1."MANDT" = '{MANDT}'
+           AND kna1."KUNNR" = current_partner."SO Invoice-to BP"
         """
         frame = hana_query(sql)
         if not frame.empty:
@@ -891,26 +1009,141 @@ def fetch_invoice_bp_last_change(invoice_bps: List[str]) -> pd.DataFrame:
         return pd.DataFrame(columns=columns)
 
     result = pd.concat(frames, ignore_index=True).drop_duplicates(
-        subset=["Invoice-to BP"], keep="first"
+        subset=["Sales Order SAP"], keep="first"
     )
-    result = normalize_sap_text_columns(
-        result,
-        [
-            "Invoice-to BP",
-            "Invoice BP Last Changed By",
-            "Invoice BP Last Change Time",
-            "Invoice BP Last Change TCode",
-        ],
-    )
+    result = normalize_sap_text_columns(ensure_columns(result, columns), columns)
     result["Invoice BP Last Change Date"] = format_sap_date_series(
         result["Invoice BP Last Change Date"]
     )
+    result["Invoice BP Last Change Time"] = result["Invoice BP Last Change Time"].map(format_sap_time)
+    found = result["Invoice BP Change Number"].ne("")
+    result["Invoice BP Change Source"] = ""
+    result.loc[found, "Invoice BP Change Source"] = "3110 SO / VERKBELEG / VBPA / RE"
+    result["Invoice BP Change Status"] = "NO_RE_CHANGE_FOUND"
+    result.loc[found, "Invoice BP Change Status"] = "RE_PARTNER_NUMBER_CHANGED"
+    result.loc[found & result["Invoice BP Change Field"].eq("KEY"), "Invoice BP Change Status"] = (
+        "RE_PARTNER_ROW_CHANGED_VALUES_UNAVAILABLE"
+    )
+    # A logged removal of the item override restores the header RE. Its empty
+    # VALUE_NEW is evidence of removal, not evidence that the effective BP is blank.
+    removed = found & result["Invoice BP Change Type"].isin(["D", "E"])
+    result.loc[removed, "Invoice BP Change Status"] = "RE_PARTNER_REMOVED"
+    changed_to = result["Invoice BP Change New Value"].str.lstrip("0")
+    current_bp = result["SO Invoice-to BP"].str.lstrip("0")
+    mismatch = found & ~removed & result["Invoice BP Change Field"].eq("KUNNR") & changed_to.ne(current_bp)
+    result.loc[mismatch, "Invoice BP Change Status"] = "LOG_VALUE_DIFFERS_FROM_CURRENT_RE_REVIEW"
     return ensure_columns(result, columns)[columns]
 
 
 # ============================================================
 # Current company warehouse stock
 # ============================================================
+def fetch_dealer_last_pgi(chassis_list: List[str]) -> pd.DataFrame:
+    columns = ["Chassis"] + DEALER_PGI_COLUMNS
+    frames = []
+    for batch in chunk_list(chassis_list):
+        chassis_sql = sql_quote_list(batch)
+        plants_sql = sql_quote_list(DEALER_PGI_PLANTS)
+        sql = f"""
+        WITH movement_keys AS (
+            SELECT DISTINCT objk."SERNR" AS "Chassis", ser03."MBLNR",
+                ser03."MJAHR", ser03."ZEILE", 'SER03/OBJK' AS "Match Source"
+            FROM "SAPHANADB"."OBJK" objk
+            INNER JOIN "SAPHANADB"."SER03" ser03
+                ON ser03."MANDT" = objk."MANDT" AND ser03."OBKNR" = objk."OBKNR"
+            WHERE objk."MANDT" = '{MANDT}' AND objk."SERNR" IN ({chassis_sql})
+            UNION ALL
+            SELECT DISTINCT objk."SERNR" AS "Chassis", movement."MBLNR",
+                movement."MJAHR", movement."ZEILE", 'SER01/OBJK' AS "Match Source"
+            FROM "SAPHANADB"."OBJK" objk
+            INNER JOIN "SAPHANADB"."SER01" ser01
+                ON ser01."MANDT" = objk."MANDT" AND ser01."OBKNR" = objk."OBKNR"
+            INNER JOIN "SAPHANADB"."NSDM_V_MSEG" movement
+                ON movement."MANDT" = ser01."MANDT"
+               AND movement."VBELN_IM" = ser01."LIEF_NR"
+               AND movement."VBELP_IM" = ser01."POSNR"
+               AND movement."WERKS" IN ({plants_sql})
+               AND movement."BWART" = '601' AND movement."SHKZG" = 'H'
+            WHERE objk."MANDT" = '{MANDT}' AND objk."SERNR" IN ({chassis_sql})
+        ), valid_pgi AS (
+            SELECT DISTINCT links."Chassis", links."Match Source",
+                pgi."BUDAT_MKPF" AS "Post Date",
+                mkpf."CPUDT" AS "Entry Date", mkpf."CPUTM" AS "Entry Time",
+                pgi."WERKS" AS "Plant", pgi."LGORT" AS "Storage Location",
+                pgi."MBLNR" AS "Material Document", pgi."MJAHR" AS "Material Document Year",
+                pgi."ZEILE" AS "Material Document Item",
+                COALESCE(t001l."LGOBE", '') AS "Storage Description"
+            FROM movement_keys links
+            INNER JOIN "SAPHANADB"."NSDM_V_MSEG" pgi
+                ON pgi."MANDT" = '{MANDT}' AND pgi."MBLNR" = links."MBLNR"
+               AND pgi."MJAHR" = links."MJAHR" AND pgi."ZEILE" = links."ZEILE"
+            INNER JOIN "SAPHANADB"."MKPF" mkpf
+                ON mkpf."MANDT" = pgi."MANDT" AND mkpf."MBLNR" = pgi."MBLNR"
+               AND mkpf."MJAHR" = pgi."MJAHR"
+            LEFT JOIN "SAPHANADB"."T001L" t001l
+                ON t001l."MANDT" = pgi."MANDT" AND t001l."WERKS" = pgi."WERKS"
+               AND t001l."LGORT" = pgi."LGORT"
+            WHERE pgi."WERKS" IN ({plants_sql})
+              AND pgi."BWART" = '601' AND pgi."SHKZG" = 'H'
+              AND NOT EXISTS (
+                  SELECT 1 FROM "SAPHANADB"."NSDM_V_MSEG" reversal
+                  WHERE reversal."MANDT" = pgi."MANDT" AND reversal."BWART" = '602'
+                    AND reversal."SHKZG" = 'S'
+                    AND reversal."SMBLN" = pgi."MBLNR"
+                    AND reversal."SJAHR" = pgi."MJAHR" AND reversal."SMBLP" = pgi."ZEILE"
+              )
+        ), ranked_pgi AS (
+            SELECT "Chassis", "Post Date", "Entry Date", "Entry Time", "Plant",
+                "Storage Location", "Material Document", "Material Document Year",
+                "Material Document Item", "Match Source", "Storage Description",
+                ROW_NUMBER() OVER (
+                PARTITION BY "Chassis", "Plant"
+                ORDER BY COALESCE(NULLIF("Entry Date", '00000000'), "Post Date") DESC,
+                    "Entry Time" DESC, "Post Date" DESC, "Material Document Year" DESC,
+                    "Material Document" DESC, "Material Document Item" DESC, "Match Source" DESC
+            ) AS rn FROM valid_pgi
+        )
+        SELECT "Chassis", "Post Date", "Entry Date", "Entry Time", "Plant",
+            "Storage Location", "Material Document", "Material Document Year",
+            "Material Document Item", "Match Source", "Storage Description"
+        FROM ranked_pgi WHERE rn = 1
+        """
+        frame = hana_query(sql)
+        if not frame.empty:
+            frames.append(frame)
+    if not frames:
+        return pd.DataFrame(columns=columns)
+    detail = pd.concat(frames, ignore_index=True)
+    detail = normalize_sap_text_columns(detail, list(detail.columns))
+    detail["Chassis"] = detail["Chassis"].map(normalize_chassis)
+    for field in ["Post Date", "Entry Date"]:
+        detail[field] = format_sap_date_series(detail[field])
+    detail["Entry Time"] = detail["Entry Time"].map(format_sap_time)
+    detail["Warehouse"] = detail.apply(
+        lambda row: WAREHOUSE_MAP.get(
+            (row["Plant"], row["Storage Location"]),
+            row["Storage Description"] or f'{row["Plant"]}/{row["Storage Location"]}',
+        ), axis=1,
+    )
+    detail["Event Date"] = detail["Entry Date"].where(detail["Entry Date"].ne(""), detail["Post Date"])
+    detail = detail.sort_values(
+        ["Event Date", "Entry Time", "Post Date", "Material Document Year",
+         "Material Document", "Material Document Item", "Match Source"], ascending=False,
+    )
+    rows = []
+    for chassis, group in detail.groupby("Chassis", sort=False):
+        row = {column: "" for column in columns}
+        row["Chassis"] = chassis
+        for prefix, source in [("Dealer Last PGI", group.iloc[0])] + [
+            (f'{event["Plant"]} Last PGI', event)
+            for _, event in group.drop_duplicates("Plant").iterrows()
+        ]:
+            for suffix in DEALER_PGI_SUFFIXES:
+                row[f"{prefix} {suffix}"] = clean_text(source[suffix])
+        rows.append(row)
+    return pd.DataFrame(rows, columns=columns)
+
+
 def fetch_company_stock_locations(chassis_list: List[str]) -> pd.DataFrame:
     columns = [
         "Chassis",
@@ -922,6 +1155,12 @@ def fetch_company_stock_locations(chassis_list: List[str]) -> pd.DataFrame:
         "Stock Material",
     ]
     frames = []
+    # One source of truth for both SQL scope and warehouse display names.
+    warehouse_filter = " OR ".join(
+        f'(nsmka."WERKS" = {sql_quote_list([plant])} '
+        f'AND nsmka."LGORT" = {sql_quote_list([storage])})'
+        for plant, storage in WAREHOUSE_MAP
+    )
 
     for batch in chunk_list(chassis_list):
         chassis_sql = sql_quote_list(batch)
@@ -938,20 +1177,14 @@ def fetch_company_stock_locations(chassis_list: List[str]) -> pd.DataFrame:
             ON ser02."MANDT" = nsmka."MANDT"
            AND ser02."SDAUFNR" = nsmka."VBELN"
            AND ser02."POSNR" = '{SALES_ORDER_ITEM}'
+           AND nsmka."POSNR" = ser02."POSNR"
         INNER JOIN "SAPHANADB"."OBJK" objk
             ON objk."MANDT" = ser02."MANDT"
            AND objk."OBKNR" = ser02."OBKNR"
         WHERE nsmka."MANDT" = '{MANDT}'
           AND objk."SERNR" IN ({chassis_sql})
           AND nsmka."KALAB" > 0
-          AND (
-                (nsmka."WERKS" = '3211'
-                 AND nsmka."LGORT" IN (
-                    '0001','0002','0003','0004',
-                    '0005','0006','0007','0008'
-                 ))
-             OR (nsmka."WERKS" = '3411' AND nsmka."LGORT" = '0002')
-          )
+          AND ({warehouse_filter})
           AND (
                 nsmka."MATNR" LIKE 'Z12%'
              OR nsmka."MATNR" LIKE 'Z19%'
@@ -1052,33 +1285,13 @@ def build_sap_enrichment(firebase_df: pd.DataFrame):
     invoice_df = fetch_last_valid_invoice(sales_orders)
     logger.info("Found last valid invoice rows: %s", len(invoice_df))
 
-    invoice_bps = (
-        invoice_df["Invoice-to BP"]
-        .replace("", pd.NA)
-        .dropna()
-        .drop_duplicates()
-        .tolist()
-        if not invoice_df.empty
-        else []
-    )
+    # Query failures must fail this sync, rather than blanking the attribution
+    # or falling back to an unrelated customer-master maintenance user.
+    bp_change_df = fetch_invoice_bp_last_change(sales_orders)
+    logger.info("Found SO bill-to change/current-partner rows: %s", len(bp_change_df))
 
-    try:
-        bp_change_df = fetch_invoice_bp_last_change(invoice_bps)
-        logger.info("Found Invoice-to BP change log rows: %s", len(bp_change_df))
-    except Exception as error:
-        logger.warning(
-            "Invoice-to BP change log query failed; related columns will be blank: %s",
-            error,
-        )
-        bp_change_df = pd.DataFrame(
-            columns=[
-                "Invoice-to BP",
-                "Invoice BP Last Changed By",
-                "Invoice BP Last Change Date",
-                "Invoice BP Last Change Time",
-                "Invoice BP Last Change TCode",
-            ]
-        )
+    dealer_pgi_df = fetch_dealer_last_pgi(chassis_list)
+    logger.info("Found chassis with valid 3211/3411 PGI: %s", len(dealer_pgi_df))
 
     stock_summary_df = fetch_company_stock_locations(chassis_list)
     logger.info("Found company warehouse stock summary rows: %s", len(stock_summary_df))
@@ -1094,21 +1307,31 @@ def build_sap_enrichment(firebase_df: pd.DataFrame):
         pgi_df,
         how="left",
         on="Sales Order SAP",
+        validate="many_to_one",
     )
     result = result.merge(
         invoice_df,
         how="left",
         on="Sales Order SAP",
+        validate="many_to_one",
     )
     result = result.merge(
         bp_change_df,
         how="left",
-        on="Invoice-to BP",
+        on="Sales Order SAP",
+        validate="many_to_one",
     )
     result = result.merge(
         stock_summary_df,
         how="left",
         on="Chassis",
+        validate="many_to_one",
+    )
+    result = result.merge(
+        dealer_pgi_df,
+        how="left",
+        on="Chassis",
+        validate="many_to_one",
     )
 
     text_columns = [
@@ -1135,6 +1358,7 @@ def build_sap_enrichment(firebase_df: pd.DataFrame):
         "Stock Sales Order",
         "Stock Material",
     ]
+    text_columns = list(dict.fromkeys(text_columns + INVOICE_BP_CHANGE_COLUMNS + DEALER_PGI_COLUMNS))
     result = ensure_columns(result, text_columns)
     for column in text_columns:
         result[column] = result[column].fillna("").astype(str).str.strip()
@@ -1145,11 +1369,10 @@ def build_sap_enrichment(firebase_df: pd.DataFrame):
         "Last Invoice Date",
         "Invoice-to BP",
         "Invoice-to Name",
-        "Invoice BP Last Changed By",
-        "Invoice BP Last Change Date",
-        "Invoice BP Last Change Time",
-        "Invoice BP Last Change TCode",
     ]] = ""
+    # SO partner changes exist independently of whether the vehicle has PGI or
+    # an invoice. Keep them visible even when the invoice section is empty.
+    result.loc[result["Sales Order SAP"].eq(""), "Invoice BP Change Status"] = "NO_3110_SO"
 
     result["Company Stock Current Location"] = result[
         "Company Stock Current Location"
@@ -1193,6 +1416,7 @@ def build_sap_enrichment(firebase_df: pd.DataFrame):
         "Stock Sales Order",
         "Stock Material",
     ]
+    final_columns = list(dict.fromkeys(final_columns + INVOICE_BP_CHANGE_COLUMNS + DEALER_PGI_COLUMNS))
     result = ensure_columns(result, final_columns)[final_columns]
     result = result.sort_values(
         ["Transfer Saved At", "Chassis", "Sales Order SAP"],
@@ -1316,16 +1540,21 @@ def update_stock_transfer_with_sap(result_df: pd.DataFrame) -> None:
         return
 
     fields_to_write = [
+        "Sales Order SAP",
         "Sales Order Display",
         "SO Is PGI",
         "SO PGI Post Date",
         "Last Invoice Number",
         "Last Invoice Date",
         "Invoice-to Name",
+        "Invoice-to BP",
         "Invoice BP Last Changed By",
         "Invoice BP Last Change Date",
         "Company Stock Current Location",
+        "Stock Plant",
+        "Stock Storage Location",
     ]
+    fields_to_write = list(dict.fromkeys(fields_to_write + INVOICE_BP_CHANGE_COLUMNS + DEALER_PGI_COLUMNS))
 
     working = result_df.copy()
     for column in ["Firebase Key", "Sales Order SAP"] + fields_to_write:
@@ -1882,3 +2111,4 @@ if __name__ == "__main__":
     except FirebaseCredentialError as error:
         logger.error("%s", error)
         raise SystemExit(1) from error
+
