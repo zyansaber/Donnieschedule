@@ -104,9 +104,10 @@ DEALER_PGI_SUFFIXES = [
     "Material Document Item", "Match Source",
 ]
 DEALER_PGI_COLUMNS = [
-    f"{prefix} {suffix}"
+    "Dealer PGI Warehouse Name" if suffix == "Warehouse" else f"{prefix} {suffix}"
     for prefix in ["Dealer Last PGI", "3211 Last PGI", "3411 Last PGI"]
     for suffix in DEALER_PGI_SUFFIXES
+    if suffix != "Warehouse" or prefix == "Dealer Last PGI"
 ]
 INVOICE_BP_CHANGE_COLUMNS = [
     "SO Invoice-to BP", "SO Invoice-to Name", "SO Invoice-to Item",
@@ -1139,7 +1140,11 @@ def fetch_dealer_last_pgi(chassis_list: List[str]) -> pd.DataFrame:
             for _, event in group.drop_duplicates("Plant").iterrows()
         ]:
             for suffix in DEALER_PGI_SUFFIXES:
-                row[f"{prefix} {suffix}"] = clean_text(source[suffix])
+                if suffix == "Warehouse":
+                    if prefix == "Dealer Last PGI":
+                        row["Dealer PGI Warehouse Name"] = clean_text(source[suffix])
+                else:
+                    row[f"{prefix} {suffix}"] = clean_text(source[suffix])
         rows.append(row)
     return pd.DataFrame(rows, columns=columns)
 

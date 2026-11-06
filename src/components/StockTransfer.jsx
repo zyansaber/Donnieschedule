@@ -770,8 +770,7 @@ const StockTransfer = ({ data = [], showEmailSettings = false }) => {
                   <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">Category</th>
                   <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">PGI Date</th>
                   <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">Stock Location</th>
-                  <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">3211 Last PGI Warehouse</th>
-                  <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">3411 Last PGI Warehouse</th>
+                  <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">Dealer PGI Warehouse Name</th>
                   <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">Sales Order</th>
                   <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">Invoice To (3110)</th>
                   <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">BP Changed By (3110)</th>
@@ -820,15 +819,14 @@ const StockTransfer = ({ data = [], showEmailSettings = false }) => {
                         <td className="px-4 py-2 text-sm text-gray-600">{transfer['Stock Transfer Category'] || '-'}</td>
                         <td className="px-4 py-2 text-sm text-gray-600">{getSOPGIPostDateDisplay(transfer)}</td>
                         <td className={getStockLocationCellClass(transfer)}>{transfer['Company Stock Current Location'] || '-'}</td>
-                        <td className="px-4 py-2 text-sm text-gray-600">{transfer['3211 Last PGI Warehouse'] || '-'}</td>
-                        <td className="px-4 py-2 text-sm text-gray-600">{transfer['3411 Last PGI Warehouse'] || '-'}</td>
+                        <td className="px-4 py-2 text-sm text-gray-600">{transfer['Dealer PGI Warehouse Name'] || '-'}</td>
                         <td className="px-4 py-2 text-sm text-gray-600">{transfer['Sales Order Display'] || '-'}</td>
                         <td className="px-4 py-2 text-sm text-gray-600">{transfer['Invoice-to Name'] || '-'}</td>
                         <td className="px-4 py-2 text-sm text-gray-600">{transfer['Invoice BP Last Changed By'] || '-'}</td>
                       </tr>
                       {expanded && (
                         <tr>
-                          <td colSpan={13} className="bg-slate-50 px-4 py-4">
+                          <td colSpan={12} className="bg-slate-50 px-4 py-4">
                             <div className="mb-3 flex flex-wrap items-center gap-2 text-sm text-slate-700">
                               <span className="font-semibold text-slate-950">Current task:</span>
                               <span>{firstPendingStep?.label || 'All tasks done'}</span>
@@ -954,8 +952,7 @@ const StockTransfer = ({ data = [], showEmailSettings = false }) => {
                   <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">Category</th>
                   <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">Sales Order</th>
                   <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">Stock Location</th>
-                  <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">3211 Last PGI Warehouse</th>
-                  <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">3411 Last PGI Warehouse</th>
+                  <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">Dealer PGI Warehouse Name</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 bg-white">
@@ -999,12 +996,11 @@ const StockTransfer = ({ data = [], showEmailSettings = false }) => {
                         <td className="px-4 py-2 text-sm text-gray-600">{transfer['Stock Transfer Category'] || '-'}</td>
                         <td className="px-4 py-2 text-sm text-gray-600">{transfer['Sales Order Display'] || '-'}</td>
                         <td className={getStockLocationCellClass(transfer)}>{transfer['Company Stock Current Location'] || '-'}</td>
-                        <td className="px-4 py-2 text-sm text-gray-600">{transfer['3211 Last PGI Warehouse'] || '-'}</td>
-                        <td className="px-4 py-2 text-sm text-gray-600">{transfer['3411 Last PGI Warehouse'] || '-'}</td>
+                        <td className="px-4 py-2 text-sm text-gray-600">{transfer['Dealer PGI Warehouse Name'] || '-'}</td>
                       </tr>
                       {expanded && (
                         <tr>
-                          <td colSpan={9} className="bg-slate-50 px-4 py-4">
+                          <td colSpan={8} className="bg-slate-50 px-4 py-4">
                             <div className="mb-3 text-sm font-semibold text-slate-950">Completed task timeline</div>
                             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                               {workflowSteps.map((step) => {
